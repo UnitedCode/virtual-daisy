@@ -81,6 +81,13 @@ public static class DaisyHost
             activeIl.Append(activeIl.Create(Mono.Cecil.Cil.OpCodes.Ldc_I4_0));
             activeIl.Append(activeIl.Create(Mono.Cecil.Cil.OpCodes.Ceq));
             activeIl.Append(activeIl.Create(Mono.Cecil.Cil.OpCodes.Ret));
+            // RM0433 ADC1/2 have twenty channels (0..19). The pinned H7
+            // constructor incorrectly passes 19 to its channel container.
+            var adc=assembly.MainModule.Types.Single(t=>t.FullName=="Antmicro.Renode.Peripherals.Analog.STM32H7_ADC");
+            var channelCount=adc.Methods.Single(m=>m.IsConstructor).Body.Instructions
+                .Where(i=>i.OpCode==Mono.Cecil.Cil.OpCodes.Ldc_I4_S && Convert.ToInt32(i.Operand)==19).ToArray();
+            if(channelCount.Length!=1) throw new InvalidOperationException("Pinned H7 ADC channel count adapter changed");
+            channelCount[0].Operand=(sbyte)20;
             assembly.Write(output + ".tmp");
             File.Move(output + ".tmp", output, true);
         }
@@ -120,6 +127,7 @@ public static class DaisyHost
         cpu.PC = bus.ReadDoubleWord(0x08000004);
         cpu.PerformanceInMips = 480;
         emulation.MasterTimeSource.Quantum = TimeInterval.FromMicroseconds(1);
+        if(args[5].StartsWith("keyboard")) { DaisyKeyboardHost.Run(emulation,machine,args[3],args[10],args[5]=="keyboard-instant");emulation.Dispose();return; }
         if(args[5]=="architecture" || args[5]=="runtime-fault") { ArchitectureProbes(emulation,machine,args[3],args[5]=="runtime-fault"); emulation.Dispose(); return; }
         if(args[5]=="flash" || args[5]=="flash-wait-fault") {FlashProbes(emulation,machine,args[3],args[5]=="flash-wait-fault");emulation.Dispose();return;}
         if(args[5]=="timing" || args[5]=="dsb-fault" || args[5]=="entry-fault") {TimingProbes(emulation,machine,args[3],args[5]);emulation.Dispose();return;}

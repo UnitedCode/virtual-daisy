@@ -40,6 +40,7 @@ enum RunMode {
     Cpu,
     Settings,
     Capture,
+    Keyboard,
 }
 
 fn checked(command: &mut Command) -> Result<()> {
@@ -224,12 +225,38 @@ impl Host<'_> {
                 .arg(self.directory.join("settings.stimulus"))
                 .env("VIRTUAL_DAISY_AUDIO_STEPS", "300");
         }
+        if fault.starts_with("keyboard") {
+            command.arg(input);
+        }
         bounded_with_limit(
             &mut command,
             &self.directory.join(format!("{label}.host.log")),
-            Duration::from_secs(if fault == "settings" { 600 } else { 180 }),
+            Duration::from_secs(if fault.starts_with("keyboard") {
+                env::var("VIRTUAL_DAISY_WALL_SECONDS")
+                    .unwrap_or_else(|_| "600".into())
+                    .parse()?
+            } else if fault == "settings" {
+                600
+            } else {
+                180
+            }),
         )?;
         grade::execution_evidence(&capture)?;
+        if fault.starts_with("keyboard") {
+            let log = fs::read_to_string(grade::artifact(&capture, ".log"))?;
+            virtual_daisy::keyboard::validate_log(&log)
+                .map_err(|e| format!("Unsupported keyboard emulation: {e}"))?;
+            let rtt = fs::read_to_string(grade::artifact(&capture, ".rtt"))?;
+            if !fs::read_to_string(grade::artifact(&capture, ".host.log"))?.contains("PC:") {
+                return Err("Missing keyboard CPU progress evidence".into());
+            }
+            if !rtt.contains("keyboard_keyboard ready:")
+                || ["panicked", "HardFault"].iter().any(|s| rtt.contains(s))
+            {
+                return Err("Keyboard did not complete startup cleanly".into());
+            }
+            return Ok(capture);
+        }
         if ![
             "capture",
             "architecture",
@@ -568,6 +595,27 @@ fn run(
         format!("{sha}  firmware.elf\nsource={}\n", elf.display()),
     )?;
     platform::prepare(&renode, &directory, &library, board)?;
+    if mode == RunMode::Keyboard {
+        let path = directory.join("daisy.repl");
+        let text = fs::read_to_string(&path)?;
+        let text = text.replace(
+            "usart1: UART.STM32F7_USART @",
+            "usart1: Miscellaneous.DaisyKeyboardUart @",
+        );
+        let text = text.replace(
+            "    frequency: 200000000\n    IRQ -> exti@26",
+            &format!(
+                "    frequency: 200000000\n    libraryPath: \"{}\"\n    rcc: rcc\n    IRQ -> exti@26",
+                virtual_daisy::host::repl_path(&library)?
+            ),
+        );
+        if !text.contains("usart1: Miscellaneous.DaisyKeyboardUart @")
+            || !text.contains("    rcc: rcc\n    IRQ -> exti@26")
+        {
+            return Err("Keyboard UART platform replacement failed".into());
+        }
+        fs::write(path, text)?;
+    }
     let managed = directory.join("managed");
     fs::create_dir_all(&managed)?;
     checked(
@@ -605,6 +653,7 @@ fn run(
         ideal_line,
         match mode {
             RunMode::Capture => "capture",
+            RunMode::Keyboard => "keyboard",
             RunMode::Full => "full",
             RunMode::Probes => "probes",
             RunMode::Timing => "timing",
@@ -626,6 +675,27 @@ fn run(
         board,
         ideal_line,
     };
+    if mode == RunMode::Keyboard {
+        let scenario = input_wav.ok_or("Keyboard mode requires a scenario CSV")?;
+        let scenario = fs::canonicalize(scenario)?;
+        let capture = host.boot(
+            "keyboard",
+            &scenario,
+            if env::var_os("VIRTUAL_DAISY_UART_INSTANT").is_some_and(|v| v == "1") {
+                "keyboard-instant"
+            } else {
+                "keyboard"
+            },
+        )?;
+        if grade::counter(&grade::artifact(&capture, ".keyboard.txt"), "scans")? < 10 {
+            return Err("Keyboard firmware did not start scanning".into());
+        }
+        if fs::read(elf)? != firmware {
+            return Err("Keyboard firmware ELF changed during execution".into());
+        }
+        println!("Keyboard scenario executed. See {}.keyboard.txt; hardware causality remains unverified.",capture.display());
+        return Ok(());
+    }
     if mode == RunMode::Capture {
         let input = if let Some(source) = input_wav {
             let raw = directory.join("user.f32le");
@@ -1003,6 +1073,7 @@ fn main() -> Result<()> {
     if args.len() >= 3
         && [
             "capture", "run", "probe", "timing", "startup", "storage", "cpu", "settings",
+            "keyboard",
         ]
         .contains(&args[0].to_string_lossy().as_ref())
     {
@@ -1066,7 +1137,7 @@ fn main() -> Result<()> {
         let board = board.ok_or(
             "Select the physical board with --board rev4/rev5/rev7; there is no implicit codec",
         )?;
-        if args[0] != "run" && args[0] != "capture" && input.is_some() {
+        if args[0] != "run" && args[0] != "capture" && args[0] != "keyboard" && input.is_some() {
             return Err("Input WAV replay requires run or capture mode".into());
         }
         if let Some(codec) = codec {
@@ -1088,7 +1159,9 @@ fn main() -> Result<()> {
             input,
             board,
             ideal_line,
-            if args[0] == "capture" {
+            if args[0] == "keyboard" {
+                RunMode::Keyboard
+            } else if args[0] == "capture" {
                 RunMode::Capture
             } else if args[0] == "settings" {
                 RunMode::Settings

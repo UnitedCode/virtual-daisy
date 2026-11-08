@@ -10,12 +10,14 @@ mod dma;
 mod flash;
 mod gpio;
 pub mod host;
+pub mod keyboard;
 pub mod memory;
 pub mod nor;
 pub mod qspi;
 mod sai;
 #[cfg(test)]
 mod tests;
+pub mod uart;
 
 pub struct Peripheral {
     kind: u32,
