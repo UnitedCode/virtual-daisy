@@ -1,0 +1,6 @@
+/target/
+/results/
+/bridge/bin/
+/bridge/obj/
+.DS_Store
+*.wav

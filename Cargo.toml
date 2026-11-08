@@ -1,0 +1,18 @@
+[package]
+name = "virtual-daisy"
+version = "0.1.0"
+edition = "2021"
+publish = false
+authors = ["Nathan Bradshaw", "Enoch Bradshaw"]
+description = "Daisy Seed peripheral models and firmware runner"
+repository = "https://github.com/UnitedCode/virtual-daisy"
+readme = "README.md"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hound = "3.5"
+sha2 = "0.10.9"
