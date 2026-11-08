@@ -52,7 +52,7 @@ For a Rust project, the library can also be used directly:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.1.0" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.1.1" }
 ```
 
 ## Checks
@@ -68,6 +68,11 @@ and their negative controls. They still take an ELF for artifact provenance, but
 do not test that application's audio. `run`, `startup`, `settings`, `levels` and
 `autotune` retain the Synthphone regression fixtures and their application-specific
 expectations. See the [Synthphone guide](docs/synthphone.md) for those commands.
+
+The writeback and interrupt probes erase their temporary machine's internal flash
+through the modeled controller before installing their fixtures. This keeps their
+scratch area independent of the supplied firmware's size. ELF files stay unchanged;
+production audio runs load the original firmware into a separate machine.
 
 The models are functional service scenarios. Instruction timing is not cycle
 accurate, analog behavior is incomplete, and hardware equivalence is unverified.
