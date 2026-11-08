@@ -110,6 +110,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
     {
         public DaisyAdc(IMachine machine, string libraryPath, double referenceVoltage, uint externalEventFrequency, int dmaChannel = 0, IDMA dmaPeripheral = null)
         {
+            this.machine=machine;
             original = new STM32H7_ADC(machine, referenceVoltage, externalEventFrequency, dmaChannel, dmaPeripheral);
             extra = new DaisyNative(libraryPath, 3, 0x400);
         }
@@ -117,9 +118,32 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public void WriteDoubleWord(long offset, uint value) { if(!extra.TryWrite(offset, value)) original.WriteDoubleWord(offset, value); }
         public void Reset() { original.Reset(); extra.Reset(); }
         public GPIO IRQ { get { return original.IRQ; } }
+        public void AttachInputs(Func<int, uint> input) {
+            if(original.ADCChannelCount!=20) throw new InvalidOperationException("H7 ADC must expose channel 19");
+            machine.RegisterAsAChildOf(this,original,Antmicro.Renode.Core.Structure.NullRegistrationPoint.Instance);
+            for(int ch=0;ch<20;ch++) {
+                int channel=ch;
+                original.ADCContainer.Register(new DaisyVoltageSource(()=> {
+                    // The carrier fixture supports the HAL's one-channel,
+                    // software-triggered discontinuous conversion only.
+                    if((original.ReadDoubleWord(0x30)&0xf)!=0 || (original.ReadDoubleWord(0xc)&((1U<<13)|(7U<<17)))!=0)
+                        throw new InvalidOperationException("Keyboard ADC fixture requires single software-triggered conversions");
+                    return input(channel);
+                }),ch);
+            }
+        }
         public long Size { get { return 0x400; } }
         private readonly STM32H7_ADC original;
+        private readonly IMachine machine;
         private readonly DaisyNative extra;
+    }
+
+    public sealed class DaisyVoltageSource : Antmicro.Renode.Utilities.RESD.IRESDSampleSource<Antmicro.Renode.Utilities.RESD.VoltageSample>
+    {
+        public DaisyVoltageSource(Func<uint> input) {this.input=input;}
+        public Antmicro.Renode.Utilities.RESD.VoltageSample Sample => new Antmicro.Renode.Utilities.RESD.VoltageSample(input());
+        public void Reset() {}
+        private readonly Func<uint> input;
     }
 
     public class DaisyI2c : II2CPeripheral, IGPIOReceiver

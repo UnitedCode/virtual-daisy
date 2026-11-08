@@ -10,6 +10,7 @@
     <Compile Include="DaisyMemory.cs" />
     <Compile Include="DaisyClock.cs" />
     <Compile Include="DaisyCpu.cs" />
+    <Compile Include="DaisyKeyboard.cs" />
     <Reference Include="Infrastructure"><HintPath>$(RenodeRoot)/Infrastructure.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Renode"><HintPath>$(RenodeRoot)/Renode.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Migrant"><HintPath>$(RenodeRoot)/Migrant.dll</HintPath><Private>false</Private></Reference>

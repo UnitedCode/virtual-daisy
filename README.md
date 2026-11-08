@@ -57,6 +57,44 @@ virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0
 
 ## Checks
 
+### Keyboard carrier
+
+The `keyboard` command runs an existing keyboard-keyboard ELF with its carrier's
+15 GPIO-selected analog multiplexers and a baud-paced polling USART1:
+
+```sh
+cargo run --release --locked -- keyboard /path/to/renode-runtime results/keyboard \
+  --elf /path/to/keyboard.elf --board rev7 /path/to/scenario.csv
+```
+
+CSV actions are `at_ns,input,mux_index,channel,microvolts`, `at_ns,save,label`,
+and `at_ns,reset`. Indices are zero-based. Time is monotonic virtual nanoseconds.
+`reset` clears host observations only; it never changes guest state. ADC sources
+follow GPIO mux and decoder outputs, using ideal 0–3.3 V inputs. The fixture
+accepts single-channel, software-triggered ADC conversions. The H7 ADC container
+is corrected to expose channels 0–19, including PA5/channel 19.
+
+The polling UART supports PCLK2, oversampling 16, 8N1 and a 16-byte FIFO plus
+shifter. Unsupported configurations fail explicitly. Transmitted bytes are
+timestamped when the full frame completes. `VIRTUAL_DAISY_UART_INSTANT=1` selects
+an explicitly nonphysical negative control. `VIRTUAL_DAISY_WALL_SECONDS` sets the
+host time limit (600 seconds by default); long scenarios need a larger bound.
+
+Artifacts include `.keyboard.txt` scan counts/gaps, `.midi.csv` completed bytes,
+RTT output, the unchanged ELF/hash, runtime logs and model provenance. Runtime
+warning checks reject unknown accesses, including ignored byte writes. The
+existing functional I2C timing limitation and single-conversion ADC DISCEN flag
+are documented exceptions; multi-channel/continuous conversion is rejected.
+Scan boundaries are observed from ADC channel 10's GPIO-selected 7→0 sweep.
+
+See the [keyboard diagnostic](https://github.com/UnitedCode/keyboard-keyboard/tree/main/tools/seed-tests)
+for paired stimuli, MIDI and scan gates, and a continuous one-hour scenario.
+The carrier is not a thermal or power model, and instruction timing remains
+uncalibrated. These tests can expose software behavior without proving physical
+board equivalence or ruling out a separate hardware fault.
+
+### Model regression checks
+
 ```sh
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
