@@ -260,7 +260,22 @@ public static class DaisyHost
         architecture.Save(prefix+".memory.txt");
         Console.WriteLine("ARM flash programming probe executed; results require Rust grading");
     }
+    // Synthetic ITCM guests program scratch flash independently of the supplied
+    // firmware's size. Erase through the controller before installing vectors.
+    private static void PrepareProbeFlash(Emulation emulation,Machine machine) {
+        var bus=machine.SystemBus;var cpu=(DaisyCortexM)machine["sysbus.cpu"];
+        cpu.IsHalted=true;
+        bus.WriteDoubleWord(0x52002004,0x45670123);
+        bus.WriteDoubleWord(0x52002004,0xcdef89ab);
+        bus.WriteDoubleWord(0x5200200c,0xb4); // Sector zero, x64, START.
+        emulation.RunFor(TimeInterval.FromMilliseconds(Environment.GetEnvironmentVariable("VIRTUAL_DAISY_FLASH_MAXIMUM")=="1" ? 2001UL:1001UL));
+        if((bus.ReadDoubleWord(0x52002010)&1)!=0) throw new InvalidOperationException("Probe flash erase did not complete");
+        bus.WriteDoubleWord(0x52002014,1U<<16);
+        bus.WriteDoubleWord(0x5200200c,0x31); // Restore the locked reset state.
+        cpu.IsHalted=false;
+    }
     private static void TimingProbes(Emulation emulation,Machine machine,string prefix,string fault) {
+        PrepareProbeFlash(emulation,machine);
         var bus=machine.SystemBus;var cpu=(DaisyCortexM)machine["sysbus.cpu"];
         var architecture=((DaisyNvic)machine["sysbus.nvic"]).Architecture;
         architecture.LoadFlash(0x0801e02c,4,0x3801);
@@ -290,6 +305,7 @@ public static class DaisyHost
         Console.WriteLine("ARM writeback/exception timing probe executed; results require Rust grading");
     }
     private static void InterruptProbes(Emulation emulation,Machine machine,string prefix,string fault) {
+        PrepareProbeFlash(emulation,machine);
         var bus=machine.SystemBus;var cpu=(DaisyCortexM)machine["sysbus.cpu"];
         bool otherTarget=fault=="wait-irq-target";
         bus.WriteBytes(File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(prefix),otherTarget?"interrupt-target-probe.bin":"interrupt-probe.bin")),0x5000);
