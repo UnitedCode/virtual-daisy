@@ -1,5 +1,9 @@
 # Virtual Daisy
 
+<a href="https://0rwx.com/"><img src="https://0rwx.com/static/AI-X-dark.png" alt="0rwx X: AI made" width="100"></a>
+
+Virtual Daisy is labeled **X (AI made)** under the [0rwx framework](https://0rwx.com/).
+
 A virtual Daisy Seed for running firmware without the board plugged in.
 
 Rust models handle the codec, SAI, DMA, clocks, GPIO, flash, SDRAM and Cortex-M7
