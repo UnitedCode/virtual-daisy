@@ -45,6 +45,15 @@ pub struct Qspi {
     instruction_sent: bool,
 }
 impl Qspi {
+    pub fn nonvolatile_image(&self) -> Vec<u8> {
+        self.chip.nonvolatile_image()
+    }
+    pub fn nonvolatile_revision(&self) -> u64 {
+        self.chip.nonvolatile_revision()
+    }
+    pub fn restore_nonvolatile_image(&mut self, bytes: &[u8]) -> Result<(), &'static str> {
+        self.chip.restore_nonvolatile_image(bytes)
+    }
     pub fn watches_memory(&self) -> bool {
         self.mapped && self.registers[0] & 9 == 9
     }

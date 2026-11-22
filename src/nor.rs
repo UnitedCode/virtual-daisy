@@ -34,6 +34,7 @@ pub struct NorFlash {
     write_protect_low: bool,
     maximum: bool,
     continuous: Option<u8>,
+    revision: u64,
 }
 impl Default for NorFlash {
     fn default() -> Self {
@@ -54,10 +55,57 @@ impl Default for NorFlash {
             write_protect_low: false,
             maximum: false,
             continuous: None,
+            revision: 0,
         }
     }
 }
 impl NorFlash {
+    /// Completed nonvolatile cells only; power loss does not complete an erase
+    /// or program operation. Preserve programmed-FF history and protection bits.
+    pub fn nonvolatile_image(&self) -> Vec<u8> {
+        let mut bytes = b"VDNOR001".to_vec();
+        bytes.extend([self.status, self.function & !12]);
+        bytes.extend((self.pages.len() as u32).to_le_bytes());
+        for (&address, page) in &self.pages {
+            bytes.extend(address.to_le_bytes());
+            bytes.extend(page.data);
+            for word in page.programmed {
+                bytes.extend(word.to_le_bytes());
+            }
+        }
+        bytes
+    }
+    pub fn nonvolatile_revision(&self) -> u64 {
+        self.revision
+    }
+    pub fn restore_nonvolatile_image(&mut self, bytes: &[u8]) -> Result<(), &'static str> {
+        if bytes.len() < 14 || &bytes[..8] != b"VDNOR001" {
+            return Err("invalid NOR image header");
+        }
+        let count = u32::from_le_bytes(bytes[10..14].try_into().unwrap()) as usize;
+        if count > CAPACITY as usize / 256 || bytes.len() != 14 + count * 292 {
+            return Err("invalid NOR image length");
+        }
+        let mut pages = BTreeMap::new();
+        for record in bytes[14..].chunks_exact(292) {
+            let address = u32::from_le_bytes(record[..4].try_into().unwrap());
+            if address >= CAPACITY / 256 || pages.contains_key(&address) {
+                return Err("invalid or duplicate NOR page");
+            }
+            let data = record[4..260].try_into().unwrap();
+            let mut programmed = [0; 4];
+            for (word, value) in record[260..].chunks_exact(8).zip(&mut programmed) {
+                *value = u64::from_le_bytes(word.try_into().unwrap());
+            }
+            pages.insert(address, Box::new(Page { data, programmed }));
+        }
+        *self = Self::default();
+        self.pages = pages;
+        self.status = bytes[8];
+        self.function = bytes[9] & !12;
+        self.revision = 1;
+        Ok(())
+    }
     pub fn continuous_opcode(&self) -> Option<u8> {
         self.continuous
     }
@@ -520,6 +568,7 @@ impl NorFlash {
                 Action::Function(value) => self.function |= value,
             }
             self.write_enable = false;
+            self.revision = self.revision.wrapping_add(1);
         }
         Ok(())
     }

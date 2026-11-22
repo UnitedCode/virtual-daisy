@@ -1,6 +1,30 @@
 use virtual_daisy::nor::NorFlash;
 
 #[test]
+fn nonvolatile_image_restores_cells_and_programmed_ff_but_not_pending_operations() {
+    let mut chip = NorFlash::default();
+    chip.transact(6, 0, &[], 0, false).unwrap();
+    chip.transact(2, 0x7fc000, &[0xff, 0x12], 0, false).unwrap();
+    let mut cut = NorFlash::default();
+    cut.restore_nonvolatile_image(&chip.nonvolatile_image())
+        .unwrap();
+    assert_eq!(cut.peek(0x7fc001), 0xff);
+    chip.advance_time(1_000_000).unwrap();
+    assert_eq!(chip.nonvolatile_revision(), 1);
+    let saved = chip.nonvolatile_image();
+    let mut restored = NorFlash::default();
+    restored.restore_nonvolatile_image(&saved).unwrap();
+    assert_eq!(restored.peek(0x7fc001), 0x12);
+    restored.transact(6, 0, &[], 0, false).unwrap();
+    assert!(restored.transact(2, 0x7fc000, &[0xff], 0, false).is_err());
+    let before = restored.nonvolatile_image();
+    for bad in [&saved[..saved.len() - 1], b"bad image".as_slice()] {
+        assert!(restored.restore_nonvolatile_image(bad).is_err());
+        assert_eq!(restored.nonvolatile_image(), before);
+    }
+}
+
+#[test]
 fn reprogramming_requires_erase_even_for_an_all_ones_byte_and_rejected_packets_are_atomic() {
     // Sections8.8–8.10 require erase before reprogramming a byte, including FF.
     for (opcode, qpi) in [(2, false), (2, true), (0x32, false), (0x38, false)] {

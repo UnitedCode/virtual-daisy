@@ -968,6 +968,47 @@ impl SystemMemory {
                 page[(address & 4095) as usize]
             })
     }
+    fn physical_value(&self, address: u32, width: usize) -> u32 {
+        let offset = (address & 4095) as usize;
+        if offset + width <= 4096 {
+            let Some(page) = self.pages.get(&(address >> 12)) else {
+                return if Self::is_flash(address, width) {
+                    u32::MAX >> (32 - width * 8)
+                } else {
+                    0
+                };
+            };
+            return page[offset..offset + width]
+                .iter()
+                .enumerate()
+                .fold(0, |value, (byte, &data)| {
+                    value | u32::from(data) << (byte * 8)
+                });
+        }
+        (0..width).fold(0, |value, byte| {
+            value | u32::from(self.physical_byte(address + byte as u32)) << (byte * 8)
+        })
+    }
+    fn store_value(&mut self, address: u32, width: usize, value: u32) {
+        let offset = (address & 4095) as usize;
+        if offset + width > 4096 {
+            for byte in 0..width {
+                self.store_byte(address + byte as u32, (value >> (byte * 8)) as u8);
+            }
+            return;
+        }
+        if (0xc0000000..=0xc3ffffff).contains(&address) {
+            self.fabric.invalidate_sdram_fifo();
+            if self.sdram.as_ref().is_some_and(|s| s.write_protected()) {
+                return;
+            }
+        }
+        self.pages
+            .entry(address >> 12)
+            .or_insert_with(|| Box::new([if Self::is_flash(address, 1) { 0xff } else { 0 }; 4096]))
+            [offset..offset + width]
+            .copy_from_slice(&value.to_le_bytes()[..width]);
+    }
     fn backing_read(&self, address: u32, bytes: usize, peek: bool) -> Result<Vec<u8>> {
         if Self::is_qspi(address, bytes) {
             let mut qspi = self
@@ -1160,6 +1201,24 @@ impl SystemMemory {
     }
     pub fn read_cpu(&mut self, address: u32, width: usize) -> Result<u32> {
         Self::check(address, width)?;
+        // MPU regions and subregions have at least 32-byte granularity. A
+        // transfer wholly inside one line has one policy and one cache lookup.
+        if (address & 31) as usize + width <= 32 {
+            let policy = self.policy(address)?;
+            if policy != Policy::Noncacheable {
+                let line = self.allocate(address)?;
+                let offset = (address & 31) as usize;
+                return Ok(self.cache[line].data[offset..offset + width]
+                    .iter()
+                    .enumerate()
+                    .fold(0, |value, (byte, &data)| {
+                        value | u32::from(data) << (byte * 8)
+                    }));
+            }
+            if !Self::is_qspi(address, width) {
+                return Ok(self.physical_value(address, width));
+            }
+        }
         let mut value = 0;
         for byte in 0..width {
             let addr = address + byte as u32;
@@ -1172,6 +1231,33 @@ impl SystemMemory {
             value |= u32::from(b) << (byte * 8);
         }
         Ok(value)
+    }
+    /// A speculative CPU read with no fill, eviction, bus, or MMIO effects.
+    /// A cacheable miss must use the ordinary read path instead.
+    pub fn peek_cpu32(&self, address: u32) -> Option<u32> {
+        if address & 3 != 0 || !Self::is_ram(address, 4) {
+            return None;
+        }
+        if self.policy(address).ok()? == Policy::Noncacheable {
+            return Some(self.physical_value(address, 4));
+        }
+        let line = self.find(address)?;
+        let offset = (address & 31) as usize;
+        Some(u32::from_le_bytes(
+            self.cache[line].data[offset..offset + 4]
+                .try_into()
+                .unwrap(),
+        ))
+    }
+    /// A deferred store can commit without a fill or a write-through transfer.
+    pub fn can_write_cached32(&self, address: u32) -> bool {
+        address & 3 == 0
+            && Self::is_ram(address, 4)
+            && matches!(
+                self.policy(address),
+                Ok(Policy::WriteBack | Policy::WriteAllocate)
+            )
+            && self.find(address).is_some()
     }
     /// Harvard instruction view: never forwards dirty data-cache contents.
     /// Translation is a side-effect-free peek: it must not populate the cache.
@@ -1421,6 +1507,26 @@ impl SystemMemory {
         if !Self::is_ram(address, width) {
             return self.program_flash(address, width, u64::from(value), 0);
         }
+        if (address & 31) as usize + width <= 32 {
+            let policy = self.policy(address)?;
+            let line = if policy == Policy::WriteAllocate {
+                Some(self.allocate(address)?)
+            } else if policy != Policy::Noncacheable {
+                self.find(address)
+            } else {
+                None
+            };
+            if let Some(line) = line {
+                let offset = (address & 31) as usize;
+                self.cache[line].data[offset..offset + width]
+                    .copy_from_slice(&value.to_le_bytes()[..width]);
+                self.cache[line].dirty = policy != Policy::WriteThrough;
+            }
+            if line.is_none() || matches!(policy, Policy::Noncacheable | Policy::WriteThrough) {
+                self.store_value(address, width, value);
+            }
+            return Ok(());
+        }
         for byte in 0..width {
             let addr = address + byte as u32;
             let b = (value >> (byte * 8)) as u8;
@@ -1454,9 +1560,7 @@ impl SystemMemory {
             self.dma_cacheable_bytes += width as u64;
         }
         if !Self::is_qspi(address, width) {
-            return Ok((0..width).fold(0, |value, byte| {
-                value | (u32::from(self.physical_byte(address + byte as u32)) << (byte * 8))
-            }));
+            return Ok(self.physical_value(address, width));
         }
         Ok(self
             .backing_read(address, width, false)?

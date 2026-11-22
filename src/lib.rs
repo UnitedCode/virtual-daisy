@@ -36,6 +36,18 @@ pub struct Peripheral {
 }
 
 impl Peripheral {
+    pub fn nonvolatile_image(&self) -> Vec<u8> {
+        self.qspi.lock().unwrap().nonvolatile_image()
+    }
+    pub fn nonvolatile_revision(&self) -> u64 {
+        self.qspi.lock().unwrap().nonvolatile_revision()
+    }
+    pub fn restore_nonvolatile_image(&mut self, bytes: &[u8]) -> Result<(), &'static str> {
+        if self.kind != 8 {
+            return Err("not a QSPI controller");
+        }
+        self.qspi.lock().unwrap().restore_nonvolatile_image(bytes)
+    }
     /// Feed one serial audio frame without filesystem or native-bridge IO.
     pub fn audio_frame(&mut self, codec_mask: u32, sample: [f32; 2]) -> Result<(), &'static str> {
         if self.kind != 7 {
