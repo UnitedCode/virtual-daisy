@@ -26,7 +26,7 @@ this companion as `isa_oracle.control.bin`.
 Regenerate from the repository root:
 
 ```sh
-cargo run --release --manifest-path web/engine/Cargo.toml --example qemu_isa -- /tmp/isa_oracle.bin
+cargo run --release --manifest-path cpu/Cargo.toml --example qemu_isa -- /tmp/isa_oracle.bin
 ```
 
 Compare the generated file with this fixture before replacing it. The guest is

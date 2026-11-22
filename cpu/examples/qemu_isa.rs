@@ -5,7 +5,7 @@ use std::{
     process::{Command, Stdio},
 };
 fn main() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../cpu/fixtures");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures");
     let output = std::env::args()
         .nth(1)
         .map(PathBuf::from)

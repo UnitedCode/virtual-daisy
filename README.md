@@ -124,7 +124,20 @@ simulated pass as a hardware result.
 The engine downloads retain the upstream Renode infrastructure and tlib licenses.
 This repository does not bundle their binaries or change their licensing.
 
-The experimental [Rust browser backend](web/README.md) executes the original ARM
-Synthphone firmware in WebAssembly and renders its audio and OLED output from a
-static website. Browser visitors do not need Renode installed. Real-time browser
-performance and the finished virtual phone remain in development.
+## Rust CPU core and instrument applications
+
+The reusable ARM interpreter is in [`cpu`](cpu), with its upstream license and
+independent ARM reference fixtures. It builds for native hosts and WebAssembly.
+Consumers can depend on the `virtual-daisy` board models and `zmu_cortex_m` CPU
+crate from this repository, pinned to the same Git revision.
+
+[Virtual Synthphone E](https://github.com/UnitedCode/virtual-synthphone-e) owns
+the instrument UI, firmware image, Synthphone wiring, audio host, firmware-specific
+instruction translation and website deployment. It uses Virtual Daisy as a
+dependency. This repository does not host an instrument application.
+
+Run the CPU checks separately:
+
+```sh
+cargo test --manifest-path cpu/Cargo.toml --no-default-features --features armv7em,fpv5-d16
+```
