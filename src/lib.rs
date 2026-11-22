@@ -36,6 +36,120 @@ pub struct Peripheral {
 }
 
 impl Peripheral {
+    /// Feed one serial audio frame without filesystem or native-bridge IO.
+    pub fn audio_frame(&mut self, codec_mask: u32, sample: [f32; 2]) -> Result<(), &'static str> {
+        if self.kind != 7 {
+            return Err("not an SAI peripheral");
+        }
+        self.sai.tick_sample(codec_mask, sample);
+        Ok(())
+    }
+    /// Drain captured frames, permitting bounded streaming in a browser.
+    pub fn take_audio(&mut self) -> Result<Vec<[f32; 2]>, &'static str> {
+        if self.kind != 7 {
+            return Err("not an SAI peripheral");
+        }
+        Ok(std::mem::take(&mut self.sai.output))
+    }
+    /// Active SAI DMA request lines, in A/B order.
+    pub fn audio_requests(&self) -> u32 {
+        self.sai.requests()
+    }
+    /// DMA arbitration and descriptor inspection without advancing NDTR.
+    pub fn dma_transfer(
+        &mut self,
+        requests: u32,
+    ) -> Result<Option<(usize, u32, u32)>, &'static str> {
+        let Some(stream) = self.dma.arbitrate(requests) else {
+            return Ok(None);
+        };
+        match self.dma.clone().request(stream)? {
+            Some((a, b)) => Ok(Some((stream, a, b))),
+            None => {
+                self.dma.request(stream)?;
+                Ok(None)
+            }
+        }
+    }
+    /// Complete a transferred descriptor beat and return its bus addresses.
+    pub fn dma_complete(&mut self, stream: usize) -> Result<Option<(u32, u32)>, &'static str> {
+        self.dma.request(stream)
+    }
+    /// Asserted DMA interrupt lines (stream order).
+    pub fn dma_interrupts(&self) -> u32 {
+        self.dma.irqs()
+    }
+    /// Functional core clock after RCC selection/dividers.
+    pub fn core_hz(&self) -> Result<f64, &'static str> {
+        Ok(self
+            .clock
+            .core_rate()?
+            .map_or(64_000_000.0, clock::Rate::hz))
+    }
+    /// Peripheral domain clock (domain 6 is the APB1 timer clock).
+    pub fn domain_hz(&self, domain: u32) -> Result<f64, &'static str> {
+        Ok(self.clock.domain_rate(domain)?.map_or(0.0, clock::Rate::hz))
+    }
+    /// Advance the shared SAI clock's exact rational phase.
+    pub fn audio_clock(&mut self, cr1: u32, frcr: u32, ns: u64) -> Result<u32, &'static str> {
+        self.clock.advance(cr1, frcr, ns)
+    }
+    /// Sample rate from the shared RCC model.
+    pub fn audio_hz(&self, cr1: u32, frcr: u32) -> Result<f64, &'static str> {
+        self.clock.sample_rate(cr1, frcr).map(clock::Rate::hz)
+    }
+    /// Drive a modeled GPIO pin from an external carrier control.
+    pub fn drive_pin(&mut self, pin: u32, high: bool) -> Result<(), &'static str> {
+        if self.kind < 100 {
+            return Err("not GPIO");
+        }
+        self.gpio.drive(pin, high);
+        Ok(())
+    }
+    /// Attach this QSPI controller to a shared architecture's mapped memory.
+    pub fn attach_memory(&mut self, memory: &mut memory::SystemMemory) -> Result<(), &'static str> {
+        if self.kind != 8 {
+            return Err("not QSPI");
+        }
+        memory.attach_qspi(self.qspi.clone());
+        Ok(())
+    }
+    /// Synchronize a QSPI controller against this RCC clock.
+    pub fn sync_qspi(&self, qspi: &mut Peripheral, now: u64) -> Result<(), &'static str> {
+        if self.kind != 13 || qspi.kind != 8 {
+            return Err("not RCC/QSPI");
+        }
+        let mut controller = qspi.qspi.lock().unwrap();
+        controller.advance_time(now)?;
+        controller.configure_clock(self.clock.qspi_rate()?)
+    }
+    /// Width-aware accesses to the QSPI FIFO/control model.
+    pub fn qspi_read(&mut self, offset: u64, width: usize) -> Result<u32, &'static str> {
+        self.qspi.lock().unwrap().read(offset, width)
+    }
+    /// Width-aware accesses to the QSPI FIFO/control model.
+    pub fn qspi_write(
+        &mut self,
+        offset: u64,
+        width: usize,
+        value: u32,
+    ) -> Result<(), &'static str> {
+        self.qspi.lock().unwrap().write(offset, value, width)
+    }
+    /// QSPI kernel clock from RCC selection and gates.
+    pub fn qspi_clock(&self) -> Result<Option<clock::Rate>, &'static str> {
+        self.clock.qspi_rate()
+    }
+    /// Advance the QSPI service and flash-chip deadlines on the virtual clock.
+    pub fn advance_qspi(
+        &mut self,
+        now: u64,
+        rate: Option<clock::Rate>,
+    ) -> Result<(), &'static str> {
+        let mut q = self.qspi.lock().unwrap();
+        q.advance_time(now)?;
+        q.configure_clock(rate)
+    }
     pub fn codec_clocks(&self, mclk: clock::Rate) -> Result<SampleClocks, &'static str> {
         if self.kind != 4 {
             return Err("software sample clocks only apply to WM8731");

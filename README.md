@@ -123,3 +123,8 @@ simulated pass as a hardware result.
 
 The engine downloads retain the upstream Renode infrastructure and tlib licenses.
 This repository does not bundle their binaries or change their licensing.
+
+The experimental [Rust browser backend](web/README.md) executes the original ARM
+Synthphone firmware in WebAssembly and renders its audio and OLED output from a
+static website. Browser visitors do not need Renode installed. Real-time browser
+performance and the finished virtual phone remain in development.
