@@ -959,6 +959,8 @@ pub fn start() {
         }
         command("encoder_button", "value", false);
     });
+    text("status", "Power on, then pick up.");
+    let _ = el("power").remove_attribute("disabled");
 }
 
 // The worker owns the only emulated instrument and all its mutable state.
