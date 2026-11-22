@@ -67,6 +67,10 @@ impl Peripheral {
     pub fn audio_requests(&self) -> u32 {
         self.sai.requests()
     }
+    /// Shared SAI A/B interrupt level, including each block's mask.
+    pub fn audio_interrupt(&self) -> bool {
+        self.sai.irq()
+    }
     /// DMA arbitration and descriptor inspection without advancing NDTR.
     pub fn dma_transfer(
         &mut self,
@@ -169,6 +173,10 @@ impl Peripheral {
     /// Next QSPI or flash completion on the board's absolute nanosecond clock.
     pub fn next_qspi_event(&self) -> Option<u64> {
         self.qspi.lock().unwrap().next_event()
+    }
+    /// QSPI interrupt level from the controller's status and interrupt mask.
+    pub fn qspi_interrupt(&self) -> bool {
+        self.qspi.lock().unwrap().irq()
     }
     pub fn codec_clocks(&self, mclk: clock::Rate) -> Result<SampleClocks, &'static str> {
         if self.kind != 4 {
@@ -1297,7 +1305,7 @@ pub unsafe extern "C" fn daisy_sai_requests(state: *mut Peripheral) -> u32 {
 /// Live serialized SAI state; returns the shared A/B interrupt level.
 #[no_mangle]
 pub unsafe extern "C" fn daisy_sai_irq(state: *mut Peripheral) -> u32 {
-    u32::from((*state).sai.irq())
+    u32::from((*state).audio_interrupt())
 }
 #[no_mangle]
 /// # Safety
@@ -1426,7 +1434,7 @@ pub unsafe extern "C" fn daisy_qspi_next_event(state: *mut Peripheral) -> u64 {
 /// Live QSPI state.
 #[no_mangle]
 pub unsafe extern "C" fn daisy_qspi_irq(state: *mut Peripheral) -> u32 {
-    u32::from((*state).qspi.lock().unwrap().irq())
+    u32::from((*state).qspi_interrupt())
 }
 /// # Safety
 /// Live serialized architecture/controller states; architecture retains an Arc.
