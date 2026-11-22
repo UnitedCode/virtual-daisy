@@ -35,9 +35,26 @@ pub struct Firmware {
     idle_pc: Option<u32>,
     delay_pc: Vec<u32>,
     translated: bool,
+    #[cfg(feature = "profile")]
+    profile: Vec<u64>,
 }
 #[wasm_bindgen]
 impl Firmware {
+    pub fn flash_image(&self) -> Vec<u8> {
+        self.board.borrow().flash_image()
+    }
+    pub fn flash_revision(&self) -> u64 {
+        self.board.borrow().flash_revision()
+    }
+    pub fn restore_flash(&mut self, bytes: &[u8]) -> Result<(), String> {
+        if self.cpu.instruction_count != 0 {
+            return Err("Restore flash before booting the CPU".into());
+        }
+        self.board
+            .borrow_mut()
+            .restore_flash(bytes)
+            .map_err(String::from)
+    }
     #[wasm_bindgen(constructor)]
     pub fn new(image: &[u8]) -> Result<Firmware, String> {
         if image.len() < 8 || image.len() > 128 * 1024 {
@@ -102,17 +119,31 @@ impl Firmware {
             idle_pc,
             delay_pc,
             translated,
+            #[cfg(feature = "profile")]
+            profile: vec![0; 65536],
         })
     }
     pub fn run(&mut self, steps: u32) -> Result<Vec<u32>, String> {
         for _ in 0..steps.min(10_000_000) {
             let before = self.cpu.cycle_count;
             let pc = self.cpu.get_r(Reg::PC);
-            if self.idle_pc == Some(self.cpu.get_pc()) && self.cpu.advance_nop_call_loop(440) {
+            let budget = self
+                .service_cycles
+                .saturating_sub(self.pending_cycles)
+                .min(440) as u32;
+            #[cfg(feature = "profile")]
+            if let Some(count) = self
+                .profile
+                .get_mut(pc.wrapping_sub(0x08000004) as usize / 2)
+            {
+                *count += 1;
+            }
+            if self.idle_pc == Some(self.cpu.get_pc()) && self.cpu.advance_nop_call_loop(budget) {
             } else if self.delay_pc.contains(&self.cpu.get_pc())
-                && self.cpu.advance_decrement_loop(440)
+                && self.cpu.advance_decrement_loop(budget)
             {
             } else if self.translated
+                && self.service_cycles.saturating_sub(self.pending_cycles) >= 64
                 && compiled::contains(pc - 4)
                 && compiled::dispatch(&mut self.cpu, pc - 4)
             {
@@ -123,8 +154,12 @@ impl Firmware {
             }
             if let Some(error) = self.cpu.take_pending_fault_trap() {
                 return Err(format!(
-                    "{error}; MMFAR={:08x} BFAR={:08x} CFSR={:08x}",
-                    self.cpu.mmfar, self.cpu.bfar, self.cpu.cfsr
+                    "{error}; MMFAR={:08x} BFAR={:08x} CFSR={:08x} r0-r12={:08x?} SP={:08x}",
+                    self.cpu.mmfar,
+                    self.cpu.bfar,
+                    self.cpu.cfsr,
+                    self.cpu.r0_12,
+                    self.cpu.get_r(Reg::SP)
                 ));
             }
             self.pending_cycles += self.cpu.cycle_count - before;
@@ -179,22 +214,59 @@ impl Firmware {
             .map_err(String::from)
     }
     pub fn input(&mut self, samples: &[f32]) {
-        self.board
-            .borrow_mut()
-            .input
-            .extend(samples.iter().map(|&s| [s, s]));
+        let mut board = self.board.borrow_mut();
+        for &sample in samples.iter().take(96_028) {
+            if board.input.len() >= 96_028 {
+                board.input.pop_front();
+            }
+            let sample = if sample.is_finite() {
+                sample.clamp(-1., 1.)
+            } else {
+                0.
+            };
+            board.input.push_back([sample, sample]);
+        }
+    }
+    /// Frames waiting at the codec input, for bounded browser streaming.
+    pub fn pending_input(&self) -> usize {
+        self.board.borrow().input.len()
+    }
+    /// Stereo codec input: left external input, right telephone microphone.
+    pub fn input_stereo(&mut self, samples: &[f32]) -> Result<(), String> {
+        if samples.len() % 2 != 0 {
+            return Err("Stereo input needs pairs of samples".into());
+        }
+        let mut board = self.board.borrow_mut();
+        for pair in samples.chunks_exact(2).take(96_028) {
+            if board.input.len() >= 96_028 {
+                board.input.pop_front();
+            }
+            board.input.push_back([pair[0], pair[1]].map(|s| {
+                if s.is_finite() {
+                    s.clamp(-1., 1.)
+                } else {
+                    0.
+                }
+            }));
+        }
+        Ok(())
+    }
+    /// Physical codec clock, including the original firmware's PLL mismatch.
+    pub fn sample_rate(&self) -> f64 {
+        self.board.borrow_mut().sample_rate().unwrap_or(0.)
     }
     pub fn stats(&self) -> String {
         use zmu_cortex_m::core::register::Ipsr;
         let mut b = self.board.borrow_mut();
         let audio = b.audio_status();
         format!(
-            "ns={} frames={} dma_beats={} reads={} instructions={} AOT={} ISR={} LR={:08x} {audio}",
+            "ns={} frames={} dma_beats={} reads={} instructions={} lifted={} AOT={} ISR={} LR={:08x} {audio}",
             b.now_ns,
             b.frames,
             b.dma_beats,
             b.reads,
             self.cpu.instruction_count,
+            self.cpu.lifted_instructions,
             self.translated,
             self.cpu.psr.get_isr_number(),
             self.cpu.lr
@@ -237,6 +309,17 @@ impl Firmware {
         }
         self.board.borrow_mut().mic_gain = value;
         Ok(())
+    }
+}
+
+#[cfg(feature = "profile")]
+impl Firmware {
+    pub fn start_profile(&mut self) {
+        self.translated = false;
+        self.profile.fill(0);
+    }
+    pub fn profile_counts(&self) -> &[u64] {
+        &self.profile
     }
 }
 
@@ -375,6 +458,118 @@ mod tests {
             f.oled(),
             before,
             "keypad zero must change the real firmware profile display"
+        );
+    }
+    fn advance(f: &mut Firmware, milliseconds: u64) {
+        let deadline = f.virtual_time_ns() + milliseconds * 1_000_000;
+        while f.virtual_time_ns() < deadline {
+            f.run(100_000).unwrap();
+            f.take_audio();
+        }
+    }
+    #[test]
+    fn encoder_button_and_rotation_reach_the_original_menu() {
+        let mut f = Firmware::new(reference_image()).unwrap();
+        advance(&mut f, 500);
+        let before = f.oled();
+        f.encoder_button(true).unwrap();
+        advance(&mut f, 40);
+        f.encoder_button(false).unwrap();
+        advance(&mut f, 40);
+        assert_ne!(
+            f.oled(),
+            before,
+            "encoder press/release must change the firmware screen"
+        );
+        f.encoder_button(true).unwrap();
+        advance(&mut f, 40);
+        f.encoder_button(false).unwrap();
+        advance(&mut f, 40);
+        let menu = f.oled();
+        f.encoder(-2);
+        advance(&mut f, 80);
+        assert_ne!(f.oled(), menu, "quadrature must change menu selection");
+    }
+    #[test]
+    fn streamed_mic_and_hook_changes_do_not_corrupt_firmware_state() {
+        let mut f = Firmware::new(reference_image()).unwrap();
+        let flash = f.flash_image();
+        f.restore_flash(&flash).unwrap();
+        f.handset(false).unwrap();
+        let mut phase = 0f64;
+        while f.virtual_time_ns() < 600_000_000 {
+            let t = f.virtual_time_ns();
+            f.handset(t > 120_000_000).unwrap();
+            if f.pending_input() < 4096 {
+                let input: Vec<f32> = (0..4096)
+                    .flat_map(|_| {
+                        let sample = if t > 90_000_000 {
+                            (phase * std::f64::consts::TAU).sin() as f32 * 0.16
+                        } else {
+                            0.
+                        };
+                        phase = (phase + 220. / 48_187.487) % 1.;
+                        [0., sample]
+                    })
+                    .collect();
+                f.input_stereo(&input).unwrap();
+            }
+            f.run(10_000).unwrap();
+            f.take_audio();
+        }
+    }
+    #[test]
+    fn handset_switch_selects_the_actual_codec_channel() {
+        for lifted in [false, true] {
+            let mut f = Firmware::new(reference_image()).unwrap();
+            f.handset(lifted).unwrap();
+            advance(&mut f, 40);
+            let samples: Vec<f32> = (0..20000)
+                .flat_map(|n| {
+                    [
+                        0.,
+                        (n as f32 * 220. * std::f32::consts::TAU / f.sample_rate() as f32).sin()
+                            * 0.2,
+                    ]
+                })
+                .collect();
+            f.input_stereo(&samples).unwrap();
+            let mut out = Vec::new();
+            while out.len() < 12000 {
+                f.run(100_000).unwrap();
+                out.extend(f.take_audio());
+            }
+            let energy = out[4000..].iter().map(|s| s * s).sum::<f32>();
+            if lifted {
+                assert!(energy > 10.);
+            } else {
+                assert_eq!(energy, 0.);
+            }
+        }
+    }
+    #[test]
+    fn firmware_settings_survive_a_virtual_power_cycle() {
+        let mut f = Firmware::new(reference_image()).unwrap();
+        advance(&mut f, 600);
+        let original = f.flash_image();
+        f.encoder(-2);
+        advance(&mut f, 2600);
+        let saved = f.flash_image();
+        assert_ne!(
+            saved, original,
+            "firmware must commit an encoder setting through QSPI"
+        );
+        let screen = f.oled();
+        let mut restored = Firmware::new(reference_image()).unwrap();
+        restored.restore_flash(&saved).unwrap();
+        advance(&mut restored, 600);
+        assert!(
+            restored.oled() == screen,
+            "boot must restore the original firmware settings"
+        );
+        assert!(
+            restored.restore_flash(&saved).is_err(),
+            "cannot swap live flash under a booted CPU"
         );
     }
 }

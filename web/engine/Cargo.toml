@@ -9,9 +9,14 @@ publish = false
 [features]
 default=["lab"]
 lab=[]
+profile=[]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[[example]]
+name="profile"
+required-features=["profile"]
 
 [dependencies]
 virtual-daisy = { path = "../.." }
