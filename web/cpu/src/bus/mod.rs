@@ -17,6 +17,34 @@ use crate::peripheral::systick::SysTick;
 /// Trait for reading and writing via a memory bus.
 ///
 pub trait Bus {
+    /// A clocked board can synchronize MMIO against the executing core.
+    fn observes_core_cycles(&self) -> bool {
+        false
+    }
+    /// Return whether this access crossed a device scheduling boundary.
+    fn read32_at(&mut self, addr: u32, _cycles: u64) -> Result<(u32, bool), Fault> {
+        self.read32(addr).map(|value| (value, false))
+    }
+    /// Timed halfword read; ordinary buses retain their existing semantics.
+    fn read16_at(&self, addr: u32, _cycles: u64) -> Result<(u16, bool), Fault> {
+        self.read16(addr).map(|value| (value, false))
+    }
+    /// Timed byte read.
+    fn read8_at(&self, addr: u32, _cycles: u64) -> Result<(u8, bool), Fault> {
+        self.read8(addr).map(|value| (value, false))
+    }
+    /// Timed word write.
+    fn write32_at(&mut self, addr: u32, value: u32, _cycles: u64) -> Result<bool, Fault> {
+        self.write32(addr, value).map(|()| false)
+    }
+    /// Timed halfword write.
+    fn write16_at(&mut self, addr: u32, value: u16, _cycles: u64) -> Result<bool, Fault> {
+        self.write16(addr, value).map(|()| false)
+    }
+    /// Timed byte write.
+    fn write8_at(&mut self, addr: u32, value: u8, _cycles: u64) -> Result<bool, Fault> {
+        self.write8(addr, value).map(|()| false)
+    }
     /// Side-effect-free data lookup for bounded speculative instruction blocks.
     fn peek_ordinary32(&self, _address: u32) -> Option<u32> {
         None
@@ -73,7 +101,11 @@ impl Bus for Processor {
         if let Some(device) = self.device.as_ref()
             && device.in_range(addr)
         {
-            return device.read8(addr);
+            let (value, boundary) = device.read8_at(addr, self.cycle_count)?;
+            if boundary {
+                self.device_boundary.set(true);
+            }
+            return Ok(value);
         }
 
         let result = match addr {
@@ -102,7 +134,11 @@ impl Bus for Processor {
         if let Some(device) = self.device.as_ref()
             && device.in_range(addr)
         {
-            return device.read16(addr);
+            let (value, boundary) = device.read16_at(addr, self.cycle_count)?;
+            if boundary {
+                self.device_boundary.set(true);
+            }
+            return Ok(value);
         }
 
         match addr {
@@ -138,7 +174,11 @@ impl Bus for Processor {
         if let Some(device) = self.device.as_mut()
             && device.in_range(addr)
         {
-            return device.read32(addr);
+            let (value, boundary) = device.read32_at(addr, self.cycle_count)?;
+            if boundary {
+                self.device_boundary.set(true);
+            }
+            return Ok(value);
         }
 
         let result = match addr {
@@ -224,9 +264,13 @@ impl Bus for Processor {
         if let Some(device) = self.device.as_mut()
             && device.in_range(addr)
         {
-            return device.write32(addr, value);
+            if device.write32_at(addr, value, self.cycle_count)? {
+                self.device_boundary.set(true);
+            }
+            return Ok(());
         }
 
+        self.notify_device_boundary();
         match addr {
             0xE000_0000..=0xE000_007C => {
                 self.write_stim_u32(((addr - 0xE000_0000) >> 2) as u8, value);
@@ -307,9 +351,13 @@ impl Bus for Processor {
         if let Some(device) = self.device.as_mut()
             && device.in_range(addr)
         {
-            return device.write16(addr, value);
+            if device.write16_at(addr, value, self.cycle_count)? {
+                self.device_boundary.set(true);
+            }
+            return Ok(());
         }
 
+        self.notify_device_boundary();
         match addr {
             0xE000_0000..=0xE000_007C => {
                 self.write_stim_u16(((addr - 0xE000_0000) >> 2) as u8, value);
@@ -347,9 +395,13 @@ impl Bus for Processor {
         if let Some(device) = self.device.as_mut()
             && device.in_range(addr)
         {
-            return device.write8(addr, value);
+            if device.write8_at(addr, value, self.cycle_count)? {
+                self.device_boundary.set(true);
+            }
+            return Ok(());
         }
 
+        self.notify_device_boundary();
         match addr {
             0xE000_0000..=0xE000_007C => {
                 self.write_stim_u8(((addr - 0xE000_0000) >> 2) as u8, value);
@@ -386,6 +438,49 @@ mod tests {
     #[cfg(feature = "armv6m")]
     use crate::core::exception::{Exception, ExceptionHandling};
     use crate::core::fault::Fault;
+    struct ClockedBus;
+    impl Bus for ClockedBus {
+        fn observes_core_cycles(&self) -> bool {
+            true
+        }
+        fn read32_at(&mut self, _: u32, cycles: u64) -> Result<(u32, bool), Fault> {
+            Ok((cycles as u32, true))
+        }
+        fn read32(&mut self, _: u32) -> Result<u32, Fault> {
+            unreachable!("timed read was bypassed")
+        }
+        fn read16(&self, _: u32) -> Result<u16, Fault> {
+            Err(Fault::DAccViol)
+        }
+        fn read8(&self, _: u32) -> Result<u8, Fault> {
+            Err(Fault::DAccViol)
+        }
+        fn write32(&mut self, _: u32, _: u32) -> Result<(), Fault> {
+            Ok(())
+        }
+        fn write16(&mut self, _: u32, _: u16) -> Result<(), Fault> {
+            Ok(())
+        }
+        fn write8(&mut self, _: u32, _: u8) -> Result<(), Fault> {
+            Ok(())
+        }
+        fn in_range(&self, addr: u32) -> bool {
+            addr == 0x4000_0000
+        }
+    }
+    #[test]
+    fn timed_device_reads_and_core_control_writes_end_compiled_blocks() {
+        let mut cpu = Processor::new();
+        cpu.device(Some(Box::new(ClockedBus)));
+        cpu.cycle_count = 123;
+        assert_eq!(cpu.read32(0x4000_0000), Ok(123));
+        assert!(!cpu.compiled_block_ready());
+        assert!(cpu.take_device_boundary());
+        assert!(cpu.compiled_block_ready());
+        cpu.write32(0xe000_e100, 1).unwrap();
+        assert!(cpu.take_device_boundary());
+        assert!(!cpu.take_device_boundary());
+    }
     #[cfg(feature = "has-fp")]
     use crate::peripheral::scb::{FPCCR_ASPEN, FPCCR_LSPEN};
 

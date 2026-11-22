@@ -16,6 +16,7 @@ struct Emitter {
     gpr_dirty: BTreeSet<usize>,
     status_dirty: bool,
     cycles: u32,
+    branch: Option<(u32, String, u32)>,
 }
 impl Emitter {
     fn logic_flags(&mut self, value: &str, carry: &str) {
@@ -161,12 +162,43 @@ pub fn emit(instructions: &[(Instruction, usize)], pc: u32) -> Option<String> {
         stores: Vec::new(),
         next: 0,
         stored: false,
-        gprs:BTreeMap::new(),gpr_dirty:BTreeSet::new(),status_dirty:false,cycles:0,
+        gprs:BTreeMap::new(),gpr_dirty:BTreeSet::new(),status_dirty:false,cycles:0,branch:None,
     };
     let mut at = pc;
     for (i, size) in instructions {
+        if e.branch.is_some() {
+            return None;
+        }
         e.cycles += 1;
         match i {
+            Instruction::B_t13 { params, .. } => {
+                let condition = e.name();
+                e.code.push_str(&format!("let {condition}=zmu_cortex_m::core::operation::condition_test(zmu_cortex_m::core::condition::Condition::{:?},&zmu_cortex_m::core::register::PSR{{value:_status}});\n",params.cond));
+                e.branch = Some((
+                    at.wrapping_add(4).wrapping_add_signed(params.imm32),
+                    condition,
+                    2,
+                ));
+            }
+            Instruction::B_t24 { imm32, .. } => {
+                e.branch = Some((
+                    at.wrapping_add(4).wrapping_add_signed(*imm32),
+                    "true".into(),
+                    2,
+                ));
+            }
+            Instruction::CBZ { params } | Instruction::CBNZ { params } => {
+                let value = e.gpr(params.rn)?;
+                let condition = e.name();
+                let operator = if matches!(i, Instruction::CBZ { .. }) {
+                    "=="
+                } else {
+                    "!="
+                };
+                e.code
+                    .push_str(&format!("let {condition}={value}{operator}0;\n"));
+                e.branch = Some((at.wrapping_add(4).wrapping_add(params.imm32), condition, 0));
+            }
             Instruction::MOV_imm { params, .. } => {
                 let (value, carry) = e.immediate(params.imm32);
                 if params.setflags != SetFlags::False {
@@ -505,8 +537,16 @@ pub fn emit(instructions: &[(Instruction, usize)], pc: u32) -> Option<String> {
             "cpu.fp_lift_store_word({address},{value}).unwrap();\n"
         ));
     }
+    let (next, cycles) = if let Some((target, condition, extra)) = &e.branch {
+        (
+            format!("if {condition}{{{target}}}else{{{at}}}"),
+            format!("{}+if {condition}{{{extra}}}else{{0}}", e.cycles),
+        )
+    } else {
+        (at.to_string(), e.cycles.to_string())
+    };
     e.code.push_str(&format!(
-        "cpu.set_pc({at});cpu.instruction_count+={};cpu.lifted_instructions+={};\n",
+        "cpu.set_pc({next});cpu.instruction_count+={};cpu.lifted_instructions+={};\n",
         instructions.len(),
         instructions.len()
     ));
@@ -522,7 +562,7 @@ pub fn emit(instructions: &[(Instruction, usize)], pc: u32) -> Option<String> {
     );
     e.code.push_str(&format!(
         "cpu.finish_compiled_block({});return true;}}}}\n",
-        e.cycles
+        cycles
     ));
     Some(e.code)
 }

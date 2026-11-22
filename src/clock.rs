@@ -294,6 +294,29 @@ impl ClockTree {
             _ => Err("reserved CKPER source"),
         }
     }
+    /// Nanoseconds until the next SAI frame at the current exact rational phase.
+    pub fn next_audio_ns(&self, cr1: u32, frcr: u32) -> Result<Option<u64>, &'static str> {
+        if cr1 & (1 << 16) == 0 || self.read(0xf0) & (1 << 22) == 0 {
+            return Ok(None);
+        }
+        let rate = if self.audio_configuration == Some((cr1, frcr)) {
+            self.last_rate.unwrap()
+        } else {
+            self.sample_rate(cr1, frcr)?
+        };
+        if rate.numerator == 0 {
+            return Ok(None);
+        }
+        let phase = if self.last_rate == Some(rate) {
+            self.phase
+        } else {
+            0
+        };
+        let remaining = u128::from(rate.denominator) * 1_000_000_000 - phase;
+        u64::try_from(remaining.div_ceil(u128::from(rate.numerator)))
+            .map(Some)
+            .map_err(|_| "audio deadline too large")
+    }
     pub fn advance(&mut self, cr1: u32, frcr: u32, nanoseconds: u64) -> Result<u32, &'static str> {
         if cr1 & (1 << 16) == 0 || self.read(0xf0) & (1 << 22) == 0 {
             self.phase = 0;

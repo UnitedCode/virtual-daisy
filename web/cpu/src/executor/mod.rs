@@ -224,6 +224,8 @@ impl Processor {
     /// are serviced by the caller; a core timer cannot expire inside a block.
     pub fn compiled_block_ready(&self) -> bool {
         !self.sleeping
+            && !self.device_boundary.get()
+            && self.pending_fault_trap.is_none()
             && self.itstate == 0
             && self.get_pending_exception().is_none()
             && (self.syst_csr & 1 == 0 || self.syst_cvr > 64)
@@ -240,7 +242,11 @@ impl Processor {
     /// Stop a translated block on a changed PC or a newly eligible interrupt.
     #[inline(always)]
     pub fn compiled_block_continues(&mut self, next: u32) -> bool {
-        self.get_pc() == next && !self.sleeping && self.get_pending_exception().is_none()
+        self.get_pc() == next
+            && !self.sleeping
+            && !self.device_boundary.get()
+            && self.pending_fault_trap.is_none()
+            && self.get_pending_exception().is_none()
     }
     /// Advance core clocks and exception delivery after a straight-line block.
     #[inline(always)]

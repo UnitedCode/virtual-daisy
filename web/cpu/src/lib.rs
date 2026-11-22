@@ -239,6 +239,8 @@ pub struct Processor {
     mem_map: Option<MemoryMapConfig>,
 
     device: Option<DeviceBus>,
+    clocked_device: bool,
+    device_boundary: std::cell::Cell<bool>,
 }
 
 #[cfg(feature = "has-fp")]
@@ -418,6 +420,8 @@ impl Processor {
             last_pc: 0,
             mem_map: None,
             device: None,
+            clocked_device: false,
+            device_boundary: std::cell::Cell::new(false),
         }
     }
 
@@ -435,8 +439,20 @@ impl Processor {
 
     /// Attach or replace the external device/peripheral bus implementation.
     pub fn device(&mut self, device: Option<DeviceBus>) -> &mut Self {
+        self.clocked_device = device
+            .as_ref()
+            .is_some_and(|bus| bus.observes_core_cycles());
         self.device = device;
         self
+    }
+    /// Consume a clocked device or exception scheduling boundary.
+    pub fn take_device_boundary(&self) -> bool {
+        self.device_boundary.replace(false)
+    }
+    pub(crate) fn notify_device_boundary(&self) {
+        if self.clocked_device {
+            self.device_boundary.set(true);
+        }
     }
 
     /// Configure itm output file

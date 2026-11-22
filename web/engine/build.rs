@@ -69,6 +69,15 @@ fn straight(i: &Instruction) -> bool {
                 | Instruction::DSP { .. }
         )
 }
+fn terminal(i: &Instruction) -> bool {
+    matches!(
+        i,
+        Instruction::B_t13 { .. }
+            | Instruction::B_t24 { .. }
+            | Instruction::CBZ { .. }
+            | Instruction::CBNZ { .. }
+    )
+}
 fn main() {
     println!("cargo:rerun-if-changed=../firmware/synthphone.bin");
     println!("cargo:rerun-if-changed=fp_lift.rs");
@@ -76,9 +85,9 @@ fn main() {
     let image = fs::read("../firmware/synthphone.bin").unwrap();
     let hash = Sha256::digest(&image);
     let mut out = format!("pub const IMAGE_HASH:[u8;32]={:?};\n", hash.as_slice());
-    out.push_str("use zmu_cortex_m::{Processor,core::{instruction::{*,SetFlags::*,SRType::*,Imm32Carry::*},register::{BaseReg,Reg,Reg::*,SingleReg::*,DoubleReg::*,ExtensionReg::*}}};\n");
+    out.push_str("use zmu_cortex_m::{Processor,core::{condition::Condition::*,instruction::{*,SetFlags::*,SRType::*,Imm32Carry::*},register::{BaseReg,Reg,Reg::*,SingleReg::*,DoubleReg::*,ExtensionReg::*}}};\n");
     out.push_str(fp_lift::HELPERS);
-    out.push_str("pub fn dispatch(cpu:&mut Processor,pc:u32)->bool {let Some(&index)=INDEX.get(pc.wrapping_sub(0x08000000)as usize/2)else{return false;};if index==0||!cpu.compiled_block_ready(){return false;}match index {\n");
+    out.push_str("pub fn dispatch(cpu:&mut Processor,mut pc:u32,budget:u64)->bool {let start=cpu.cycle_count;let mut executed=false;while cpu.cycle_count-start+64<=budget {if !dispatch_one(cpu,pc){break;}executed=true;pc=cpu.get_pc();}executed}\nfn dispatch_one(cpu:&mut Processor,pc:u32)->bool {let Some(&index)=INDEX.get(pc.wrapping_sub(0x08000000)as usize/2)else{return false;};if index==0||!cpu.compiled_block_ready(){return false;}match index {\n");
     let c = Processor::new();
     let mut offset = 0;
     let mut count = 0;
@@ -150,14 +159,18 @@ fn main() {
             let Ok(instruction) = instruction else {
                 break;
             };
-            if !straight(&instruction) {
+            if !straight(&instruction) && !terminal(&instruction) {
                 break;
             }
+            let last = terminal(&instruction);
             let size = instruction_size(&instruction);
             instructions.push((instruction, size));
             offset += size;
+            if last {
+                break;
+            }
         }
-        if instructions.len() >= 3 {
+        if instructions.len() >= 2 {
             let mut at = 0x08000000 + start as u32;
             let score = instructions
                 .iter()
