@@ -485,6 +485,14 @@ impl Board {
     pub fn irqs(&self) -> u32 {
         self.peripherals[&0x40020000].1.dma_interrupts()
     }
+    pub fn peripheral_irqs(&self) -> [(usize, bool); 4] {
+        [
+            (37, self.uart_irq()),
+            (28, self.timer_irq()),
+            (87, self.peripherals[&0x40015800].1.audio_interrupt()),
+            (92, self.peripherals[&0x52005000].1.qspi_interrupt()),
+        ]
+    }
     pub fn take_audio(&mut self) -> Vec<f32> {
         self.peripherals
             .get_mut(&0x40015800)

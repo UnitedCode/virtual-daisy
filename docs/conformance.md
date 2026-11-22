@@ -1,5 +1,8 @@
 # Daisy hardware conformance
 
+This ledger describes the native Renode adapter. The separate Rust/browser
+adapter has additional gaps documented in the [parity audit](rust-backend-parity.md).
+
 The current emulator is **not 100% equivalent to a real Daisy**. Booting an ELF
 and producing correctly tuned PCM demonstrates those functional behaviors for
 that fixture. It does not validate unmeasured properties of silicon or analog

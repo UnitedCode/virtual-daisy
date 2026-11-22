@@ -13,6 +13,10 @@ firmware lab renders complete clips and offers WAV downloads. Processing stays
 on the visitor's computer; the host serves static files. Timing is functional,
 not hardware calibrated.
 
+The Rust path is not yet equivalent to the native Renode backend. See the
+[parity audit](../docs/rust-backend-parity.md) for verified scope and missing
+connections; the older conformance ledger is not a browser-backend certificate.
+
 <details><summary>Build and run locally</summary>
 
 Install the `wasm32-unknown-unknown` Rust target and `wasm-bindgen-cli` version

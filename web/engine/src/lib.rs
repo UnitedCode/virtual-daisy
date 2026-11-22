@@ -14,6 +14,8 @@ use zmu_cortex_m::{
 mod adc;
 mod board;
 mod i2c;
+#[cfg(test)]
+mod parity;
 mod timer;
 mod uart;
 mod compiled {
@@ -43,26 +45,41 @@ impl Firmware {
             ));
         }
         let irqs = board.irqs();
-        use zmu_cortex_m::core::exception::{Exception, ExceptionHandling};
         for (stream, n) in [11, 12, 13, 14, 15, 16, 17, 47].iter().enumerate() {
-            let enabled = self.cpu.nvic_interrupt_enabled[n / 32] & (1 << (n % 32)) != 0;
-            let e = Exception::Interrupt { n: *n };
-            if irqs & (1 << stream) != 0 && enabled && !self.cpu.exception_active(e) {
-                self.cpu.set_exception_pending(e);
-            }
+            sample_interrupt(
+                &mut self.cpu,
+                &mut self.irq_levels,
+                *n,
+                irqs & (1 << stream) != 0,
+            );
         }
-        for (asserted, n) in [(board.uart_irq(), 37usize), (board.timer_irq(), 28)] {
-            let e = Exception::Interrupt { n };
-            if asserted
-                && self.cpu.nvic_interrupt_enabled[n / 32] & (1 << (n % 32)) != 0
-                && !self.cpu.exception_active(e)
-            {
-                self.cpu.set_exception_pending(e);
-            }
+        for (n, asserted) in board.peripheral_irqs() {
+            sample_interrupt(&mut self.cpu, &mut self.irq_levels, n, asserted);
         }
         self.next_service_cycle =
             self.cpu.cycle_count + board.next_service_cycles(self.maximum_service_ns)?;
         Ok(())
+    }
+}
+// PM0253 4.2.10: HIGH while inactive, or a rising edge even while active,
+// latches pending independently of NVIC enable. Deasserting never clears it.
+fn sample_interrupt(cpu: &mut Processor, levels: &mut [u32; 5], n: usize, asserted: bool) {
+    use zmu_cortex_m::core::exception::{Exception, ExceptionHandling};
+    use zmu_cortex_m::peripheral::nvic::NVIC;
+    let bank = &mut levels[n / 32];
+    let mask = 1 << (n % 32);
+    let was_high = *bank & mask != 0;
+    if asserted {
+        *bank |= mask;
+        let exception = Exception::Interrupt { n };
+        if !was_high || !cpu.exception_active(exception) {
+            // ISPR holds the architectural latch; the NVIC separately selects
+            // enabled exceptions for execution. Direct exception injection
+            // bypasses that enable gate and omits the readable pending bit.
+            cpu.nvic_write_ispr(n / 32, mask);
+        }
+    } else {
+        *bank &= !mask;
     }
 }
 /// Original, unmodified ARM image for consumers building the Synthphone UI.
@@ -76,6 +93,7 @@ mod browser;
 pub struct Firmware {
     cpu: Processor,
     board: Rc<RefCell<board::Board>>,
+    irq_levels: [u32; 5],
     next_service_cycle: u64,
     maximum_service_ns: u64,
     slice_deadline: u64,
@@ -163,6 +181,7 @@ impl Firmware {
         Ok(Self {
             cpu,
             board,
+            irq_levels: [0; 5],
             next_service_cycle: 0,
             maximum_service_ns: 100_000,
             slice_deadline: u64::MAX,
