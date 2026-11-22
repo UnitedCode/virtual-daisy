@@ -92,6 +92,7 @@ impl IsaFloatingPointLoadAndStore for Processor {
     #[inline(always)]
     fn exec_vldm_t1(&mut self, params: &VStoreMultipleParams64) -> ExecuteResult {
         if self.condition_passed() {
+            self.execute_fp_check()?;
             let base = self.get_r(params.rn);
             let mut address = if params.mode == AddressingMode::IncrementAfter {
                 base
@@ -127,6 +128,7 @@ impl IsaFloatingPointLoadAndStore for Processor {
     #[inline(always)]
     fn exec_vldm_t2(&mut self, params: &VStoreMultipleParams32) -> ExecuteResult {
         if self.condition_passed() {
+            self.execute_fp_check()?;
             let base = self.get_r(params.rn);
             let mut address = if params.mode == AddressingMode::IncrementAfter {
                 base
@@ -300,6 +302,77 @@ mod tests {
         let mut processor = Processor::new();
         processor.cpacr = 0x00f0_0000;
         processor
+    }
+
+    #[test]
+    fn vldm_preserves_pending_lazy_registers_before_loading_and_activates_fp() {
+        for double in [false, true] {
+            let mut cpu = fp_test_processor();
+            cpu.fpccr = 0xc0000001;
+            cpu.fpcar = 0x20001020;
+            cpu.fpscr = 16;
+            for i in 0..16 {
+                cpu.fp_regs[i] = 0x3f800000 + i as u32;
+            }
+            let old = cpu.fp_regs;
+            for n in 0..8 {
+                cpu.write32(cpu.fpcar - 32 + n * 4, 0x12345678 + n).unwrap();
+            }
+            cpu.set_r(Reg::R3, 0x20002000);
+            cpu.write32(0x20002000, 7f32.to_bits()).unwrap();
+            cpu.write32(0x20002004, 8f32.to_bits()).unwrap();
+            if double {
+                let mut list = EnumSet::new();
+                list.insert(DoubleReg::D0);
+                cpu.exec_vldm_t1(&VStoreMultipleParams64 {
+                    mode: AddressingMode::IncrementAfter,
+                    rn: Reg::R3,
+                    write_back: true,
+                    list,
+                    imm32: 8,
+                })
+                .unwrap();
+            } else {
+                let mut list = EnumSet::new();
+                list.insert(SingleReg::S0);
+                cpu.exec_vldm_t2(&VStoreMultipleParams32 {
+                    mode: AddressingMode::IncrementAfter,
+                    rn: Reg::R3,
+                    write_back: true,
+                    list,
+                    imm32: 4,
+                })
+                .unwrap();
+            }
+            assert!(cpu.control.fpca);
+            assert_eq!(cpu.fpccr & 1, 0);
+            assert_eq!(cpu.fp_regs[0], 7f32.to_bits());
+            for i in 0..16 {
+                assert_eq!(cpu.read32(cpu.fpcar + i * 4).unwrap(), old[i as usize]);
+            }
+            for n in 0..8 {
+                assert_eq!(cpu.read32(cpu.fpcar - 32 + n * 4).unwrap(), 0x12345678 + n);
+            }
+            assert_eq!(cpu.read32(cpu.fpcar + 0x40).unwrap(), 16);
+        }
+    }
+    #[test]
+    fn vldm_checks_coprocessor_access_before_base_writeback() {
+        let mut cpu = Processor::new();
+        cpu.set_r(Reg::R3, 0x20002000);
+        let mut list = EnumSet::new();
+        list.insert(SingleReg::S0);
+        assert_eq!(
+            cpu.exec_vldm_t2(&VStoreMultipleParams32 {
+                mode: AddressingMode::IncrementAfter,
+                rn: Reg::R3,
+                write_back: true,
+                list,
+                imm32: 4
+            }),
+            Err(crate::core::fault::Fault::Nocp)
+        );
+        assert_eq!(cpu.get_r(Reg::R3), 0x20002000);
     }
 
     #[test]

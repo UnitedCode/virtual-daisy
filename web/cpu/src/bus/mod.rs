@@ -17,6 +17,14 @@ use crate::peripheral::systick::SysTick;
 /// Trait for reading and writing via a memory bus.
 ///
 pub trait Bus {
+    /// Side-effect-free data lookup for bounded speculative instruction blocks.
+    fn peek_ordinary32(&self, _address: u32) -> Option<u32> {
+        None
+    }
+    /// Validate a deferred ordinary-memory store without modifying the bus.
+    fn can_write_ordinary32(&self, _address: u32) -> bool {
+        false
+    }
     /// Notify an attached board of a core control-register change.
     /// Boards can keep cache policy synchronized without taking over the SCB.
     fn core_config_changed(&mut self, _address: u32, _value: u32) -> Result<(), Fault> {

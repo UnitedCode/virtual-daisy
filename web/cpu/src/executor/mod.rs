@@ -163,6 +163,63 @@ fn conditional_setflags(setflags: SetFlags, in_it_block: bool) -> bool {
 }
 
 impl Processor {
+    /// Check the control state required for speculative straight-line VFP lifting.
+    #[cfg(feature = "has-fp")]
+    #[inline(always)]
+    pub fn fp_lift_ready(&self) -> bool {
+        self.compiled_block_ready()
+            && self.native_float
+            && self.cpacr & 0x00f0_0000 == 0x00f0_0000
+            && self.fpccr & 1 == 0
+            && (self.fpccr & (1 << 31) == 0 || self.control.fpca)
+            && self.fpscr & 0x00c0_9f00 == 0
+    }
+    /// Read ordinary DTCM/flash without observable peripheral effects.
+    #[cfg(feature = "has-fp")]
+    #[inline(always)]
+    pub fn fp_lift_load(&mut self, address: u32) -> Option<u32> {
+        use crate::bus::Bus;
+        let end = address.checked_add(3)?;
+        if self.sram.in_range(address) && self.sram.in_range(end) {
+            return self.sram.read32(address).ok();
+        }
+        let mapped = self.map_address(address);
+        let mapped_end = mapped.checked_add(3)?;
+        if self.code.in_range(mapped) && self.code.in_range(mapped_end) {
+            self.code.read32(mapped).ok()
+        } else {
+            self.device
+                .as_ref()
+                .and_then(|device| device.peek_ordinary32(address))
+        }
+    }
+    /// Validate a deferred VFP store to ordinary DTCM.
+    #[cfg(feature = "has-fp")]
+    #[inline(always)]
+    pub fn fp_lift_store_address(&self, address: u32) -> bool {
+        use crate::bus::Bus;
+        (address
+            .checked_add(3)
+            .is_some_and(|end| self.sram.in_range(address) && self.sram.in_range(end)))
+            || self
+                .device
+                .as_ref()
+                .is_some_and(|device| device.can_write_ordinary32(address))
+    }
+    /// Commit one validated deferred DTCM store.
+    #[cfg(feature = "has-fp")]
+    #[inline(always)]
+    pub fn fp_lift_store_word(&mut self, address: u32, value: u32) -> Result<(), Fault> {
+        use crate::bus::Bus;
+        if !self.fp_lift_store_address(address) {
+            return Err(Fault::DAccViol);
+        }
+        if self.sram.in_range(address) {
+            self.sram.write32(address, value)
+        } else {
+            self.write32(address, value)
+        }
+    }
     /// Entry gate for ahead-of-time decoded straight-line blocks. Board events
     /// are serviced by the caller; a core timer cannot expire inside a block.
     pub fn compiled_block_ready(&self) -> bool {
@@ -186,6 +243,7 @@ impl Processor {
         self.get_pc() == next && !self.sleeping && self.get_pending_exception().is_none()
     }
     /// Advance core clocks and exception delivery after a straight-line block.
+    #[inline(always)]
     pub fn finish_compiled_block(&mut self, cycles: u32) {
         self.cycle_count += u64::from(cycles);
         self.syst_step(cycles);
