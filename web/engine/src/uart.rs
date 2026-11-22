@@ -75,4 +75,7 @@ impl Uart {
     pub fn irq(&self) -> bool {
         !self.rx.is_empty() && self.regs[0] & (1 << 5) != 0
     }
+    pub fn next_event(&self) -> Option<u64> {
+        self.pending.front().map(|v| v.0)
+    }
 }

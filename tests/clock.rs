@@ -14,6 +14,27 @@ fn fractional_audio_clock() -> ClockTree {
 }
 
 #[test]
+fn audio_deadlines_match_exact_frame_edges_across_fractional_phases_and_gates() {
+    let mut clock = fractional_audio_clock();
+    let cr = (1 << 16) | (4 << 20);
+    for n in 0..300 {
+        let cr = (1 << 16) | ((if n < 150 { 4 } else { 3 }) << 20);
+        let next = clock.next_audio_ns(cr, 63).unwrap().unwrap();
+        assert_eq!(clock.advance(cr, 63, next - 1).unwrap(), 0);
+        assert_eq!(clock.next_audio_ns(cr, 63).unwrap(), Some(1));
+        assert_eq!(clock.advance(cr, 63, 1).unwrap(), 1);
+    }
+    assert_eq!(clock.next_audio_ns(0, 63).unwrap(), None);
+    clock.write(0xf0, 0);
+    assert_eq!(clock.next_audio_ns(cr, 63).unwrap(), None);
+    clock.write(0xf0, 1 << 22);
+    clock.write(0x50, 4);
+    clock.write(0x4c, 2 << 28);
+    clock.write(0, 1);
+    assert_eq!(clock.next_audio_ns(cr, 63).unwrap(), None);
+}
+
+#[test]
 fn cached_clock_advance_matches_wide_arithmetic_and_configuration_changes() {
     let mut clock = fractional_audio_clock();
     let mut phase = 0u128;

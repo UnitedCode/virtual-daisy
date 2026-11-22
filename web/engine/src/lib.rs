@@ -19,6 +19,41 @@ mod uart;
 mod compiled {
     include!(concat!(env!("OUT_DIR"), "/compiled.rs"));
 }
+impl Firmware {
+    fn service(&mut self) -> Result<(), String> {
+        let mut board = self.board.borrow_mut();
+        board.synchronize(self.cpu.cycle_count)?;
+        self.cpu.take_device_boundary();
+        if let Some(error) = board.error.take() {
+            return Err(format!(
+                "{error}; PC=0x{:08x}, instructions={}",
+                self.cpu.get_pc(),
+                self.cpu.instruction_count
+            ));
+        }
+        let irqs = board.irqs();
+        use zmu_cortex_m::core::exception::{Exception, ExceptionHandling};
+        for (stream, n) in [11, 12, 13, 14, 15, 16, 17, 47].iter().enumerate() {
+            let enabled = self.cpu.nvic_interrupt_enabled[n / 32] & (1 << (n % 32)) != 0;
+            let e = Exception::Interrupt { n: *n };
+            if irqs & (1 << stream) != 0 && enabled && !self.cpu.exception_active(e) {
+                self.cpu.set_exception_pending(e);
+            }
+        }
+        for (asserted, n) in [(board.uart_irq(), 37usize), (board.timer_irq(), 28)] {
+            let e = Exception::Interrupt { n };
+            if asserted
+                && self.cpu.nvic_interrupt_enabled[n / 32] & (1 << (n % 32)) != 0
+                && !self.cpu.exception_active(e)
+            {
+                self.cpu.set_exception_pending(e);
+            }
+        }
+        self.next_service_cycle =
+            self.cpu.cycle_count + board.next_service_cycles(self.maximum_service_ns)?;
+        Ok(())
+    }
+}
 /// Original, unmodified ARM image for consumers building the Synthphone UI.
 pub fn reference_image() -> &'static [u8] {
     include_bytes!("../../firmware/synthphone.bin")
@@ -30,8 +65,9 @@ mod browser;
 pub struct Firmware {
     cpu: Processor,
     board: Rc<RefCell<board::Board>>,
-    pending_cycles: u64,
-    service_cycles: u64,
+    next_service_cycle: u64,
+    maximum_service_ns: u64,
+    slice_deadline: u64,
     idle_pc: Option<u32>,
     delay_pc: Vec<u32>,
     translated: bool,
@@ -114,8 +150,9 @@ impl Firmware {
         Ok(Self {
             cpu,
             board,
-            pending_cycles: 0,
-            service_cycles: 64,
+            next_service_cycle: 0,
+            maximum_service_ns: 100_000,
+            slice_deadline: u64::MAX,
             idle_pc,
             delay_pc,
             translated,
@@ -124,13 +161,15 @@ impl Firmware {
         })
     }
     pub fn run(&mut self, steps: u32) -> Result<Vec<u32>, String> {
+        if self.next_service_cycle == 0 {
+            self.service()?;
+        }
         for _ in 0..steps.min(10_000_000) {
-            let before = self.cpu.cycle_count;
             let pc = self.cpu.get_r(Reg::PC);
             let budget = self
-                .service_cycles
-                .saturating_sub(self.pending_cycles)
-                .min(440) as u32;
+                .next_service_cycle
+                .saturating_sub(self.cpu.cycle_count)
+                .min(u64::from(u32::MAX)) as u32;
             #[cfg(feature = "profile")]
             if let Some(count) = self
                 .profile
@@ -143,9 +182,9 @@ impl Firmware {
                 && self.cpu.advance_decrement_loop(budget)
             {
             } else if self.translated
-                && self.service_cycles.saturating_sub(self.pending_cycles) >= 64
+                && self.next_service_cycle.saturating_sub(self.cpu.cycle_count) >= 64
                 && compiled::contains(pc - 4)
-                && compiled::dispatch(&mut self.cpu, pc - 4)
+                && compiled::dispatch(&mut self.cpu, pc - 4, u64::from(budget.min(256)))
             {
             } else if self.cpu.sleeping {
                 self.cpu.step_sleep();
@@ -162,50 +201,29 @@ impl Firmware {
                     self.cpu.get_r(Reg::SP)
                 ));
             }
-            self.pending_cycles += self.cpu.cycle_count - before;
-            if self.pending_cycles < self.service_cycles {
-                continue;
-            }
-            self.board
-                .borrow_mut()
-                .advance(std::mem::take(&mut self.pending_cycles))?;
-            self.service_cycles = (self.board.borrow().core_rate / 1_000_000.0).max(1.0) as u64;
-            if let Some(error) = self.board.borrow_mut().error.take() {
-                return Err(format!(
-                    "{error}; PC=0x{pc:08x}, instructions={}",
-                    self.cpu.instruction_count
-                ));
-            }
-            let irqs = self.board.borrow().irqs();
-            use zmu_cortex_m::core::exception::{Exception, ExceptionHandling};
-            for (stream, n) in [11, 12, 13, 14, 15, 16, 17, 47].iter().enumerate() {
-                let enabled = self.cpu.nvic_interrupt_enabled[n / 32] & (1 << (n % 32)) != 0;
-                let e = Exception::Interrupt { n: *n };
-                if irqs & (1 << stream) != 0 && enabled && !self.cpu.exception_active(e) {
-                    self.cpu.set_exception_pending(e);
-                }
-            }
-            if self.board.borrow().uart_irq() && self.cpu.nvic_interrupt_enabled[1] & (1 << 5) != 0
-            {
-                let e = Exception::Interrupt { n: 37 };
-                if !self.cpu.exception_active(e) {
-                    self.cpu.set_exception_pending(e);
-                }
-            }
-            if self.board.borrow().timer_irq()
-                && self.cpu.nvic_interrupt_enabled[0] & (1 << 28) != 0
-            {
-                let e = Exception::Interrupt { n: 28 };
-                if !self.cpu.exception_active(e) {
-                    self.cpu.set_exception_pending(e);
+            if self.cpu.take_device_boundary() || self.cpu.cycle_count >= self.next_service_cycle {
+                self.service()?;
+                if self.board.borrow().now_ns >= self.slice_deadline {
+                    break;
                 }
             }
         }
+        // Host controls and persisted flash observe the end of this CPU slice.
+        self.service()?;
         Ok(vec![
             self.cpu.get_r(Reg::PC),
             self.cpu.instruction_count as u32,
             self.cpu.cycle_count as u32,
         ])
+    }
+    /// Bound a browser slice by both CPU work and elapsed board time.
+    /// This keeps a fast idle loop from exhausting captured microphone frames.
+    pub fn run_for(&mut self, steps: u32, nanoseconds: u64) -> Result<Vec<u32>, String> {
+        let deadline = self.virtual_time_ns().saturating_add(nanoseconds);
+        let previous = std::mem::replace(&mut self.slice_deadline, deadline);
+        let result = self.run(steps);
+        self.slice_deadline = previous;
+        result
     }
     pub fn midi(&mut self, bytes: &[u8]) -> Result<(), String> {
         self.board
@@ -440,6 +458,51 @@ mod tests {
         );
     }
     #[test]
+    fn browser_slices_stop_before_consuming_future_microphone_audio() {
+        let mut f = Firmware::new(reference_image()).unwrap();
+        for _ in 0..8 {
+            let before = f.virtual_time_ns();
+            f.run_for(1_000_000, 2_000_000).unwrap();
+            let elapsed = f.virtual_time_ns() - before;
+            assert!(
+                (2_000_000..2_101_000).contains(&elapsed),
+                "unbounded browser slice: {elapsed} ns"
+            );
+        }
+    }
+    #[test]
+    fn scheduled_audio_agrees_with_fine_clock_service() {
+        fn capture(maximum_ns: u64) -> Vec<f32> {
+            let mut f = Firmware::new(reference_image()).unwrap();
+            f.maximum_service_ns = maximum_ns;
+            f.input(
+                &(0..12_000)
+                    .map(|n| (n as f32 * 0.0287).sin() * 0.16)
+                    .collect::<Vec<_>>(),
+            );
+            let mut audio = Vec::new();
+            while audio.len() < 12_000 {
+                f.run(50_000).unwrap();
+                audio.extend(f.take_audio());
+            }
+            audio.truncate(12_000);
+            audio
+        }
+        let scheduled = capture(100_000);
+        let fine = capture(1_000);
+        assert!(scheduled.iter().any(|sample| sample.abs() > 0.01));
+        let error = scheduled
+            .iter()
+            .zip(&fine)
+            .map(|(a, b)| (a - b).abs())
+            .sum::<f32>()
+            / scheduled.len() as f32;
+        assert!(
+            error < 0.0001,
+            "board service changed firmware PCM: {error}"
+        );
+    }
+    #[test]
     fn physical_keypad_scan_drives_the_firmware_screen() {
         let mut f = Firmware::new(include_bytes!("../../firmware/synthphone.bin")).unwrap();
         f.run(3_000_000).unwrap();
@@ -466,6 +529,48 @@ mod tests {
             f.run(100_000).unwrap();
             f.take_audio();
         }
+    }
+    #[test]
+    fn all_six_original_profiles_stream_finite_audio() {
+        let mut f = Firmware::new(reference_image()).unwrap();
+        advance(&mut f, 500);
+        f.input(
+            &(0..96028)
+                .map(|n| (n as f32 * 220. * std::f32::consts::TAU / 48_187.487).sin() * 0.16)
+                .collect::<Vec<_>>(),
+        );
+        f.midi(&[0x90, 69, 100, 0x91, 60, 100, 64, 90, 67, 90])
+            .unwrap();
+        let mut displays = std::collections::BTreeSet::new();
+        for mode in 0..6 {
+            if mode == 5 {
+                f.midi(&[0x99, 36, 100]).unwrap();
+            }
+            let end = f.virtual_time_ns() + 120_000_000;
+            let mut samples = 0;
+            while f.virtual_time_ns() < end {
+                f.run(100_000).unwrap();
+                let audio = f.take_audio();
+                assert!(
+                    audio.iter().all(|sample| sample.is_finite()),
+                    "profile {mode} emitted invalid PCM"
+                );
+                samples += audio.len();
+            }
+            assert!(samples > 4800, "profile {mode} stalled the codec");
+            displays.insert(f.oled());
+            if mode < 5 {
+                f.key(10, true).unwrap();
+                advance(&mut f, 40);
+                f.key(10, false).unwrap();
+                advance(&mut f, 40);
+            }
+        }
+        assert_eq!(
+            displays.len(),
+            6,
+            "the physical controls must reach six distinct firmware profiles"
+        );
     }
     #[test]
     fn encoder_button_and_rotation_reach_the_original_menu() {

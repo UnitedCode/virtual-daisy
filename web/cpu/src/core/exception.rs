@@ -670,6 +670,7 @@ impl ExceptionHandling for Processor {
     }
 
     fn exception_entry(&mut self, exception: Exception, return_address: u32) -> Result<(), Fault> {
+        self.notify_device_boundary();
         self.exclusive_monitor = None;
         if exception == Exception::Reset {
             self.reset()
@@ -684,6 +685,7 @@ impl ExceptionHandling for Processor {
     }
 
     fn exception_return(&mut self, exc_return: u32) -> Result<(), Fault> {
+        self.notify_device_boundary();
         assert!(self.mode == ProcessorMode::HandlerMode);
 
         let returning_exception_number = self.psr.get_isr_number();

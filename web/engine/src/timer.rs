@@ -74,4 +74,15 @@ impl Timer {
     pub fn irq(&self) -> bool {
         self.regs[4] & self.regs[3] & 1 != 0
     }
+    pub fn next_ns(&self, hz: f64) -> Option<u64> {
+        if self.regs[0] & 1 == 0 || hz <= 0.0 {
+            return None;
+        }
+        let ticks = f64::from(self.arr) + 1.0 - f64::from(self.counter) - self.ticks;
+        Some(
+            (ticks * (f64::from(self.psc) + 1.0) * 1e9 / hz)
+                .ceil()
+                .max(1.0) as u64,
+        )
+    }
 }

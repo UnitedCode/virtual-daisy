@@ -18,6 +18,8 @@ extern "C" {
     fn new(image: &Uint8Array) -> Result<Cpu, JsValue>;
     #[wasm_bindgen(method, catch)]
     fn run(this: &Cpu, steps: u32) -> Result<Uint32Array, JsValue>;
+    #[wasm_bindgen(method, catch)]
+    fn run_for(this: &Cpu, steps: u32, nanoseconds: u64) -> Result<Uint32Array, JsValue>;
     #[wasm_bindgen(method)]
     fn input(this: &Cpu, samples: &Float32Array);
     #[wasm_bindgen(method, catch)]
@@ -509,6 +511,9 @@ async fn power() -> Result<(), JsValue> {
     Ok(())
 }
 async fn microphone() -> Result<(), JsValue> {
+    let Some(context) = APP.with(|s| s.borrow().as_ref().map(|a| a.context.clone())) else {
+        return Ok(());
+    };
     let existing = APP.with(|s| s.borrow().as_ref().is_some_and(|a| a.stream.is_some()));
     if existing {
         APP.with(|s| {
@@ -539,14 +544,25 @@ async fn microphone() -> Result<(), JsValue> {
     )
     .await?
     .dyn_into()?;
-    APP.with(|s| -> Result<(), JsValue> {
+    let attached = APP.with(|s| -> Result<bool, JsValue> {
         let mut s = s.borrow_mut();
-        let a = s.as_mut().unwrap();
+        let Some(a) = s
+            .as_mut()
+            .filter(|a| Object::is(a.context.as_ref(), context.as_ref()) && a.stream.is_none())
+        else {
+            return Ok(false);
+        };
         let source = a.context.create_media_stream_source(&stream)?;
         source.connect_with_audio_node(&a.node)?;
-        a.stream = Some(stream);
-        Ok(())
-    })?;
+        a.stream = Some(stream.clone());
+        Ok(true)
+    });
+    if !matches!(attached, Ok(true)) {
+        for track in stream.get_tracks().iter() {
+            track.unchecked_into::<MediaStreamTrack>().stop();
+        }
+        return attached.map(|_| ());
+    }
     text("microphone", "MIC ON");
     Ok(())
 }
@@ -605,7 +621,9 @@ async fn load_file(file: File) -> Result<(), JsValue> {
 fn refresh_midi() -> Result<(), JsValue> {
     APP.with(|s| -> Result<(), JsValue> {
         let mut s = s.borrow_mut();
-        let a = s.as_mut().unwrap();
+        let Some(a) = s.as_mut() else {
+            return Ok(());
+        };
         if let Some(port) = a.output_index.and_then(|index| a.outputs.get(index)) {
             silence_output(port);
         }
@@ -651,6 +669,9 @@ fn refresh_midi() -> Result<(), JsValue> {
     })
 }
 async fn midi_connect() -> Result<(), JsValue> {
+    let Some(context) = APP.with(|s| s.borrow().as_ref().map(|a| a.context.clone())) else {
+        return Ok(());
+    };
     let navigator: JsValue = window().unwrap().navigator().into();
     let request = get(&navigator, "requestMIDIAccess");
     if !request.is_function() {
@@ -664,6 +685,13 @@ async fn midi_connect() -> Result<(), JsValue> {
         call(&navigator, "requestMIDIAccess", &Array::new())?.dyn_into::<js_sys::Promise>()?,
     )
     .await?;
+    if !APP.with(|s| {
+        s.borrow()
+            .as_ref()
+            .is_some_and(|a| Object::is(a.context.as_ref(), context.as_ref()))
+    }) {
+        return Ok(());
+    }
     let callback = Closure::<dyn FnMut(JsValue)>::new(|_| {
         if let Err(e) = refresh_midi() {
             report(e);
@@ -1036,7 +1064,7 @@ fn tick(scope: DedicatedWorkerGlobalScope, state: Rc<RefCell<Machine>>, port: Me
         if m.cpu.pending_input() < 1024 {
             return Ok(());
         }
-        for _ in 0..20 {
+        for _ in 0..4 {
             let time = m.cpu.virtual_time_ns();
             for index in 0..13 {
                 while let Some(pressed) = m.switches[index].due(time) {
@@ -1050,7 +1078,7 @@ fn tick(scope: DedicatedWorkerGlobalScope, state: Rc<RefCell<Machine>>, port: Me
             if m.cpu.pending_input() < 1024 {
                 break;
             }
-            m.cpu.run(10_000)?;
+            m.cpu.run_for(10_000, 2_000_000)?;
         }
         let pcm = m.cpu.take_audio().to_vec();
         m.peak = pcm.iter().fold(0f32, |peak, sample| peak.max(sample.abs()));

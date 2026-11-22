@@ -22,7 +22,7 @@ pub struct Board {
     qspi_rate: Option<virtual_daisy::clock::Rate>,
     pub now_ns: u64,
     fraction: f64,
-    pending_ns: u64,
+    last_cycles: u64,
     pub input: VecDeque<[f32; 2]>,
     pub dma_beats: u64,
     pub frames: u64,
@@ -100,7 +100,7 @@ impl Board {
             qspi_rate,
             now_ns: 0,
             fraction: 0.0,
-            pending_ns: 0,
+            last_cycles: 0,
             input: VecDeque::new(),
             dma_beats: 0,
             frames: 0,
@@ -282,16 +282,21 @@ impl Board {
         }
         Err("unbounded SAI DMA request")
     }
-    pub fn advance(&mut self, cycles: u64) -> Result<(), &'static str> {
+    pub fn synchronize(&mut self, cycles: u64) -> Result<(), &'static str> {
+        let delta = cycles
+            .checked_sub(self.last_cycles)
+            .ok_or("core clock went backwards")?;
+        self.last_cycles = cycles;
+        self.advance(delta)
+    }
+    fn advance(&mut self, cycles: u64) -> Result<(), &'static str> {
         self.fraction += cycles as f64 * 1e9 / self.core_rate;
         let ns = self.fraction as u64;
         self.fraction -= ns as f64;
         self.now_ns += ns;
-        self.pending_ns += ns;
-        if self.pending_ns < 1000 {
+        if ns == 0 {
             return Ok(());
         }
-        let ns = std::mem::take(&mut self.pending_ns);
         while self
             .encoder_events
             .front()
@@ -342,6 +347,46 @@ impl Board {
             self.frames += 1;
         }
         Ok(())
+    }
+    pub fn next_service_cycles(&mut self, maximum_ns: u64) -> Result<u64, &'static str> {
+        let sai = &mut self.peripherals.get_mut(&0x40015800).unwrap().1;
+        let cr = sai.read(4)?;
+        let frame = sai.read(0xc)?;
+        let mut ns = maximum_ns;
+        if let Some(next) = self.peripherals[&0x58024400].1.next_audio_ns(cr, frame)? {
+            ns = ns.min(next);
+        }
+        if let Some(next) = self.timer.next_ns(self.timer_rate) {
+            ns = ns.min(next);
+        }
+        for next in [
+            self.uart.next_event(),
+            self.encoder_events.front().map(|v| v.0),
+            self.peripherals[&0x52005000].1.next_qspi_event(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            ns = ns.min(next.saturating_sub(self.now_ns).max(1));
+        }
+        Ok(((ns as f64 - self.fraction) * self.core_rate / 1e9)
+            .ceil()
+            .max(1.0) as u64)
+    }
+    fn synchronize_access(
+        &mut self,
+        address: u32,
+        width: usize,
+        cycles: u64,
+    ) -> Result<bool, Fault> {
+        let boundary = !SystemMemory::is_ram(address, width);
+        if boundary {
+            self.synchronize(cycles).map_err(|error| {
+                self.error = Some(error.into());
+                Fault::Preciserr
+            })?;
+        }
+        Ok(boundary)
     }
     pub fn uart_irq(&self) -> bool {
         self.uart.irq()
@@ -520,6 +565,39 @@ fn rcc_ready(offset: u64, mut value: u32) -> u32 {
 }
 pub struct Device(pub Rc<RefCell<Board>>);
 impl Bus for Device {
+    fn observes_core_cycles(&self) -> bool {
+        true
+    }
+    fn read32_at(&mut self, addr: u32, cycles: u64) -> Result<(u32, bool), Fault> {
+        let mut board = self.0.borrow_mut();
+        let boundary = board.synchronize_access(addr, 4, cycles)?;
+        board.read(addr, 4).map(|value| (value, boundary))
+    }
+    fn read16_at(&self, addr: u32, cycles: u64) -> Result<(u16, bool), Fault> {
+        let mut board = self.0.borrow_mut();
+        let boundary = board.synchronize_access(addr, 2, cycles)?;
+        board.read(addr, 2).map(|value| (value as u16, boundary))
+    }
+    fn read8_at(&self, addr: u32, cycles: u64) -> Result<(u8, bool), Fault> {
+        let mut board = self.0.borrow_mut();
+        let boundary = board.synchronize_access(addr, 1, cycles)?;
+        board.read(addr, 1).map(|value| (value as u8, boundary))
+    }
+    fn write32_at(&mut self, addr: u32, value: u32, cycles: u64) -> Result<bool, Fault> {
+        let mut board = self.0.borrow_mut();
+        let boundary = board.synchronize_access(addr, 4, cycles)?;
+        board.write(addr, 4, value).map(|()| boundary)
+    }
+    fn write16_at(&mut self, addr: u32, value: u16, cycles: u64) -> Result<bool, Fault> {
+        let mut board = self.0.borrow_mut();
+        let boundary = board.synchronize_access(addr, 2, cycles)?;
+        board.write(addr, 2, u32::from(value)).map(|()| boundary)
+    }
+    fn write8_at(&mut self, addr: u32, value: u8, cycles: u64) -> Result<bool, Fault> {
+        let mut board = self.0.borrow_mut();
+        let boundary = board.synchronize_access(addr, 1, cycles)?;
+        board.write(addr, 1, u32::from(value)).map(|()| boundary)
+    }
     fn peek_ordinary32(&self, address: u32) -> Option<u32> {
         self.0.borrow().memory.peek_cpu32(address)
     }

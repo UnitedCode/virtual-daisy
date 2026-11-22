@@ -54,6 +54,11 @@ accepted lifted block is shadowed by interpretation and compared bit for bit:
 FP and general registers, flags, changed memory, PC and instruction count.
 Differential tests also compare complete audio with interpretation.
 Busy idle and decrement loops have bounded CPU-state-preserving coalescing.
+Board service follows audio, timer, UART, encoder and flash deadlines. MMIO
+accesses synchronize first; interrupt boundaries stop translated execution.
+Browser slices also stop after two virtual milliseconds, keeping captured mic
+input and queued controls responsive. A finer polling schedule is checked
+against the same firmware's PCM output.
 
 The vendored interpreter's source, Apache license and upstream revision are in
 `cpu`. Regression tests cover interrupt IT state, NVIC banks, conditional float

@@ -106,6 +106,10 @@ impl Peripheral {
     pub fn audio_clock(&mut self, cr1: u32, frcr: u32, ns: u64) -> Result<u32, &'static str> {
         self.clock.advance(cr1, frcr, ns)
     }
+    /// Deadline for scheduling the next frame without polling the board.
+    pub fn next_audio_ns(&self, cr1: u32, frcr: u32) -> Result<Option<u64>, &'static str> {
+        self.clock.next_audio_ns(cr1, frcr)
+    }
     /// Sample rate from the shared RCC model.
     pub fn audio_hz(&self, cr1: u32, frcr: u32) -> Result<f64, &'static str> {
         self.clock.sample_rate(cr1, frcr).map(clock::Rate::hz)
@@ -161,6 +165,10 @@ impl Peripheral {
         let mut q = self.qspi.lock().unwrap();
         q.advance_time(now)?;
         q.configure_clock(rate)
+    }
+    /// Next QSPI or flash completion on the board's absolute nanosecond clock.
+    pub fn next_qspi_event(&self) -> Option<u64> {
+        self.qspi.lock().unwrap().next_event()
     }
     pub fn codec_clocks(&self, mclk: clock::Rate) -> Result<SampleClocks, &'static str> {
         if self.kind != 4 {
