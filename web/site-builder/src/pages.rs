@@ -120,15 +120,31 @@ pub fn publish(root: &Path, dist: &Path) -> Result<(), Error> {
         let mut child = Command::new("gh")
             .args(["api", "--method", "POST", &endpoint, "--input", "-"])
             .stdin(Stdio::piped())
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()?;
         child
             .stdin
             .take()
             .ok_or("Missing API input pipe")?
             .write_all(br#"{"build_type":"legacy","source":{"branch":"gh-pages","path":"/"}}"#)?;
-        if !child.wait()?.success() {
-            return Err("Pages files pushed, but enabling the Pages site failed".into());
+        let response = child.wait_with_output()?;
+        if !response.status.success() {
+            // GitHub can enable branch-based Pages while processing the push.
+            // Accept that race only after verifying the exact requested source.
+            let source = output(Command::new("gh").args([
+                "api",
+                &endpoint,
+                "--jq",
+                ".source.branch + \":\" + .source.path",
+            ]))?;
+            if source != "gh-pages:/" {
+                return Err(format!(
+                    "Pages files pushed, but enabling the requested source failed: {}",
+                    String::from_utf8_lossy(&response.stderr)
+                )
+                .into());
+            }
         }
     }
     let url = output(Command::new("gh").args(["api", &endpoint, "--jq", ".html_url"]))?;
