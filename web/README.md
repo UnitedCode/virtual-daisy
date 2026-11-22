@@ -1,13 +1,17 @@
 # Synthphone in the browser
 
-The Rust browser backend boots the original ARM Synthphone firmware and captures
-its audio output. The firmware lab offers microphone-tone, MIDI-note and silence
-tests, an actual OLED view, and WAV downloads. Everything runs on the visitor's
-computer; hosting only serves static files.
+Power on, enable the microphone, then pick up the receiver. Play the photographed
+keys and drag the real side dials. MIDI files and MIDI input/output are in the
+small toolbar; keyboard shortcuts are under **?**.
 
-**Status:** browser boot and rendered audio work. Real-time microphone performance
-and the finished interactive phone are still in development. This is a
-functional firmware emulator, not a cycle-calibrated hardware simulation.
+The Rust WebAssembly backend boots the real ARM firmware. Its UI, OLED, synth,
+vocal effects and saved settings run on that CPU. The photo layers preserve the
+actual instrument; see [asset provenance](phone/assets/README.md).
+
+**Experimental:** live vocal audio can fall behind on slower browsers. The
+firmware lab renders complete clips and offers WAV downloads. Processing stays
+on the visitor's computer; the host serves static files. Timing is functional,
+not hardware calibrated.
 
 <details><summary>Build and run locally</summary>
 
@@ -43,16 +47,22 @@ currently includes the firmware's initialization sequence, not general ADC
 conversions. Oscillator readiness is immediate; analog transients and bus timing
 are not calibrated. Unmapped accesses stop with an error.
 
-Short sequences can be decoded at build time into Rust instruction calls. These
-still execute CPU instruction semantics and are enabled only for the matching
-firmware hash. Differential tests compare their audio with interpretation.
+Short sequences are decoded at build time into Rust instruction calls and
+guarded register-local expressions. These still execute CPU instruction
+semantics and require the matching firmware hash. In native tests, every
+accepted lifted block is shadowed by interpretation and compared bit for bit:
+FP and general registers, flags, changed memory, PC and instruction count.
+Differential tests also compare complete audio with interpretation.
 Busy idle and decrement loops have bounded CPU-state-preserving coalescing.
 
 The vendored interpreter's source, Apache license and upstream revision are in
 `cpu`. Regression tests cover interrupt IT state, NVIC banks, conditional float
 moves, instruction flags, and 840 independently executed QEMU ARM float cases
 (also tested with sticky IXC). Firmware tests check actual microphone processing,
-silent input, and MIDI channel routing. These are simulated checks, not physical
+silent input, MIDI channel routing, keypad scanning, encoder menus, hook channel
+selection, sustained streaming, and firmware QSPI save/restore across power
+cycles. Nonvolatile flash is stored in localStorage; microphone samples are not
+persisted. These are simulated checks, not physical
 hardware or listening acceptance.
 
 MIDI channel 1 controls vocal effects silently. Channel 2 plays the synthesizer;

@@ -45,7 +45,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .arg(target.join("wasm32-unknown-unknown/release/virtual_daisy_web.wasm"))
         .args(["--target", "web", "--out-name", "engine", "--out-dir"])
         .arg(&dist))?;
-    fs::copy(engine.join("index.html"), dist.join("index.html"))?;
+    fs::copy(engine.join("index.html"), dist.join("lab.html"))?;
+    let phone = engine.parent().unwrap().join("phone");
+    run(Command::new("cargo")
+        .current_dir(&phone)
+        .args([
+            "build",
+            "--locked",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+        ])
+        .env("CARGO_TARGET_DIR", &target)
+        .env("CARGO_INCREMENTAL", "0"))?;
+    run(Command::new("wasm-bindgen")
+        .arg(target.join("wasm32-unknown-unknown/release/synthphone_web_ui.wasm"))
+        .args(["--target", "web", "--out-name", "phone", "--out-dir"])
+        .arg(&dist))?;
+    for file in ["index.html", "phone.css", "worker.js", "audio-worklet.js"] {
+        fs::copy(phone.join(file), dist.join(file))?;
+    }
+    fs::create_dir_all(dist.join("assets"))?;
+    for file in [
+        "phone-base.webp",
+        "receiver.webp",
+        "phone-on-hook.webp",
+        "wood.webp",
+    ] {
+        fs::copy(
+            phone.join("assets").join(file),
+            dist.join("assets").join(file),
+        )?;
+    }
     fs::copy(
         engine.join("../firmware/synthphone.bin"),
         dist.join("synthphone.bin"),

@@ -18,6 +18,8 @@ pub struct Board {
     i2c: [crate::i2c::I2c; 2],
     mux: [u32; 16],
     pub core_rate: f64,
+    timer_rate: f64,
+    qspi_rate: Option<virtual_daisy::clock::Rate>,
     pub now_ns: u64,
     fraction: f64,
     pending_ns: u64,
@@ -33,6 +35,19 @@ pub struct Board {
     pub mic_gain: f32,
 }
 impl Board {
+    pub fn flash_image(&self) -> Vec<u8> {
+        self.peripherals[&0x52005000].1.nonvolatile_image()
+    }
+    pub fn flash_revision(&self) -> u64 {
+        self.peripherals[&0x52005000].1.nonvolatile_revision()
+    }
+    pub fn restore_flash(&mut self, bytes: &[u8]) -> Result<(), &'static str> {
+        self.peripherals
+            .get_mut(&0x52005000)
+            .unwrap()
+            .1
+            .restore_nonvolatile_image(bytes)
+    }
     pub fn new() -> Self {
         let mut peripherals = BTreeMap::new();
         for (base, size, kind) in [
@@ -52,6 +67,13 @@ impl Board {
             if port == 3 {
                 gpio.configure_revision_straps(1).unwrap();
             }
+            if port == 2 {
+                // The encoder rests at Gray phase 11. Its firmware inputs are
+                // floating, so model the contacts' external high level from
+                // power-on rather than inventing a first falling edge.
+                gpio.drive_pin(8, true).unwrap();
+                gpio.drive_pin(9, true).unwrap();
+            }
             peripherals.insert(0x58020000 + 0x400 * port, (0x400, gpio));
         }
         let mut memory = SystemMemory::default();
@@ -61,6 +83,8 @@ impl Board {
             .1
             .attach_memory(&mut memory)
             .unwrap();
+        let timer_rate = peripherals[&0x58024400].1.domain_hz(6).unwrap();
+        let qspi_rate = peripherals[&0x58024400].1.qspi_clock().unwrap();
         Self {
             error: None,
             reads: 0,
@@ -72,6 +96,8 @@ impl Board {
             i2c: core::array::from_fn(|_| crate::i2c::I2c::default()),
             mux: [0; 16],
             core_rate: 64_000_000.0,
+            timer_rate,
+            qspi_rate,
             now_ns: 0,
             fraction: 0.0,
             pending_ns: 0,
@@ -190,6 +216,8 @@ impl Board {
         let result = result.and_then(|()| {
             if (0x58024400..0x58024800).contains(&address) {
                 self.core_rate = self.peripherals[&0x58024400].1.core_hz()?;
+                self.timer_rate = self.peripherals[&0x58024400].1.domain_hz(6)?;
+                self.qspi_rate = self.peripherals[&0x58024400].1.qspi_clock()?;
             }
             if (0x40020000..0x40020400).contains(&address)
                 || (0x40015800..0x40015848).contains(&address)
@@ -282,9 +310,8 @@ impl Board {
                 .drive_pin(8, phase & 1 != 0)?;
         }
         self.uart.advance(self.now_ns);
-        self.timer
-            .advance(ns, self.peripherals[&0x58024400].1.domain_hz(6)?);
-        let rate = self.peripherals[&0x58024400].1.qspi_clock()?;
+        self.timer.advance(ns, self.timer_rate);
+        let rate = self.qspi_rate;
         self.peripherals
             .get_mut(&0x52005000)
             .unwrap()
@@ -459,6 +486,12 @@ impl Board {
             self.i2c[0].oled.writes
         )
     }
+    pub fn sample_rate(&mut self) -> Result<f64, &'static str> {
+        let sai = &mut self.peripherals.get_mut(&0x40015800).unwrap().1;
+        let cr = sai.read(4)?;
+        let frame = sai.read(0xc)?;
+        self.peripherals[&0x58024400].1.audio_hz(cr, frame)
+    }
 }
 
 // Functional oscillator service (instant readiness, as in the Renode adapter).
@@ -487,6 +520,12 @@ fn rcc_ready(offset: u64, mut value: u32) -> u32 {
 }
 pub struct Device(pub Rc<RefCell<Board>>);
 impl Bus for Device {
+    fn peek_ordinary32(&self, address: u32) -> Option<u32> {
+        self.0.borrow().memory.peek_cpu32(address)
+    }
+    fn can_write_ordinary32(&self, address: u32) -> bool {
+        self.0.borrow().memory.can_write_cached32(address)
+    }
     fn core_config_changed(&mut self, address: u32, value: u32) -> Result<(), Fault> {
         self.0
             .borrow_mut()

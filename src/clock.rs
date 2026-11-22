@@ -31,6 +31,7 @@ pub struct ClockTree {
     fractions: [u32; 3],
     phase: u128,
     last_rate: Option<Rate>,
+    audio_configuration: Option<(u32, u32)>,
     cycle_time: u64,
     cycle_fraction: u128,
     cycle_count: u32,
@@ -53,6 +54,7 @@ impl Default for ClockTree {
             fractions: [0; 3],
             phase: 0,
             last_rate: None,
+            audio_configuration: None,
             cycle_time: 0,
             cycle_fraction: 0,
             cycle_count: 0,
@@ -119,6 +121,7 @@ impl ClockTree {
             .unwrap_or(0)
     }
     pub fn write(&mut self, offset: u64, mut value: u32) {
+        self.audio_configuration = None;
         let index = offset as usize / 4;
         if index >= self.registers.len() {
             return;
@@ -295,17 +298,33 @@ impl ClockTree {
         if cr1 & (1 << 16) == 0 || self.read(0xf0) & (1 << 22) == 0 {
             self.phase = 0;
             self.last_rate = None;
+            self.audio_configuration = None;
             return Ok(0);
         }
-        let rate = self.sample_rate(cr1, frcr)?;
+        let rate = if self.audio_configuration == Some((cr1, frcr)) {
+            self.last_rate.unwrap()
+        } else {
+            let rate = self.sample_rate(cr1, frcr)?;
+            self.audio_configuration = Some((cr1, frcr));
+            rate
+        };
         if self.last_rate != Some(rate) {
             self.phase = 0;
             self.last_rate = Some(rate);
         }
         let denominator = u128::from(rate.denominator) * 1_000_000_000;
         self.phase += u128::from(rate.numerator) * u128::from(nanoseconds);
-        let frames = self.phase / denominator;
-        self.phase %= denominator;
+        let frames = if let (Ok(phase), Ok(denominator)) =
+            (u64::try_from(self.phase), u64::try_from(denominator))
+        {
+            let frames = phase / denominator;
+            self.phase = u128::from(phase % denominator);
+            u128::from(frames)
+        } else {
+            let frames = self.phase / denominator;
+            self.phase %= denominator;
+            frames
+        };
         u32::try_from(frames).map_err(|_| "clock advance too large")
     }
     pub fn stats(&self, cr1: u32, frcr: u32) -> Result<String, &'static str> {

@@ -1,6 +1,83 @@
 use virtual_daisy::memory::SystemMemory;
 
 #[test]
+fn speculative_reads_preserve_misses_and_dma_cache_coherence() {
+    let mut memory = SystemMemory::default();
+    let address = 0x24001000;
+    memory.write_scb(0xd14, 1 << 16).unwrap();
+    memory.write_dma(address, 4, 1).unwrap();
+    assert_eq!(memory.peek_cpu32(address), None);
+    assert!(!memory.can_write_cached32(address));
+    memory.write_dma(address, 4, 2).unwrap();
+    assert_eq!(memory.read_cpu(address, 4).unwrap(), 2);
+    assert_eq!(memory.peek_cpu32(address), Some(2));
+    assert!(memory.can_write_cached32(address));
+    memory.write_dma(address, 4, 3).unwrap();
+    assert_eq!(memory.peek_cpu32(address), Some(2));
+    memory.write_cpu(address, 4, 4).unwrap();
+    assert_eq!(memory.read_dma(address, 4).unwrap(), 3);
+    memory.write_scb(0xf68, address).unwrap();
+    assert_eq!(memory.read_dma(address, 4).unwrap(), 4);
+    memory.write_scb(0xf5c, address).unwrap();
+    assert_eq!(memory.peek_cpu32(address), None);
+    assert_eq!(memory.peek_cpu32(0x40000000), None);
+    assert_eq!(memory.peek_cpu32(0x90000000), None);
+    assert_eq!(memory.peek_cpu32(address + 1), None);
+}
+
+#[test]
+fn grouped_transfers_match_byte_accesses_across_cache_and_page_boundaries() {
+    for attributes in [
+        0x0308_0000,
+        0x0302_0000,
+        0x030b_0000,
+        0x0303_0000,
+        0x030f_0000,
+    ] {
+        let mut grouped = SystemMemory::default();
+        let mut bytes = SystemMemory::default();
+        for memory in [&mut grouped, &mut bytes] {
+            memory.write_scb(0xd14, 1 << 16).unwrap();
+            memory.write_scb(0xd9c, 0x2400_0000).unwrap();
+            memory.write_scb(0xda0, attributes | (18 << 1) | 1).unwrap();
+            memory.write_scb(0xd94, 5).unwrap();
+        }
+        let mut seed = 0x12345678u32;
+        for offset in [0, 1, 27, 28, 29, 30, 31, 32, 4093, 4094, 4095, 4096, 8191] {
+            for width in [1, 2, 4] {
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                let address = 0x24000000 + offset;
+                grouped.write_cpu(address, width, seed).unwrap();
+                for byte in 0..width {
+                    bytes
+                        .write_cpu(address + byte as u32, 1, seed >> (byte * 8) & 255)
+                        .unwrap();
+                }
+                let expected = (0..width).fold(0, |v, byte| {
+                    v | bytes.read_cpu(address + byte as u32, 1).unwrap() << (byte * 8)
+                });
+                assert_eq!(grouped.read_cpu(address, width).unwrap(), expected);
+                assert_eq!(
+                    grouped.read_dma(address, width).unwrap(),
+                    bytes.read_dma(address, width).unwrap()
+                );
+            }
+        }
+        for offset in (0..8256).step_by(32) {
+            for memory in [&mut grouped, &mut bytes] {
+                memory.write_scb(0xf68, 0x24000000 + offset).unwrap();
+            }
+        }
+        for offset in 0..8256 {
+            assert_eq!(
+                grouped.read_dma(0x24000000 + offset, 1).unwrap(),
+                bytes.read_dma(0x24000000 + offset, 1).unwrap()
+            );
+        }
+    }
+}
+
+#[test]
 fn cpu_write_back_data_is_invisible_to_dma_until_cleaned() {
     let mut memory = SystemMemory::default();
     memory.write_dma(0x2400_0000, 4, 0x11223344).unwrap();

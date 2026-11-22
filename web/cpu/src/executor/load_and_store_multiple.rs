@@ -1,4 +1,5 @@
 use super::ExecuteResult;
+// Modified for Virtual Daisy's browser backend; see UPSTREAM.md.
 use crate::Processor;
 use crate::executor::{ExecuteSuccess, ExecutorHelper};
 
@@ -71,12 +72,11 @@ impl IsaLoadAndStoreMultiple for Processor {
 
             let mut address = self.get_r(params.rn);
 
-            let mut branched = false;
+            let mut loaded_pc = None;
             for reg in &params.registers {
                 let value = self.read32(address)?;
                 if reg == Reg::PC {
-                    self.load_write_pc(value)?;
-                    branched = true;
+                    loaded_pc = Some(value);
                 } else {
                     self.set_r(reg, value);
                 }
@@ -87,7 +87,10 @@ impl IsaLoadAndStoreMultiple for Processor {
                 self.add_r(params.rn, regs_size);
             }
             let cc = 1 + params.registers.len() as u32;
-            if branched {
+            if let Some(value) = loaded_pc {
+                // Exception return consumes the hardware frame at the updated
+                // SP and restores GPRs. Complete writeback before unstacking.
+                self.load_write_pc(value)?;
                 return Ok(ExecuteSuccess::Branched { cycles: cc });
             }
             return Ok(ExecuteSuccess::Taken { cycles: cc });
@@ -152,6 +155,46 @@ mod tests {
     use super::*;
     use crate::bus::Bus;
     use crate::core::{instruction::LoadAndStoreMultipleParams, operation::get_reglist};
+
+    #[cfg(feature = "has-fp")]
+    #[test]
+    fn ldm_sp_writeback_precedes_basic_and_extended_exception_unstacking() {
+        use crate::core::{
+            exception::{Exception, ExceptionHandling},
+            register::BaseReg,
+        };
+        for fp in [false, true] {
+            let mut cpu = Processor::new();
+            let mut image = vec![0; 256];
+            image[15 * 4..16 * 4].copy_from_slice(&0x41u32.to_le_bytes());
+            cpu.flash_memory(image.len(), &image);
+            cpu.psr.value = 1 << 24;
+            cpu.set_r(Reg::SP, 0x20001000);
+            cpu.set_r(Reg::R0, 3);
+            cpu.set_r(Reg::R12, 7);
+            cpu.cpacr = 0x00f00000;
+            cpu.fpccr = 0;
+            cpu.control.fpca = fp;
+            cpu.fp_regs[0] = 1f32.to_bits();
+            cpu.exception_entry(Exception::SysTick, 0x20).unwrap();
+            let return_code = cpu.get_r(Reg::LR);
+            let sp = cpu.get_r(Reg::SP) - 8;
+            cpu.set_r(Reg::SP, sp);
+            cpu.write32(sp, 0xaaaaaaaa).unwrap();
+            cpu.write32(sp + 4, return_code).unwrap();
+            cpu.exec_ldm(&LoadAndStoreMultipleParams {
+                registers: get_reglist((1 << 4) | (1 << 15)),
+                rn: Reg::SP,
+                wback: true,
+            })
+            .unwrap();
+            assert_eq!(cpu.get_r(Reg::SP), 0x20001000);
+            assert_eq!(cpu.get_r(Reg::R0), 3);
+            assert_eq!(cpu.get_r(Reg::R12), 7);
+            assert_eq!(cpu.get_r(Reg::R4), 0xaaaaaaaa);
+            assert_eq!(cpu.get_pc(), 0x20);
+        }
+    }
 
     #[test]
     fn test_exec_ldm_with_writeback_updates_base_register() {

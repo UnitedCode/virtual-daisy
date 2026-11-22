@@ -14,6 +14,38 @@ fn fractional_audio_clock() -> ClockTree {
 }
 
 #[test]
+fn cached_clock_advance_matches_wide_arithmetic_and_configuration_changes() {
+    let mut clock = fractional_audio_clock();
+    let mut phase = 0u128;
+    let mut last = None;
+    for n in 0..2000 {
+        if n == 700 {
+            clock.write(0x50, 0);
+        }
+        if n == 1100 {
+            clock.write(0x50, 2);
+        }
+        let cr1 = (1 << 16) | ((if n < 1400 { 4 } else { 3 }) << 20);
+        let frcr = if n < 1600 { 63 } else { 127 };
+        let rate = clock.sample_rate(cr1, frcr).unwrap();
+        if last != Some(rate) {
+            phase = 0;
+            last = Some(rate);
+        }
+        let ns = if n == 1700 {
+            9_000_000_000
+        } else {
+            997 + (n % 13) as u64
+        };
+        let denominator = u128::from(rate.denominator) * 1_000_000_000;
+        phase += u128::from(rate.numerator) * u128::from(ns);
+        let expected = phase / denominator;
+        phase %= denominator;
+        assert_eq!(u128::from(clock.advance(cr1, frcr, ns).unwrap()), expected);
+    }
+}
+
+#[test]
 fn pll_fraction_and_sai_dividers_drive_frame_count_without_integer_hz_drift() {
     let mut clock = fractional_audio_clock();
     let cr1 = (1 << 16) | (4 << 20);
