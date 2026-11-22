@@ -20,6 +20,17 @@ mod compiled {
     include!(concat!(env!("OUT_DIR"), "/compiled.rs"));
 }
 impl Firmware {
+    #[inline(always)]
+    fn single_translation_enabled(&self) -> bool {
+        #[cfg(feature = "profile")]
+        {
+            !self.profile_fallback_only
+        }
+        #[cfg(not(feature = "profile"))]
+        {
+            true
+        }
+    }
     fn service(&mut self) -> Result<(), String> {
         let mut board = self.board.borrow_mut();
         board.synchronize(self.cpu.cycle_count)?;
@@ -73,6 +84,8 @@ pub struct Firmware {
     translated: bool,
     #[cfg(feature = "profile")]
     profile: Vec<u64>,
+    #[cfg(feature = "profile")]
+    profile_fallback_only: bool,
 }
 #[wasm_bindgen]
 impl Firmware {
@@ -158,12 +171,22 @@ impl Firmware {
             translated,
             #[cfg(feature = "profile")]
             profile: vec![0; 65536],
+            #[cfg(feature = "profile")]
+            profile_fallback_only: false,
         })
     }
     pub fn run(&mut self, steps: u32) -> Result<Vec<u32>, String> {
         if self.next_service_cycle == 0 {
             self.service()?;
         }
+        let singles = self.single_translation_enabled();
+        // Streaming callers already have a time deadline. Chain more decoded
+        // blocks within that deadline; retain the lab's bounded step behavior.
+        let translated_budget = if self.slice_deadline == u64::MAX {
+            256
+        } else {
+            4096
+        };
         for _ in 0..steps.min(10_000_000) {
             let pc = self.cpu.get_r(Reg::PC);
             let budget = self
@@ -171,11 +194,13 @@ impl Firmware {
                 .saturating_sub(self.cpu.cycle_count)
                 .min(u64::from(u32::MAX)) as u32;
             #[cfg(feature = "profile")]
-            if let Some(count) = self
-                .profile
-                .get_mut(pc.wrapping_sub(0x08000004) as usize / 2)
-            {
-                *count += 1;
+            if !self.profile_fallback_only {
+                if let Some(count) = self
+                    .profile
+                    .get_mut(pc.wrapping_sub(0x08000004) as usize / 2)
+                {
+                    *count += 1;
+                }
             }
             if self.idle_pc == Some(self.cpu.get_pc()) && self.cpu.advance_nop_call_loop(budget) {
             } else if self.delay_pc.contains(&self.cpu.get_pc())
@@ -184,11 +209,25 @@ impl Firmware {
             } else if self.translated
                 && self.next_service_cycle.saturating_sub(self.cpu.cycle_count) >= 64
                 && compiled::contains(pc - 4)
-                && compiled::dispatch(&mut self.cpu, pc - 4, u64::from(budget.min(256)))
+                && compiled::dispatch(
+                    &mut self.cpu,
+                    pc - 4,
+                    u64::from(budget.min(translated_budget)),
+                )
             {
             } else if self.cpu.sleeping {
                 self.cpu.step_sleep();
+            } else if self.translated && singles && compiled::single(&mut self.cpu, pc - 4) {
             } else {
+                #[cfg(feature = "profile")]
+                if self.profile_fallback_only {
+                    if let Some(count) = self
+                        .profile
+                        .get_mut((pc - 4).wrapping_sub(0x08000000) as usize / 2)
+                    {
+                        *count += 1;
+                    }
+                }
                 self.cpu.step();
             }
             if let Some(error) = self.cpu.take_pending_fault_trap() {
@@ -334,6 +373,11 @@ impl Firmware {
 impl Firmware {
     pub fn start_profile(&mut self) {
         self.translated = false;
+        self.profile_fallback_only = false;
+        self.profile.fill(0);
+    }
+    pub fn start_fallback_profile(&mut self) {
+        self.profile_fallback_only = true;
         self.profile.fill(0);
     }
     pub fn profile_counts(&self) -> &[u64] {
@@ -539,14 +583,16 @@ mod tests {
                 .map(|n| (n as f32 * 220. * std::f32::consts::TAU / 48_187.487).sin() * 0.16)
                 .collect::<Vec<_>>(),
         );
-        f.midi(&[0x90, 69, 100, 0x91, 60, 100, 64, 90, 67, 90])
-            .unwrap();
+        f.midi(&[
+            0x90, 69, 100, 0x91, 60, 100, 64, 90, 67, 90, 0xb0, 80, 127, 81, 127,
+        ])
+        .unwrap();
         let mut displays = std::collections::BTreeSet::new();
         for mode in 0..6 {
             if mode == 5 {
                 f.midi(&[0x99, 36, 100]).unwrap();
             }
-            let end = f.virtual_time_ns() + 120_000_000;
+            let end = f.virtual_time_ns() + 240_000_000;
             let mut samples = 0;
             while f.virtual_time_ns() < end {
                 f.run(100_000).unwrap();
@@ -561,9 +607,9 @@ mod tests {
             displays.insert(f.oled());
             if mode < 5 {
                 f.key(10, true).unwrap();
-                advance(&mut f, 40);
+                advance(&mut f, 80);
                 f.key(10, false).unwrap();
-                advance(&mut f, 40);
+                advance(&mut f, 80);
             }
         }
         assert_eq!(

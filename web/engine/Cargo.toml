@@ -18,6 +18,10 @@ crate-type = ["cdylib", "rlib"]
 name="profile"
 required-features=["profile"]
 
+[[example]]
+name="realtime"
+required-features=["profile"]
+
 [dependencies]
 virtual-daisy = { path = "../.." }
 zmu_cortex_m = { path = "../cpu", default-features = false, features = ["armv7em", "fpv5-d16"] }

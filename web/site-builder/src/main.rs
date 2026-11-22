@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
+mod pages;
 mod serve;
 fn run(command: &mut Command) -> Result<(), Box<dyn std::error::Error>> {
     let status = command.status()?;
@@ -81,6 +82,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine.join("../firmware/synthphone.bin"),
         dist.join("synthphone.bin"),
     )?;
+    fs::write(dist.join(".nojekyll"), [])?;
+    let revision = Command::new("git")
+        .current_dir(dist.parent().unwrap())
+        .args(["rev-parse", "HEAD"])
+        .output()?;
+    if !revision.status.success() {
+        return Err("Cannot identify the source revision".into());
+    }
+    fs::write(dist.join("source-revision.txt"), revision.stdout)?;
     println!("Static browser site built at {}", dist.display());
+    if env::args().nth(1).as_deref() == Some("pages") {
+        pages::publish(dist.parent().unwrap(), &dist)?;
+    }
     Ok(())
 }

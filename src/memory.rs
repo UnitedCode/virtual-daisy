@@ -1,7 +1,10 @@
 //! Functional H750 Harvard caches and RAM/flash views. No cycle-timing claim.
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
 };
 
 type Result<T> = std::result::Result<T, &'static str>;
@@ -121,6 +124,8 @@ pub struct SystemMemory {
     fills: u64,
     writebacks: u64,
     dma_cacheable_bytes: u64,
+    // Policies are constant within a line until cache/MPU configuration changes.
+    policy_memo: [AtomicU32; 512],
 }
 impl Default for SystemMemory {
     fn default() -> Self {
@@ -186,6 +191,7 @@ impl Default for SystemMemory {
             fills: 0,
             writebacks: 0,
             dma_cacheable_bytes: 0,
+            policy_memo: std::array::from_fn(|_| AtomicU32::new(u32::MAX)),
         }
     }
 }
@@ -224,6 +230,7 @@ impl SystemMemory {
         self.mpu_ctrl = 0;
         self.region_number = 0;
         self.regions = [(0, 0); 16];
+        self.invalidate_policy_memo();
         self.cache_selection = 0;
         self.cache.fill(CacheLine::default());
         self.instructions.fill(CacheLine::default());
@@ -978,12 +985,7 @@ impl SystemMemory {
                     0
                 };
             };
-            return page[offset..offset + width]
-                .iter()
-                .enumerate()
-                .fold(0, |value, (byte, &data)| {
-                    value | u32::from(data) << (byte * 8)
-                });
+            return Self::little_word(&page[offset..offset + width]);
         }
         (0..width).fold(0, |value, byte| {
             value | u32::from(self.physical_byte(address + byte as u32)) << (byte * 8)
@@ -1009,6 +1011,15 @@ impl SystemMemory {
             [offset..offset + width]
             .copy_from_slice(&value.to_le_bytes()[..width]);
     }
+    #[inline]
+    fn little_word(bytes: &[u8]) -> u32 {
+        match bytes.len() {
+            1 => u32::from(bytes[0]),
+            2 => u32::from(u16::from_le_bytes(bytes.try_into().unwrap())),
+            4 => u32::from_le_bytes(bytes.try_into().unwrap()),
+            _ => unreachable!("invalid word width"),
+        }
+    }
     fn backing_read(&self, address: u32, bytes: usize, peek: bool) -> Result<Vec<u8>> {
         if Self::is_qspi(address, bytes) {
             let mut qspi = self
@@ -1024,9 +1035,21 @@ impl SystemMemory {
                 qspi.read_mapped(address - 0x90000000, bytes)
             }
         } else {
-            Ok((0..bytes)
-                .map(|i| self.physical_byte(address + i as u32))
-                .collect())
+            let mut data = Vec::with_capacity(bytes);
+            while data.len() < bytes {
+                let current = address + data.len() as u32;
+                let offset = (current & 4095) as usize;
+                let count = (bytes - data.len()).min(4096 - offset);
+                if let Some(page) = self.pages.get(&(current >> 12)) {
+                    data.extend_from_slice(&page[offset..offset + count]);
+                } else {
+                    data.resize(
+                        data.len() + count,
+                        if Self::is_flash(current, 1) { 0xff } else { 0 },
+                    );
+                }
+            }
+            Ok(data)
         }
     }
     fn backing_byte(&self, address: u32, peek: bool) -> Result<u8> {
@@ -1135,6 +1158,29 @@ impl SystemMemory {
         self.access_policy(address, false)
     }
     fn access_policy(&self, address: u32, instruction: bool) -> Result<Policy> {
+        let key = ((address >> 5) << 1) | u32::from(instruction);
+        let index = (key.wrapping_mul(0x9e37_79b9) >> 23) as usize;
+        let cached = self.policy_memo[index].load(Ordering::Relaxed);
+        if cached >> 2 == key {
+            return Ok(match cached & 3 {
+                0 => Policy::Noncacheable,
+                1 => Policy::WriteThrough,
+                2 => Policy::WriteBack,
+                _ => Policy::WriteAllocate,
+            });
+        }
+        let result = self.access_policy_uncached(address, instruction);
+        if let Ok(policy) = result {
+            self.policy_memo[index].store((key << 2) | (policy as u32), Ordering::Relaxed);
+        }
+        result
+    }
+    fn invalidate_policy_memo(&self) {
+        for entry in &self.policy_memo {
+            entry.store(u32::MAX, Ordering::Relaxed);
+        }
+    }
+    fn access_policy_uncached(&self, address: u32, instruction: bool) -> Result<Policy> {
         let enabled = self.ccr & (1 << if instruction { 17 } else { 16 }) != 0;
         if !enabled && !instruction {
             return Ok(Policy::Noncacheable);
@@ -1208,12 +1254,9 @@ impl SystemMemory {
             if policy != Policy::Noncacheable {
                 let line = self.allocate(address)?;
                 let offset = (address & 31) as usize;
-                return Ok(self.cache[line].data[offset..offset + width]
-                    .iter()
-                    .enumerate()
-                    .fold(0, |value, (byte, &data)| {
-                        value | u32::from(data) << (byte * 8)
-                    }));
+                return Ok(Self::little_word(
+                    &self.cache[line].data[offset..offset + width],
+                ));
             }
             if !Self::is_qspi(address, width) {
                 return Ok(self.physical_value(address, width));
@@ -1599,6 +1642,12 @@ impl SystemMemory {
         format!("{sdram}{cache}{timing}runtime_cached_checks={}\ncpu_bus_wait_ns={}\ncpu_bus_wait_yields={}\ndma_bus_wait_yields={}\nfabric_completed={}\nfabric_contests={}\nbus_stall_scope=COUPLED_FUNCTIONAL_SERVICE_SCENARIO\ndma_service_grid_ns=1000\n{}",self.runtime_cached_checks,self.cpu_wait_ns,self.cpu_wait_yields,self.dma_wait_yields,self.fabric.completed,self.fabric.contests,self.flash.stats())
     }
     pub fn write_scb(&mut self, offset: u64, value: u32) -> Result<()> {
+        if matches!(
+            offset,
+            0xd14 | 0xd94 | 0xd9c | 0xda0 | 0xda4 | 0xda8 | 0xdac | 0xdb0 | 0xdb4 | 0xdb8
+        ) {
+            self.invalidate_policy_memo();
+        }
         self.blocks.clear();
         self.invalidate_fetch_validations();
         self.runtime_progress = None;

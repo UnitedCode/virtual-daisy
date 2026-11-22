@@ -6,10 +6,11 @@ class FirmwareAudio extends AudioWorkletProcessor {
     this.queue = [];
     this.offset = 0;
     this.queued = 0;
-    this.capture = new Float32Array(2048);
+    this.capture = new Float32Array(256);
     this.at = 0;
     this.underruns = 0;
     this.playing = false;
+    this.enabled = false;
     this.port.onmessage = ({ data }) => {
       if (data.audio) {
         if (this.queued + data.audio.length > sampleRate * 2) this.reset();
@@ -17,6 +18,7 @@ class FirmwareAudio extends AudioWorkletProcessor {
         this.queued += data.audio.length;
       }
       if (data.reset) this.reset();
+      if (data.start) { this.enabled = true; this.at = 0; }
     };
   }
   reset() {
@@ -28,7 +30,7 @@ class FirmwareAudio extends AudioWorkletProcessor {
   process(inputs, outputs) {
     const out = outputs[0][0];
     const input = inputs[0]?.[0];
-    if (!this.playing && this.queued >= sampleRate * 0.08) this.playing = true;
+    if (!this.playing && this.queued >= sampleRate * 0.012) this.playing = true;
     for (let i = 0; i < out.length; i++) {
       if (this.playing && this.queue.length) {
         const block = this.queue[0];
@@ -45,10 +47,10 @@ class FirmwareAudio extends AudioWorkletProcessor {
           this.underruns++;
         }
       }
-      this.capture[this.at++] = input ? input[i] : 0;
-      if (this.at === this.capture.length) {
+      if (this.enabled) this.capture[this.at++] = input ? input[i] : 0;
+      if (this.enabled && this.at === this.capture.length) {
         this.port.postMessage({ mic: this.capture, underruns: this.underruns }, [this.capture.buffer]);
-        this.capture = new Float32Array(2048);
+        this.capture = new Float32Array(256);
         this.at = 0;
       }
     }

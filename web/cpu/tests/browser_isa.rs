@@ -37,6 +37,12 @@ fn float_results_and_flags_match_qemu_arm_isa() {
             Instruction::VSUB_f32 { params: p },
             Instruction::VMUL_f32 { params: p },
             Instruction::VDIV_f32 { params: p },
+            Instruction::VSQRT_f32 {
+                params: VMovRegParamsf32 {
+                    sd: SingleReg::S0,
+                    sm: SingleReg::S1,
+                },
+            },
         ][op as usize];
         fast.fpscr = 0;
         fast.fp_regs[1] = a;
@@ -46,6 +52,15 @@ fn float_results_and_flags_match_qemu_arm_isa() {
             (fast.fp_regs[0], fast.fpscr),
             (value, flags),
             "{instruction:?}: {a:08x} {b:08x}"
+        );
+        fast.fpscr = 0;
+        fast.fp_regs[1] = a;
+        fast.fp_regs[2] = b;
+        fast.execute_compiled(&instruction, 4);
+        assert_eq!(
+            (fast.fp_regs[0], fast.fpscr),
+            (value, flags),
+            "decoded {instruction:?}: {a:08x} {b:08x}"
         );
         fast.fpscr = 16;
         fast.fp_regs[1] = a;
@@ -57,6 +72,153 @@ fn float_results_and_flags_match_qemu_arm_isa() {
             "sticky IXC {instruction:?}: {a:08x} {b:08x}"
         );
     }
+}
+#[test]
+fn binary32_special_results_and_controls_match_qemu_arm_isa() {
+    let params = VAddSubParamsf32 {
+        sd: SingleReg::S0,
+        sn: SingleReg::S1,
+        sm: SingleReg::S2,
+    };
+    let instructions = [
+        Instruction::VADD_f32 { params },
+        Instruction::VSUB_f32 { params },
+        Instruction::VMUL_f32 { params },
+        Instruction::VDIV_f32 { params },
+        Instruction::VSQRT_f32 {
+            params: VMovRegParamsf32 {
+                sd: SingleReg::S0,
+                sm: SingleReg::S1,
+            },
+        },
+        Instruction::VCMP_f32 {
+            params: VCmpParamsf32 {
+                sd: SingleReg::S1,
+                sm: SingleReg::S2,
+                quiet_nan_exc: false,
+                with_zero: false,
+            },
+        },
+        Instruction::VCMP_f32 {
+            params: VCmpParamsf32 {
+                sd: SingleReg::S1,
+                sm: SingleReg::S2,
+                quiet_nan_exc: true,
+                with_zero: false,
+            },
+        },
+    ];
+    let mut fast = cpu();
+    for record in include_bytes!("../fixtures/isa_oracle_control.bin").chunks_exact(24) {
+        let words = record
+            .chunks_exact(4)
+            .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+            .collect::<Vec<_>>();
+        let [a, b, op, control, value, flags] = words[..] else {
+            unreachable!()
+        };
+        for sticky in [0, 16] {
+            for decoded in [false, true] {
+                fast.fpscr = control | sticky;
+                fast.fp_regs[1] = a;
+                fast.fp_regs[2] = b;
+                if decoded {
+                    fast.execute_compiled(&instructions[op as usize], 4);
+                } else {
+                    fast.execute(&instructions[op as usize], 4);
+                }
+                assert_eq!(
+                    (if op < 5 { fast.fp_regs[0] } else { value }, fast.fpscr),
+                    (value, flags | sticky),
+                    "op={op} {a:08x} {b:08x} control={control:08x} decoded={decoded}"
+                );
+            }
+        }
+    }
+}
+#[test]
+fn binary64_results_and_flags_match_qemu_arm_isa() {
+    use zmu_cortex_m::core::register::DoubleReg::*;
+    let params = VAddSubParamsf64 {
+        dd: D0,
+        dn: D1,
+        dm: D2,
+    };
+    let instructions = [
+        Instruction::VADD_f64 { params },
+        Instruction::VSUB_f64 { params },
+        Instruction::VMUL_f64 { params },
+        Instruction::VDIV_f64 { params },
+        Instruction::VCMP_f64 {
+            params: VCmpParamsf64 {
+                dd: D1,
+                dm: D2,
+                quiet_nan_exc: false,
+                with_zero: false,
+            },
+        },
+    ];
+    let mut fast = cpu();
+    for record in include_bytes!("../fixtures/isa_oracle_f64.bin").chunks_exact(32) {
+        let words = record
+            .chunks_exact(4)
+            .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+            .collect::<Vec<_>>();
+        let [al, ah, bl, bh, op, lo, hi, flags] = words[..] else {
+            unreachable!()
+        };
+        let instruction = instructions[op as usize];
+        for sticky in [0, 16] {
+            for decoded in [false, true] {
+                fast.fpscr = sticky;
+                fast.fp_regs[2] = al;
+                fast.fp_regs[3] = ah;
+                fast.fp_regs[4] = bl;
+                fast.fp_regs[5] = bh;
+                if decoded {
+                    fast.execute_compiled(&instruction, 4);
+                } else {
+                    fast.execute(&instruction, 4);
+                }
+                if op < 4 {
+                    assert_eq!(
+                        (fast.fp_regs[0], fast.fp_regs[1]),
+                        (lo, hi),
+                        "{instruction:?}: {ah:08x}{al:08x} {bh:08x}{bl:08x}"
+                    );
+                }
+                assert_eq!(
+                    fast.fpscr,
+                    flags | sticky,
+                    "FPSCR {instruction:?}: {ah:08x}{al:08x} {bh:08x}{bl:08x}"
+                );
+            }
+        }
+    }
+}
+#[test]
+fn binary64_multiply_accumulate_keeps_two_roundings() {
+    use zmu_cortex_m::core::register::DoubleReg::*;
+    let mut c = cpu();
+    c.fp_regs[0] = 0;
+    c.fp_regs[1] = 0xbff00000;
+    c.fp_regs[2] = 1;
+    c.fp_regs[3] = 0x3ff00000;
+    c.fp_regs[4] = 0xffff_fffe;
+    c.fp_regs[5] = 0x3fefffff;
+    c.execute(
+        &Instruction::VMLA_f64 {
+            params: VAddSubParamsf64 {
+                dd: D0,
+                dn: D1,
+                dm: D2,
+            },
+            subtract: false,
+            negate: false,
+        },
+        4,
+    );
+    assert_eq!((c.fp_regs[0], c.fp_regs[1], c.fpscr), (0, 0, 16));
 }
 #[test]
 fn lazy_decode_does_not_decode_embedded_data() {
