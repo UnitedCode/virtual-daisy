@@ -31,7 +31,10 @@ pub fn serve(directory: &Path) -> std::io::Result<()> {
                 let mime = match file.extension().and_then(|v| v.to_str()) {
                     Some("html") => "text/html",
                     Some("js") => "text/javascript",
+                    Some("css") => "text/css",
                     Some("wasm") => "application/wasm",
+                    Some("webp") => "image/webp",
+                    Some("png") => "image/png",
                     _ => "application/octet-stream",
                 };
                 ("200 OK", std::fs::read(file)?, mime)
