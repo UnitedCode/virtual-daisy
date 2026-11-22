@@ -251,10 +251,20 @@ impl Processor {
     /// Advance core clocks and exception delivery after a straight-line block.
     #[inline(always)]
     pub fn finish_compiled_block(&mut self, cycles: u32) {
+        self.retire_decoded(cycles);
+    }
+    /// Retire a decoded instruction with the same clocks and exception delivery
+    /// as `step`, including conditional instructions and sleep transitions.
+    #[inline(always)]
+    pub fn retire_decoded(&mut self, cycles: u32) {
         self.cycle_count += u64::from(cycles);
-        self.syst_step(cycles);
-        self.dwt_tick(cycles);
-        if self.pending_exception_count != 0 {
+        if self.dwt_ctrl & 1 != 0 {
+            self.dwt_tick(cycles);
+        }
+        if self.syst_csr & 1 != 0 {
+            self.syst_step(cycles);
+        }
+        if self.pending_exception_count != 0 || self.sleeping {
             self.check_exceptions();
         }
     }
@@ -988,7 +998,8 @@ impl Executor for Processor {
         }
     }
 
-    #[inline(always)]
+    #[cfg_attr(target_arch = "wasm32", inline(never))]
+    #[cfg_attr(not(target_arch = "wasm32"), inline(always))]
     fn step(&mut self) {
         let pc = self.get_pc();
         let mapped_pc = if self.mem_map.is_some() {
@@ -1025,16 +1036,7 @@ impl Executor for Processor {
                 Err(fault) => self.handle_fault(fault, pc),
             },
         };
-        self.cycle_count += u64::from(count);
-        if (self.dwt_ctrl & 1) != 0 {
-            self.dwt_tick(count);
-        }
-        if (self.syst_csr & 1) != 0 {
-            self.syst_step(count);
-        }
-        if self.pending_exception_count != 0 || self.sleeping {
-            self.check_exceptions();
-        }
+        self.retire_decoded(count);
         //TODO exception entry also burns cycles that should be accounted for
         //DWT and SYST ticking
     }

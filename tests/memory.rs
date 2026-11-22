@@ -1,6 +1,52 @@
 use virtual_daisy::memory::SystemMemory;
 
 #[test]
+fn repeated_policy_lookups_follow_live_cache_and_mpu_changes() {
+    let mut memory = SystemMemory::default();
+    let address = 0x2400_0000;
+    memory.write_dma(address, 4, 1).unwrap();
+    memory.write_scb(0xd14, 1 << 16).unwrap();
+    for _ in 0..20 {
+        assert_eq!(memory.read_cpu(address, 4).unwrap(), 1);
+    }
+    memory.write_dma(address, 4, 2).unwrap();
+    assert_eq!(memory.read_cpu(address, 4).unwrap(), 1);
+    memory.write_scb(0xd14, 0).unwrap();
+    assert_eq!(memory.read_cpu(address, 4).unwrap(), 2);
+    memory.write_scb(0xd14, 1 << 16).unwrap();
+    assert_eq!(memory.read_cpu(address, 4).unwrap(), 1);
+    memory.write_scb(0xd94, 1).unwrap();
+    assert!(memory.read_cpu(address, 4).is_err());
+    memory.write_scb(0xd9c, address).unwrap();
+    memory.write_scb(0xda0, 0x030b0000 | (4 << 1) | 1).unwrap();
+    assert_eq!(memory.read_cpu(address, 4).unwrap(), 1);
+    memory.write_scb(0xda8, 0x03080000 | (4 << 1) | 1).unwrap();
+    assert_eq!(memory.read_cpu(address, 4).unwrap(), 2);
+    memory.reset_registers();
+    assert_eq!(memory.read_cpu(address, 4).unwrap(), 2);
+}
+
+#[test]
+fn warmed_data_policy_does_not_bypass_execute_never_or_late_mpu_updates() {
+    let mut memory = SystemMemory::default();
+    let address = 0x2400_0000;
+    memory.write_dma(address, 4, 0x4770bf00).unwrap();
+    memory.write_scb(0xd14, (1 << 16) | (1 << 17)).unwrap();
+    memory.write_scb(0xd9c, address).unwrap();
+    let attrs = 0x030b0000 | (4 << 1) | 1;
+    memory.write_scb(0xda0, attrs | (1 << 28)).unwrap();
+    memory.write_scb(0xd94, 5).unwrap();
+    assert_eq!(memory.read_cpu(address, 4).unwrap(), 0x4770bf00);
+    assert!(memory.decode_instruction(address, 2).is_err());
+    memory.write_scb(0xda0, attrs).unwrap();
+    assert_eq!(memory.decode_instruction(address, 2).unwrap(), 0xbf00);
+    memory.write_scb(0xda0, attrs | (1 << 28)).unwrap();
+    assert!(memory.decode_instruction(address, 2).is_err());
+    memory.write_scb(0xd94, 0).unwrap();
+    assert_eq!(memory.decode_instruction(address, 2).unwrap(), 0xbf00);
+}
+
+#[test]
 fn speculative_reads_preserve_misses_and_dma_cache_coherence() {
     let mut memory = SystemMemory::default();
     let address = 0x24001000;

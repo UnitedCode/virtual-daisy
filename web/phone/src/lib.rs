@@ -7,6 +7,7 @@ use web_sys::*;
 mod controls;
 mod midi_file;
 mod photo_geometry;
+mod resample;
 
 #[wasm_bindgen(raw_module = "./engine.js")]
 extern "C" {
@@ -411,31 +412,28 @@ async fn power() -> Result<(), JsValue> {
     let options = WorkerOptions::new();
     options.set_type(WorkerType::Module);
     let worker = Worker::new_with_options("worker.js", &options)?;
-    let port = node.port()?;
-    let w = worker.clone();
-    bind(port.as_ref(), "message", move |e| {
-        let e: MessageEvent = e.unchecked_into();
-        let m = object("mic");
-        set(&m, "samples", get(&e.data(), "mic"));
-        set(&m, "underruns", get(&e.data(), "underruns"));
-        let _ = w.post_message(&m);
-    });
-    port.start();
-    let audio_port = node.port()?;
     bind(worker.as_ref(), "message", move |e| {
         let e: MessageEvent = e.unchecked_into();
         let d = e.data();
         match get(&d, "kind").as_string().as_deref() {
             Some("ready") => {
+                let connected = APP.with(|s| -> Result<(), JsValue> {
+                    let s = s.borrow();
+                    let a = s.as_ref().ok_or("Phone was powered off")?;
+                    let port = a.node.port()?;
+                    let message = object("audio_port");
+                    set(&message, "port", JsValue::from(port.clone()));
+                    a.worker
+                        .post_message_with_transfer(&message, &Array::of1(port.as_ref()))
+                });
+                if let Err(error) = connected {
+                    power_off();
+                    report(error);
+                    return;
+                }
                 enable();
                 configuration();
                 text("status", "Ready.");
-            }
-            Some("audio") => {
-                let pcm = get(&d, "audio");
-                let m = Object::new();
-                set(&m, "audio", pcm);
-                let _ = audio_port.post_message(&m);
             }
             Some("screen") => screen(&get(&d, "bytes").unchecked_into()),
             Some("performance") => {
@@ -969,9 +967,8 @@ struct Machine {
     rate: f64,
     source_rate: f64,
     input: VecDeque<f32>,
-    input_phase: f64,
-    output_phase: f64,
-    output_last: f32,
+    input_resampler: resample::Resampler,
+    output_resampler: resample::Resampler,
     samples: u64,
     start: f64,
     last_ui: f64,
@@ -986,6 +983,31 @@ struct Machine {
     song_start: u64,
     song_playing: bool,
     output: Vec<f32>,
+    audio_port: Option<MessagePort>,
+    tick_pending: bool,
+}
+fn queue_tick(machine: &mut Machine, port: &MessagePort) {
+    if !machine.tick_pending && !machine.failed {
+        machine.tick_pending = true;
+        let _ = port.post_message(&JsValue::NULL);
+    }
+}
+fn receive_mic(machine: &mut Machine, data: &JsValue) {
+    machine.underruns = get(data, "underruns").as_f64().unwrap_or(0.);
+    let samples = Float32Array::new(&get(data, "mic")).to_vec();
+    machine.input.extend(machine.input_resampler.process(
+        &samples,
+        machine.rate,
+        machine.source_rate,
+    ));
+    while machine.input.len() > 8192 {
+        machine.input.pop_front();
+    }
+}
+fn start_capture(port: &MessagePort) -> Result<(), JsValue> {
+    let start = Object::new();
+    set(&start, "start", true);
+    port.post_message(&start)
 }
 fn now() -> f64 {
     js_sys::Date::now()
@@ -1019,6 +1041,7 @@ fn all_notes_off(
 fn tick(scope: DedicatedWorkerGlobalScope, state: Rc<RefCell<Machine>>, port: MessagePort) {
     let result = (|| -> Result<(), JsValue> {
         let mut m = state.borrow_mut();
+        m.tick_pending = false;
         if m.failed {
             return Ok(());
         }
@@ -1063,7 +1086,7 @@ fn tick(scope: DedicatedWorkerGlobalScope, state: Rc<RefCell<Machine>>, port: Me
         }
         // Follow captured codec frames instead of generating future silence.
         // A bounded instruction batch cannot outrun the buffered input.
-        if m.cpu.pending_input() < 1024 {
+        if m.cpu.pending_input() < 128 {
             return Ok(());
         }
         for _ in 0..4 {
@@ -1077,10 +1100,10 @@ fn tick(scope: DedicatedWorkerGlobalScope, state: Rc<RefCell<Machine>>, port: Me
                     }
                 }
             }
-            if m.cpu.pending_input() < 1024 {
+            if m.cpu.pending_input() < 128 {
                 break;
             }
-            m.cpu.run_for(10_000, 2_000_000)?;
+            m.cpu.run_for(100_000, 2_000_000)?;
         }
         let pcm = m.cpu.take_audio().to_vec();
         m.peak = pcm.iter().fold(0f32, |peak, sample| peak.max(sample.abs()));
@@ -1090,22 +1113,19 @@ fn tick(scope: DedicatedWorkerGlobalScope, state: Rc<RefCell<Machine>>, port: Me
             if physical_rate > 0. {
                 m.source_rate = physical_rate;
             }
-            let ratio = m.source_rate / m.rate;
-            let mut output = Vec::with_capacity(pcm.len() + 8);
-            for sample in pcm {
-                while m.output_phase < 1. {
-                    output.push(m.output_last + (sample - m.output_last) * m.output_phase as f32);
-                    m.output_phase += ratio;
-                }
-                m.output_phase -= 1.;
-                m.output_last = sample;
-            }
+            let (source_rate, rate) = (m.source_rate, m.rate);
+            let output = m.output_resampler.process(&pcm, source_rate, rate);
             m.output.extend(output);
-            if m.output.len() >= 512 {
+            if m.output.len() >= 256 {
                 let output = std::mem::take(&mut m.output);
                 let data = object("audio");
-                set(&data, "audio", Float32Array::from(output.as_slice()));
-                post(&scope, &data);
+                let audio = Float32Array::from(output.as_slice());
+                let transfer = Array::of1(audio.buffer().as_ref());
+                set(&data, "audio", audio);
+                m.audio_port
+                    .as_ref()
+                    .ok_or("Audio port is not connected")?
+                    .post_message_with_transferable(&data, &transfer)?;
             }
         }
         let elapsed = now() - m.start;
@@ -1146,24 +1166,9 @@ fn tick(scope: DedicatedWorkerGlobalScope, state: Rc<RefCell<Machine>>, port: Me
         fault(&scope, e);
         return;
     }
-    let ahead = {
-        let m = state.borrow();
-        if !m.configured || (m.cpu.pending_input() < 1024 && m.input.is_empty()) {
-            90.
-        } else {
-            m.samples as f64 / m.source_rate * 1000. - (now() - m.start)
-        }
-    };
-    if ahead > 80. {
-        let callback = Closure::once_into_js(move || {
-            let _ = port.post_message(&JsValue::NULL);
-        });
-        let _ = scope.set_timeout_with_callback_and_timeout_and_arguments_0(
-            callback.unchecked_ref(),
-            (ahead - 80.).min(20.) as i32,
-        );
-    } else {
-        let _ = port.post_message(&JsValue::NULL);
+    let mut m = state.borrow_mut();
+    if m.configured && (m.cpu.pending_input() >= 128 || !m.input.is_empty()) {
+        queue_tick(&mut m, &port);
     }
 }
 #[wasm_bindgen]
@@ -1184,9 +1189,8 @@ pub async fn start_worker() -> Result<(), JsValue> {
         rate: 48000.,
         source_rate: 48_187.487,
         input: VecDeque::new(),
-        input_phase: 0.,
-        output_phase: 0.,
-        output_last: 0.,
+        input_resampler: resample::Resampler::default(),
+        output_resampler: resample::Resampler::default(),
         samples: 0,
         start: now(),
         last_ui: 0.,
@@ -1201,15 +1205,40 @@ pub async fn start_worker() -> Result<(), JsValue> {
         song_start: 0,
         song_playing: false,
         output: Vec::new(),
+        audio_port: None,
+        tick_pending: false,
     }));
+    let channel = MessageChannel::new()?;
+    let port = channel.port2();
     let s = state.clone();
     let scope_error = scope.clone();
+    let wakeup = port.clone();
     bind(scope.as_ref(), "message", move |e| {
         let e: MessageEvent = e.unchecked_into();
         let d = e.data();
         let mut m = s.borrow_mut();
         let value = get(&d, "value");
         let result = match get(&d, "kind").as_string().as_deref() {
+            Some("audio_port") => (|| -> Result<(), JsValue> {
+                let audio_port: MessagePort = get(&d, "port").dyn_into()?;
+                let state = s.clone();
+                let wake = wakeup.clone();
+                bind(audio_port.as_ref(), "message", move |event| {
+                    let event: MessageEvent = event.unchecked_into();
+                    let mut machine = state.borrow_mut();
+                    if machine.failed {
+                        return;
+                    }
+                    receive_mic(&mut machine, &event.data());
+                    queue_tick(&mut machine, &wake);
+                });
+                audio_port.start();
+                if m.configured {
+                    start_capture(&audio_port)?;
+                }
+                m.audio_port = Some(audio_port);
+                Ok(())
+            })(),
             Some("file") => {
                 match midi_file::parse(&Uint8Array::new(&get(&d, "bytes")).to_vec()) {
                     Ok(song) => {
@@ -1287,8 +1316,14 @@ pub async fn start_worker() -> Result<(), JsValue> {
                     }
                     m.configured = true;
                     m.start = now();
+                    if let Some(port) = &m.audio_port {
+                        start_capture(port)
+                    } else {
+                        Ok(())
+                    }
+                } else {
+                    Ok(())
                 }
-                Ok(())
             }
             Some("shutdown") => {
                 let data = object("shutdown");
@@ -1321,35 +1356,17 @@ pub async fn start_worker() -> Result<(), JsValue> {
             Some("handset") => m.cpu.handset(value.is_truthy()),
             Some("gain") => m.cpu.mic_gain(value.as_f64().unwrap_or(1.) as f32),
             Some("midi") => m.cpu.midi(&Uint8Array::new(&get(&d, "bytes"))),
-            Some("mic") => {
-                m.underruns = get(&d, "underruns").as_f64().unwrap_or(0.);
-                {
-                    let samples = Float32Array::new(&get(&d, "samples")).to_vec();
-                    let ratio = m.rate / m.source_rate;
-                    for sample in samples {
-                        while m.input_phase < 1. {
-                            m.input.push_back(sample);
-                            m.input_phase += ratio;
-                        }
-                        m.input_phase -= 1.;
-                    }
-                    while m.input.len() > 8192 {
-                        m.input.pop_front();
-                    }
-                }
-                Ok(())
-            }
             _ => Ok(()),
         };
         if let Err(e) = result {
             m.failed = true;
             fault(&scope_error, e);
+        } else {
+            queue_tick(&mut m, &wakeup);
         }
     });
-    let channel = MessageChannel::new()?;
     let s = state.clone();
     let sc = scope.clone();
-    let port = channel.port2();
     let p = port.clone();
     bind(channel.port1().as_ref(), "message", move |_| {
         tick(sc.clone(), s.clone(), p.clone())

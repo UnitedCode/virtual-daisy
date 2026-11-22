@@ -30,6 +30,15 @@ for visitors.
 
 For agent work, reuse an existing compatible `CARGO_TARGET_DIR`.
 
+To publish merged source to GitHub Pages, sign in with `gh` and run:
+
+```sh
+CARGO_TARGET_DIR=target cargo run --manifest-path web/site-builder/Cargo.toml -- pages
+```
+
+This builds locally, publishes the runtime bundle to `gh-pages`, and enables
+Pages. It requires a clean checkout whose commit is already on `origin/main`.
+
 </details>
 
 <details><summary>Verification and implementation</summary>
@@ -51,14 +60,29 @@ Short sequences are decoded at build time into Rust instruction calls and
 guarded register-local expressions. These still execute CPU instruction
 semantics and require the matching firmware hash. In native tests, every
 accepted lifted block is shadowed by interpretation and compared bit for bit:
-FP and general registers, flags, changed memory, PC and instruction count.
+FP and general registers, flags, changed memory, PC, instruction count and cycles.
 Differential tests also compare complete audio with interpretation.
 Busy idle and decrement loops have bounded CPU-state-preserving coalescing.
 Board service follows audio, timer, UART, encoder and flash deadlines. MMIO
 accesses synchronize first; interrupt boundaries stop translated execution.
 Browser slices also stop after two virtual milliseconds, keeping captured mic
 input and queued controls responsive. A finer polling schedule is checked
-against the same firmware's PCM output.
+against the same firmware's PCM output. A transferred message port connects the
+firmware worker directly to the audio thread; UI rendering does not relay PCM.
+Capture packets are 256 frames and playback starts with 12 ms queued.
+
+Generate repeatable test input and measure the real ARM firmware in V8:
+
+```sh
+rustc -O web/engine/benchmark-fixture.rs -o /tmp/synthphone-fixture
+/tmp/synthphone-fixture /tmp/synthphone-voice.f32 voice
+node web/engine/benchmark.mjs dist /tmp/synthphone-voice.f32 6 3 full
+/tmp/synthphone-fixture /tmp/synthphone-stress.mid midi
+```
+
+Profiles are 0 Pitch Control, 1 Vocode, 2 Dry, 3 Tuned, 4 Harmony and 5 Percussion.
+`full` adds eight MIDI voices, drums and octave/formant controls. The generated
+60-second MIDI file exercises the same controls through the phone's file player.
 
 The vendored interpreter's source, Apache license and upstream revision are in
 `cpu`. Regression tests cover interrupt IT state, NVIC banks, conditional float

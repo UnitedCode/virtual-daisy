@@ -479,8 +479,13 @@ impl Processor {
     }
 
     /// Take the currently pending fault trap, if any.
+    #[inline(always)]
     pub fn take_pending_fault_trap(&mut self) -> Option<FaultContext> {
-        self.pending_fault_trap.take()
+        if self.pending_fault_trap.is_some() {
+            self.pending_fault_trap.take()
+        } else {
+            None
+        }
     }
 
     pub(crate) fn fault_with_status(&mut self, fault: Fault, status: FaultStatusContext) -> Fault {
