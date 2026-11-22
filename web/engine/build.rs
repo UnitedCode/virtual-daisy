@@ -79,6 +79,7 @@ fn eligible(i: &Instruction) -> bool {
     matches!(
         i,
         Instruction::VADD_f32 { .. }
+            | Instruction::VSQRT_f32 { .. }
             | Instruction::VSUB_f32 { .. }
             | Instruction::VMUL_f32 { .. }
             | Instruction::VDIV_f32 { .. }
@@ -161,9 +162,20 @@ fn main() {
     println!("cargo:rerun-if-changed=fp_lift.rs");
     println!("cargo:rerun-if-changed=hotspots.txt");
     println!("cargo:rerun-if-changed=fallback-hotspots.txt");
+    println!("cargo:rerun-if-env-changed=VD_INTERPRETER_PROFILE");
     let image = fs::read("../firmware/synthphone.bin").unwrap();
     let hash = Sha256::digest(&image);
     let mut out = format!("pub const IMAGE_HASH:[u8;32]={:?};\n", hash.as_slice());
+    if env::var("VD_INTERPRETER_PROFILE").as_deref() == Ok("1") {
+        assert!(env::var_os("CARGO_FEATURE_PROFILE").is_some(), "Interpreter-only profiling requires the profile feature; never use it for a site build");
+        out.push_str("pub fn dispatch(_: &mut zmu_cortex_m::Processor,_:u32,_:u64)->bool{false}\npub fn contains(_:u32)->bool{false}\npub fn single(_: &mut zmu_cortex_m::Processor,_:u32)->bool{false}\n");
+        fs::write(
+            PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("compiled.rs"),
+            out,
+        )
+        .unwrap();
+        return;
+    }
     out.push_str("use zmu_cortex_m::{Processor,core::{condition::Condition::*,instruction::{*,ITCondition::*,SetFlags::*,SRType::*,Imm32Carry::*},register::{BaseReg,Reg,Reg::*,SingleReg::*,DoubleReg::*,ExtensionReg::*}}};\n");
     out.push_str(fp_lift::HELPERS);
     out.push_str("pub fn dispatch(cpu:&mut Processor,mut pc:u32,budget:u64)->bool {let start=cpu.cycle_count;let mut executed=false;while cpu.cycle_count-start+64<=budget {if !dispatch_one(cpu,pc){break;}executed=true;pc=cpu.get_pc();}executed}\nfn dispatch_one(cpu:&mut Processor,pc:u32)->bool {let Some(&index)=INDEX.get(pc.wrapping_sub(0x08000000)as usize/2)else{return false;};if index==0||!cpu.compiled_block_ready(){return false;}match index {\n");

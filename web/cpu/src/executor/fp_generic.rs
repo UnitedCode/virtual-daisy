@@ -90,7 +90,12 @@ pub trait FloatOps {
     ) -> Option<(Self::Bits, u32)> {
         None
     }
-    fn native_compare(_a: Self::Bits, _b: Self::Bits) -> Option<(bool, bool, bool, bool)> {
+    fn native_compare(
+        _a: Self::Bits,
+        _b: Self::Bits,
+        _control: u32,
+        _quiet_nan_exc: bool,
+    ) -> Option<((bool, bool, bool, bool), u32)> {
         None
     }
     fn as_u32(_bits: Self::Bits) -> Option<u32> {
@@ -282,8 +287,13 @@ impl FloatOps for u32 {
     fn native_binary(op: u8, a: u32, b: u32, control: u32) -> Option<(u32, u32)> {
         super::native_float::binary(op, a, b, control)
     }
-    fn native_compare(a: u32, b: u32) -> Option<(bool, bool, bool, bool)> {
-        super::native_float::compare(a, b)
+    fn native_compare(
+        a: u32,
+        b: u32,
+        control: u32,
+        quiet_nan_exc: bool,
+    ) -> Option<((bool, bool, bool, bool), u32)> {
+        super::native_float::compare(a, b, control, quiet_nan_exc)
     }
     fn as_u32(bits: u32) -> Option<u32> {
         Some(bits)
@@ -455,6 +465,17 @@ impl FloatOps for u32 {
 }
 
 impl FloatOps for u64 {
+    fn native_binary(op: u8, a: u64, b: u64, control: u32) -> Option<(u64, u32)> {
+        super::native_float::binary64(op, a, b, control)
+    }
+    fn native_compare(
+        a: u64,
+        b: u64,
+        control: u32,
+        _quiet_nan_exc: bool,
+    ) -> Option<((bool, bool, bool, bool), u32)> {
+        super::native_float::compare64(a, b, control).map(|flags| (flags, 0))
+    }
     type Bits = u64;
     type SignedBits = i64;
 
@@ -906,15 +927,15 @@ impl FloatingPointPublicOperations for Processor {
             let zero1 = type1 == FPType::Zero;
             let zero2 = type2 == FPType::Zero;
 
-            if inf1 && inf2 && sign1 != sign2 {
+            if inf1 && inf2 && sign1 == sign2 {
                 let res = T::fp_default_nan();
                 self.fp_process_exception(FPExc::InvalidOp, fpscr_val);
                 res
-            } else if (inf1 && !sign1) || (inf2 && !sign2) {
-                T::fp_infinity(false)
-            } else if (inf1 && sign1) || (inf2 && !sign2) {
-                T::fp_infinity(true)
-            } else if zero1 && zero2 && sign1 == sign2 {
+            } else if inf1 {
+                T::fp_infinity(sign1)
+            } else if inf2 {
+                T::fp_infinity(!sign2)
+            } else if zero1 && zero2 && sign1 != sign2 {
                 T::fp_zero(sign1)
             } else {
                 let result_value = value1 - value2;
@@ -1108,7 +1129,8 @@ impl FloatingPointPublicOperations for Processor {
         };
 
         if self.native_float {
-            if let Some(flags) = T::native_compare(op1, op2) {
+            if let Some((flags, status)) = T::native_compare(op1, op2, fpscr_val, quiet_nan_exc) {
+                self.fpscr |= status;
                 return flags;
             }
         }
@@ -1144,6 +1166,15 @@ impl FloatingPointPublicOperations for Processor {
         } else {
             standard_fpscr_value(self.fpscr)
         };
+
+        if self.native_float && T::n() == 32 {
+            if let Some((bits, flags)) =
+                T::as_u32(op).and_then(|input| super::native_float::square_root(input, fpscr_val))
+            {
+                self.fpscr |= flags;
+                return T::from_u32(bits).unwrap();
+            }
+        }
 
         let (fptype, sign, value) = self.fp_unpack::<T>(op, fpscr_val);
 

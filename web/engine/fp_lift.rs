@@ -2,7 +2,7 @@
 //! Values commit after all speculative operations pass their IEEE guards.
 use std::collections::{BTreeMap, BTreeSet};
 use zmu_cortex_m::core::{
-    instruction::{AddressingMode, Imm32Carry, Instruction, SRType, SetFlags},
+    instruction::{AddressingMode, Imm32Carry, Instruction, SRType, SetFlags, VMRSTarget},
     register::{ExtensionReg, Reg},
 };
 struct Emitter {
@@ -19,6 +19,8 @@ struct Emitter {
     branch: Option<(u32, String, u32)>,
     predicate: Option<String>,
     initial_fp: BTreeSet<usize>,
+    fp_status_dirty: bool,
+    uses_fp: bool,
 }
 impl Emitter {
     fn sets_flags(&self, flags: SetFlags) -> bool {
@@ -195,14 +197,14 @@ impl Emitter {
 pub fn emit(instructions: &[(Instruction, usize)], pc: u32) -> Option<String> {
     let mut e = Emitter {
         code: String::from(
-            "let _sticky=cpu.fpscr&16!=0;let mut valid=true;#[allow(unused_mut)]let mut _status=cpu.psr.value;\n",
+            "let _sticky=cpu.fpscr&16!=0;let mut valid=true;#[allow(unused_mut)]let mut _status=cpu.psr.value;#[allow(unused_mut)]let mut _fpscr=cpu.fpscr;\n",
         ),
         regs: BTreeMap::new(),
         dirty: BTreeSet::new(),
         stores: Vec::new(),
         next: 0,
         stored: false,
-        gprs:BTreeMap::new(),gpr_dirty:BTreeSet::new(),status_dirty:false,cycles:0,branch:None,predicate:None,initial_fp:BTreeSet::new(),
+        gprs:BTreeMap::new(),gpr_dirty:BTreeSet::new(),status_dirty:false,cycles:0,branch:None,predicate:None,initial_fp:BTreeSet::new(),fp_status_dirty:false,uses_fp:false,
     };
     let mut at = pc;
     for (position, (i, size)) in instructions.iter().enumerate() {
@@ -673,6 +675,12 @@ pub fn emit(instructions: &[(Instruction, usize)], pc: u32) -> Option<String> {
                 e.stores.push((address, format!("{value}.to_bits()")));
                 e.stored = true;
             }
+            Instruction::VSQRT_f32 { params } => {
+                let source = e.input(params.sm as usize);
+                let value = e.name();
+                e.code.push_str(&format!("let {value}={source}.sqrt();valid&={source}>=0.&&lift_ordinary({value})&&(_sticky||f64::from({value})*f64::from({value})==f64::from({source}));\n"));
+                e.dest(params.sd as usize, value);
+            }
             Instruction::VADD_f32 { params }
             | Instruction::VSUB_f32 { params }
             | Instruction::VMUL_f32 { params }
@@ -705,6 +713,41 @@ pub fn emit(instructions: &[(Instruction, usize)], pc: u32) -> Option<String> {
                 };
                 let v = e.math(0, &d, &product);
                 e.dest(params.sd as usize, v);
+            }
+            Instruction::VCMP_f32 { params } => {
+                let a = e.input(params.sd as usize);
+                let b = if params.with_zero {
+                    "0f32".into()
+                } else {
+                    e.input(params.sm as usize)
+                };
+                let update = format!("_fpscr=(_fpscr&0x0fff_ffff)|if {a}=={b}{{0x6000_0000}}else if {a}<{b}{{0x8000_0000}}else{{0x2000_0000}};\n");
+                if let Some(predicate) = &e.predicate {
+                    e.code.push_str(&format!("if {predicate}{{{update}}}\n"));
+                } else {
+                    e.code.push_str(&update);
+                }
+                e.fp_status_dirty = true;
+            }
+            Instruction::VMRS { rt } => {
+                e.uses_fp = true;
+                match rt {
+                    VMRSTarget::APSRNZCV => {
+                        e.status("_status=(_status&0x0fff_ffff)|(_fpscr&0xf000_0000);\n".into())
+                    }
+                    VMRSTarget::Register(reg) => {
+                        let value = e.name();
+                        e.code.push_str(&format!("let {value}=_fpscr;\n"));
+                        e.gpr_dest(*reg, value)?;
+                    }
+                }
+            }
+            Instruction::VSEL_f32 { params } if !predicated => {
+                let a = e.input(params.sn as usize);
+                let b = e.input(params.sm as usize);
+                let value = e.name();
+                e.code.push_str(&format!("let {value}=if zmu_cortex_m::core::operation::condition_test(zmu_cortex_m::core::condition::Condition::{:?},&zmu_cortex_m::core::register::PSR{{value:_status}}){{{a}}}else{{{b}}};\n", params.cond));
+                e.dest(params.sd as usize, value);
             }
             Instruction::VMOV_reg_f32 { params } => {
                 let v = e.input(params.sm as usize);
@@ -778,6 +821,9 @@ pub fn emit(instructions: &[(Instruction, usize)], pc: u32) -> Option<String> {
     if e.status_dirty {
         e.code.push_str("cpu.psr.value=_status;\n");
     }
+    if e.fp_status_dirty {
+        e.code.push_str("cpu.fpscr=_fpscr;\n");
+    }
     for index in &e.dirty {
         let v = &e.regs[index];
         e.code
@@ -809,7 +855,7 @@ pub fn emit(instructions: &[(Instruction, usize)], pc: u32) -> Option<String> {
             .push_str(&format!("cpu.fp_lift_load({address}).unwrap(),"));
     }
     e.code.push_str(&format!("],cpu.r0_12,cpu.psr.value,{cycles},cpu.lr),expected,\"lifted ARM block at {pc:08x} differs from interpretation\");\n"));
-    let readiness = if e.regs.is_empty() && e.dirty.is_empty() {
+    let readiness = if e.regs.is_empty() && e.dirty.is_empty() && !e.uses_fp {
         "compiled_block_ready"
     } else {
         "fp_lift_ready"

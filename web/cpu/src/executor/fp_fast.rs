@@ -22,6 +22,12 @@ impl Processor {
         let (dst, value) = match i {
             Instruction::VMOV_reg_f32 { params } => (params.sd, self.get_sr(params.sm)),
             Instruction::VMOV_imm_32 { params } => (params.sd, params.imm32),
+            Instruction::VSQRT_f32 { params } => {
+                let (value, status) =
+                    super::native_float::square_root(self.get_sr(params.sm), self.fpscr)?;
+                flags = status;
+                (params.sd, value)
+            }
             Instruction::VADD_f32 { params }
             | Instruction::VSUB_f32 { params }
             | Instruction::VMUL_f32 { params }

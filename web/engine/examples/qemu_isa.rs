@@ -63,15 +63,36 @@ fn main() {
     assert!(status.success());
     let hex = fs::read_to_string(&capture).unwrap();
     let mut bytes = Vec::new();
+    let mut doubles = Vec::new();
+    let mut controlled = Vec::new();
     for line in hex.lines() {
-        assert_eq!(line.len(), 40);
+        assert!(matches!(line.len(), 40 | 48 | 64));
+        let destination = if line.len() == 40 {
+            &mut bytes
+        } else if line.len() == 64 {
+            &mut doubles
+        } else {
+            &mut controlled
+        };
         for pair in line.as_bytes().chunks_exact(2) {
-            bytes.push(u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap());
+            destination.push(u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap());
         }
     }
-    assert_eq!(bytes.len(), 210 * 4 * 5 * 4);
+    assert_eq!(bytes.len(), 210 * 5 * 5 * 4);
     fs::write(&output, &bytes).unwrap();
+    assert_eq!(doubles.len(), 344 * 5 * 8 * 4);
+    fs::write(output.with_extension("f64.bin"), &doubles).unwrap();
+    assert_eq!(controlled.len(), 344 * 7 * 4 * 6 * 4);
+    fs::write(output.with_extension("control.bin"), &controlled).unwrap();
     fs::remove_file(&elf).unwrap();
     fs::remove_file(&capture).unwrap();
-    println!("840 QEMU ARM-ISA reference cases; {} bytes", bytes.len());
+    println!("1050 QEMU ARM-ISA reference cases; {} bytes", bytes.len());
+    println!(
+        "1720 QEMU binary64 reference cases; {} bytes",
+        doubles.len()
+    );
+    println!(
+        "9632 QEMU binary32 control-mode reference cases; {} bytes",
+        controlled.len()
+    );
 }
