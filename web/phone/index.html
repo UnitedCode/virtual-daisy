@@ -11,7 +11,7 @@
 </head>
 <body>
   <nav class="utility" aria-label="Audio and MIDI">
-    <button id="power" title="Switch power"><span class="power-symbol" aria-hidden="true">⏻</span> POWER</button>
+    <button id="power" title="Switch power" disabled><span class="power-symbol" aria-hidden="true">⏻</span> POWER</button>
     <button id="microphone" disabled>MIC</button>
     <label class="file-pick">MIDI FILE<input id="midi-file" type="file" accept=".mid,.midi,audio/midi,audio/x-midi" disabled aria-label="Load MIDI file"></label>
     <button id="file-play" aria-label="Play MIDI file" title="Play MIDI file" disabled>▶</button>
@@ -68,11 +68,11 @@
     </div>
   </main>
   <footer>
-    <p id="status" role="status">Power on, then pick up.</p>
+    <p id="status" role="status">Loading the phone…</p>
     <button id="zoom" aria-pressed="false" title="Enlarge the phone to play and read its screen">Zoom +</button>
     <details class="engine"><summary>Engine</summary><div class="drawer"><p id="persistence">Settings stay on this device.</p><p id="performance">Phone off.</p><p id="error-detail"></p><p>Audio stays on your computer. Timing is not hardware calibrated.</p><a href="lab.html">Audio verification lab</a> · <a href="https://github.com/UnitedCode/virtual-daisy/tree/main/web">Source</a></div></details>
     <span class="maker">0rwx × AI made</span>
   </footer>
-  <script type="module">import init from './phone.js';init();</script>
+  <script type="module">import init from './phone.js';init().catch(()=>{document.getElementById('status').textContent='Could not load the phone. Reload to try again.';});</script>
 </body>
 </html>
