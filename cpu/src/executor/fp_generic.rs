@@ -171,6 +171,7 @@ impl Processor {
 }
 
 pub trait FloatingPointPublicOperations {
+    fn fp_minmax_num<T: FloatOps>(&mut self, op1: T::Bits, op2: T::Bits, maximum: bool) -> T::Bits;
     fn fp_add<T: FloatOps>(
         &mut self,
         op1: T::Bits,
@@ -845,6 +846,57 @@ impl FloatingPointHiddenOperations for Processor {
 }
 
 impl FloatingPointPublicOperations for Processor {
+    fn fp_minmax_num<T: FloatOps>(&mut self, op1: T::Bits, op2: T::Bits, maximum: bool) -> T::Bits {
+        let control = self.fpscr;
+        let sign = 1u64 << (T::n() - 1);
+        let exponent: u64 = T::fp_infinity(false).into();
+        let quiet = 1u64 << (if T::n() == 32 { 22 } else { 51 });
+        let mut a: u64 = op1.into();
+        let mut b: u64 = op2.into();
+        if control & (1 << 24) != 0 {
+            for operand in [&mut a, &mut b] {
+                let magnitude = *operand & !sign;
+                if magnitude != 0 && magnitude < quiet * 2 {
+                    *operand &= sign;
+                    self.fp_process_exception(FPExc::InputDenorm, control);
+                }
+            }
+        }
+        let nan_a = a & !sign > exponent;
+        let nan_b = b & !sign > exponent;
+        let signal_a = nan_a && a & quiet == 0;
+        let signal_b = nan_b && b & quiet == 0;
+        if signal_a || signal_b || (nan_a && nan_b) {
+            let (bits, kind) = if signal_a {
+                (a, FPType::SNaN)
+            } else if signal_b {
+                (b, FPType::SNaN)
+            } else {
+                (a, FPType::QNaN)
+            };
+            return self.fp_process_nan::<T>(kind, T::from_integer(bits), control);
+        }
+        // A lone quiet NaN contributes no number; the other operand wins.
+        if nan_a {
+            return T::from_integer(b);
+        }
+        if nan_b {
+            return T::from_integer(a);
+        }
+        if (a | b) & !sign == 0 {
+            return T::from_integer(if maximum { a & b } else { a | b });
+        }
+        // IEEE bit ordering is monotonic within each sign. This preserves
+        // exact subnormals/infinities without host NaN or rounding behavior.
+        let greater = if (a ^ b) & sign != 0 {
+            a & sign == 0
+        } else if a & sign != 0 {
+            a < b
+        } else {
+            a > b
+        };
+        T::from_integer(if greater == maximum { a } else { b })
+    }
     fn fp_add<T: FloatOps>(
         &mut self,
         op1: T::Bits,

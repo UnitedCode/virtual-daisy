@@ -597,10 +597,12 @@ fn run(
         Command::new("cargo")
             .current_dir(&root)
             .args([
-                "build",
+                "rustc",
                 "--release",
                 "--locked",
                 "--lib",
+                "--crate-type",
+                "cdylib",
                 "--target",
                 host,
                 "--manifest-path",

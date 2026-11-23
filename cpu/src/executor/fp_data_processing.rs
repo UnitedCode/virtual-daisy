@@ -14,6 +14,8 @@ use crate::core::register::ExtensionRegOperations;
 use crate::executor::ExecutorHelper;
 
 pub trait IsaFloatingPointDataProcessing {
+    fn exec_vminmaxnm_f32(&mut self, params: VAddSubParamsf32, maximum: bool) -> ExecuteResult;
+    fn exec_vminmaxnm_f64(&mut self, params: VAddSubParamsf64, maximum: bool) -> ExecuteResult;
     fn exec_vmla_f32(
         &mut self,
         params: &VAddSubParamsf32,
@@ -66,6 +68,26 @@ pub trait IsaFloatingPointDataProcessing {
 }
 
 impl IsaFloatingPointDataProcessing for Processor {
+    fn exec_vminmaxnm_f32(&mut self, params: VAddSubParamsf32, maximum: bool) -> ExecuteResult {
+        self.execute_fp_check()?;
+        let a = self.get_sr(params.sn);
+        let b = self.get_sr(params.sm);
+        let result = self.fp_minmax_num::<u32>(a, b, maximum);
+        self.set_sr(params.sd, result);
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
+    fn exec_vminmaxnm_f64(&mut self, params: VAddSubParamsf64, maximum: bool) -> ExecuteResult {
+        self.execute_fp_check()?;
+        let a = self.get_dr(params.dn);
+        let b = self.get_dr(params.dm);
+        let result = self.fp_minmax_num::<u64>(
+            (u64::from(a.1) << 32) | u64::from(a.0),
+            (u64::from(b.1) << 32) | u64::from(b.0),
+            maximum,
+        );
+        self.set_dr(params.dd, result as u32, (result >> 32) as u32);
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
     #[inline(always)]
     fn exec_vmla_f32(
         &mut self,

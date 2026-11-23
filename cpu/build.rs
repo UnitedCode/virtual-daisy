@@ -87,7 +87,7 @@ fn generate_decode(
     let mut maskstrings: Vec<&str> = instructions.keys().copied().collect();
 
     // sort by number of dots in the string
-    maskstrings.sort_by_key(|a| a.matches(".").count());
+    maskstrings.sort_by_key(|a| (a.matches('.').count(), *a));
 
     let onemasks: Vec<u32> = maskstrings
         .iter()
@@ -106,6 +106,14 @@ fn generate_decode(
         })
         .collect();
 
+    if bits == 32 {
+        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 3;")?;
+        let profile = u8::from(cargo_feature_enabled("has-fp"))
+            | (u8::from(cargo_feature_enabled("has-dsp-ext")) << 1)
+            | (u8::from(cargo_feature_enabled("fpv5-d16")) << 2)
+            | (u8::from(cargo_feature_enabled("fpv5-sp-d16")) << 3);
+        writeln!(file, "const GENERATED_DECODER_PROFILE: u8 = {profile};")?;
+    }
     writeln!(file, "/// automatically generated decoder function")?;
     writeln!(file, "pub fn {} -> Instruction {{", func_name)?;
 
@@ -168,7 +176,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut instructions_thumb32 = HashMap::from([
         ("11111110...1...............1....", "MRC2_t2"),
-        ("11111110...0...............0....", "MCR2_t2"),
+        ("11111110...0...............1....", "MCR2_t2"),
         ("11111110...................0....", "CDP2_t2"),
         ("111111000100....................", "MCRR2_t2"),
         ("1111110....11111................", "LDC2_lit_t2"),
@@ -290,7 +298,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ("11110...........10.1............", "B_t4"),
         ("11110...........10.0............", "B_t3"),
         ("11101110...1...............1....", "MRC_t1"),
-        ("11101110...0...............0....", "MCR_t1"),
+        ("11101110...0...............1....", "MCR_t1"),
         ("11101110...................0....", "CDP_t1"),
         ("111011000100....................", "MCRR_t1"),
         ("1110110....11111................", "LDC_lit_t1"),
@@ -337,6 +345,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     ]);
 
     if cargo_feature_enabled("has-fp") {
+        if cargo_feature_enabled("fpv5-d16") || cargo_feature_enabled("fpv5-sp-d16") {
+            instructions_thumb32.insert("111111101.00........101....0....", "VMINMAXNM_t1");
+        }
         instructions_thumb32.extend([
             ("111011101.110000....101.11.0....", "VABS_t1"),
             ("111011101.110001....101.01.0....", "VNEG_t1"),
@@ -504,5 +515,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_HAS_FP");
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_HAS_DSP_EXT");
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_FPV5_D16");
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_FPV5_SP_D16");
     Ok(())
 }

@@ -23,6 +23,14 @@ are A, B, operation, initial FPSCR, result, and final FPSCR. Both instruction
 execution paths are checked with clear and sticky IXC. The generator writes
 this companion as `isa_oracle.control.bin`.
 
+`isa_oracle_minmax.bin` adds 7,296 FPv5 VMAXNM/VMINNM records, covering both
+precisions, all pairings of 16 special values, 200 deterministic random pairs,
+and independently enabled FZ/DN controls. Its ten words are precision, A low/high,
+B low/high, operation (0=max, 1=min), initial FPSCR, result low/high, final FPSCR.
+The initial status includes NZCV and sticky IXC. Tests check ordinary/compiled
+execution with native arithmetic enabled and disabled. The generator writes
+`isa_oracle.minmax.bin`; QEMU 11.1.3 and rustc 1.97.1 generated the fixture.
+
 Regenerate from the repository root:
 
 ```sh

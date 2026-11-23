@@ -29,6 +29,15 @@ fn supplied_synthphone_firmware_processes_audio_on_all_seed_revisions() {
     )
     .unwrap();
     let captures = std::env::var_os("VIRTUAL_DAISY_AUDIO_OUT").map(std::path::PathBuf::from);
+    let expected_hz = std::env::var("VIRTUAL_DAISY_EXPECTED_AUDIO_HZ")
+        .ok()
+        .map(|value| {
+            let hz: f64 = value
+                .parse()
+                .expect("VIRTUAL_DAISY_EXPECTED_AUDIO_HZ must be a frequency in Hz");
+            assert!(hz.is_finite() && (1.0..=384_000.0).contains(&hz));
+            hz
+        });
     if let Some(path) = &captures {
         fs::create_dir(path).expect("choose a new audio capture directory");
         fs::write(path.join("firmware.elf"), &firmware).unwrap();
@@ -88,6 +97,22 @@ fn supplied_synthphone_firmware_processes_audio_on_all_seed_revisions() {
         assert_eq!(m.read32(0xe000ed28).unwrap(), 0, "CFSR");
         assert_eq!(m.read32(0xe000ed2c).unwrap(), 0, "HFSR");
         let sai_status = [m.read32(0x40015818).unwrap(), m.read32(0x40015838).unwrap()];
+        let mut rcc = String::new();
+        for (name, offset) in [
+            ("cr", 0),
+            ("pllckselr", 0x28),
+            ("pllcfgr", 0x2c),
+            ("pll3divr", 0x40),
+            ("pll3fracr", 0x44),
+        ] {
+            use std::fmt::Write;
+            writeln!(
+                rcc,
+                "rcc_{name}={:#010x}",
+                m.read32(0x58024400 + offset).unwrap()
+            )
+            .unwrap();
+        }
         eprintln!("{board:?}: SAI status={sai_status:x?}");
         if let Some(path) = &captures {
             let name = format!("{board:?}").to_lowercase();
@@ -110,12 +135,17 @@ fn supplied_synthphone_firmware_processes_audio_on_all_seed_revisions() {
             fs::write(
                 path.join(format!("{name}.txt")),
                 format!(
-                    "frames={}\nrate={rate:?}\nsai_status={sai_status:x?}\n{}",
+                    "frames={}\nrate={rate:?}\nsai_status={sai_status:x?}\n{rcc}{}",
                     output.len(),
                     m.memory_report()
                 ),
             )
             .unwrap();
+        }
+        if let Some(hz) = expected_hz {
+            let actual = rate.hz();
+            let error_ppm = ((actual - hz) / hz).abs() * 1e6;
+            assert!(error_ppm<=1.0,"{board:?}: sample rate {actual} Hz differs from expected {hz} Hz by {error_ppm} ppm");
         }
         assert_eq!(
             (sai_status[0] | sai_status[1]) & 1,

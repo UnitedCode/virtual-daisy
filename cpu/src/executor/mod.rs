@@ -858,10 +858,12 @@ impl ExecutorHelper for Processor {
             // Group: Coprocessor instructions
             //
             // --------------------------------------------
-            Instruction::MCR { .. } => self.exec_mcr(),
-            Instruction::MCR2 { .. } => self.exec_mcr2(),
-            Instruction::LDC_imm { .. } => self.exec_ldc_imm(),
-            Instruction::LDC2_imm { .. } => self.exec_ldc2_imm(),
+            Instruction::MCR { coproc, .. } | Instruction::LDC_imm { coproc, .. } => {
+                self.exec_unsupported_coprocessor(*coproc, false)
+            }
+            Instruction::MCR2 { coproc, .. } | Instruction::LDC2_imm { coproc, .. } => {
+                self.exec_unsupported_coprocessor(*coproc, true)
+            }
             // --------------------------------------------
             //
             // Group: Floating-point load and store instructions
@@ -991,6 +993,14 @@ impl ExecutorHelper for Processor {
             Instruction::VSEL_f32 { params } => self.exec_vsel_f32(*params),
             #[cfg(feature = "has-fp")]
             Instruction::VSEL_f64 { params } => self.exec_vsel_f64(*params),
+            #[cfg(feature = "has-fp")]
+            Instruction::VMINMAXNM_f32 { params, maximum } => {
+                self.exec_vminmaxnm_f32(*params, *maximum)
+            }
+            #[cfg(feature = "has-fp")]
+            Instruction::VMINMAXNM_f64 { params, maximum } => {
+                self.exec_vminmaxnm_f64(*params, *maximum)
+            }
 
             // --------------------------------------------
             //
