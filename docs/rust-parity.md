@@ -32,7 +32,7 @@ Guests were built with Rust 1.97.1 for `thumbv7em-none-eabihf`, Cortex-M7,
 
 | Executed firmware | Comparison |
 | --- | --- |
-| CPU faults and FPU | All 100 result words match for DTCM/shared SRAM stacks and lazy/eager FP saves. Includes divide-by-zero, normal/forced alignment, MPU denied/XN access, NOCP, f64 arithmetic, FP identifiers, scalar/paired VMOV bit transfers and precise fault PCs. |
+| CPU faults and FPU | All 104 result words match for DTCM/shared SRAM stacks and lazy/eager FP saves. Includes divide-by-zero, normal/forced alignment, MPU denied/XN access, NOCP, f64 arithmetic, FP identifiers, scalar/paired VMOV bit transfers and precise fault PCs. |
 | Half-precision storage conversion | VCVTB/VCVTT convert directly between FP16 and binary32/binary64, preserving the other packed half. An ARM guest checks 6,144 register pairs, aliases and FPSCR. Restoring the reference's old double-half rejection must fault at the expected instruction. Numerical independence comes from the separate QEMU oracle below. |
 | Fixed-point conversion | An ARM guest checks 40 QEMU-pinned boundary cases across all populated registers: 960 executions, including signed extension, unsigned saturation and fractional scaling. The separate 401,408-record oracle covers every legal fractional-bit count. |
 | SysTick source selection | An ARM guest compares both CLKSOURCE settings against DWT cycles. The reference suite also restores the old core-only behavior as a required negative control. |
@@ -172,7 +172,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.17. Generated tables check their revision and
+The vendored CPU is revision 0.1.18. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -609,10 +609,10 @@ unaligned transfers, CCR.UNALIGN_TRP, and USERSETMPEND-controlled STIR writes.
 It checks results, untouched bytes, APSR, exact CFSR/MMFAR and the original base
 register. The default MPU background does not grant unprivileged access. The
 STIR path now retains disabled pending IRQs instead of making them eligible.
-The executed ARM suite now has sixteen guests. CPU 0.1.17 uses decoder16.
+The executed ARM suite now has sixteen guests. CPU 0.1.17 uses decoder revision 16.
 
 The reference passed the numerical/MPU cases but incorrectly allowed a user
-STIR write with the MPU disabled and USERSETMPEND clear. Native adapter17 checks
+STIR write with the MPU disabled and USERSETMPEND clear. Native adapter 17 checks
 fixed PPB permissions using the access's user MMU index even in privileged
 software's STRT/LDRT. It uses a one-use translation for the STIR exception so
 permission changes cannot leave a writable user page. Saved native/reference
@@ -620,3 +620,22 @@ captures retain the old failures. The Rust and native implementations remain
 independent. See the [Cortex-M7 guide](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1),
 sections 3.4.4, 4.2.8 and CCR.USERSETMPEND/UNALIGN_TRP. This validates functional
 protection behavior; physical bus protection and latency remain unverified.
+
+
+### Integer division overflow (v0.2.28)
+
+SDIV of signed MIN by -1 previously panicked the Rust host even in a release
+build. It now returns 0x80000000, matching independently executed ARM results.
+SDIV/UDIV also reject SP/PC operands before side effects. A 4,096-record QEMU
+oracle covers boundary/seeded pairs, zero divisors with trapping disabled,
+signed truncation and preserved flags. Both paths check every legal register
+triple and aliases; separate tests verify CCR.DIV_0_TRP and skipped conditions.
+
+The architectural ARM guest appends MIN/-1, -7/3, unsigned MAX/3 and an untrapped
+zero divisor to its existing results. It now captures 104 words; earlier 100 slots
+and exception counts retain their meaning. Both backends run the same guest
+under DTCM/shared-SRAM and lazy/eager-FP configurations. CPU 0.1.18 keeps decoder revision 16
+and native adapter 17; retirement costs remain unchanged and uncalibrated.
+All twenty earlier numerical datasets regenerate unchanged. Semantics follow
+the [Cortex-M7 instruction guide, SDIV/UDIV](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1)
+and the independent QEMU corpus. No hardware division latency is claimed.

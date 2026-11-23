@@ -1,5 +1,7 @@
 //! Build and grade the independent Rust ARM guest through public memory results.
 use super::{grade, Result};
+#[path = "../cpu/fixtures/divide_probe_cases.rs"]
+mod divide_cases;
 use std::{fs, path::Path};
 pub fn prepare(directory: &Path) -> Result<()> {
     super::guest::prepare(directory, "cpu", include_str!("../guests/cpu.rs"))
@@ -17,7 +19,7 @@ pub fn check(prefix: &Path, shared_stack: bool, eager: bool) -> Result<()> {
         fs::remove_file(&report)?;
     }
     let data = fs::read(grade::artifact(prefix, ".cpu.bin"))?;
-    if data.len() != 400 {
+    if data.len() != 416 {
         return Err("Truncated ARM CPU capture".into());
     }
     let words: Vec<u32> = data
@@ -39,6 +41,13 @@ pub fn check(prefix: &Path, shared_stack: bool, eager: bool) -> Result<()> {
             words[base + 1],
             status,
             &format!("phase {phase} fault status"),
+        )?;
+    }
+    for (i, case) in divide_cases::CPU_DIVIDE_CASES.into_iter().enumerate() {
+        equal(
+            words[100 + i],
+            case[4],
+            &format!("integer division case {i}"),
         )?;
     }
     equal(words[14], 0x24040000, "MPU fault address")?;
