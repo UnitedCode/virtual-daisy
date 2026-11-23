@@ -65,6 +65,7 @@ impl IsaMultiply for Processor {
 
     fn exec_umlal(&mut self, params: &Reg643232Params) -> ExecuteResult {
         if self.condition_passed() {
+            super::long_multiply::validate_long_registers(params)?;
             let rn = u64::from(self.get_r(params.rn));
             let rm = u64::from(self.get_r(params.rm));
             let rdlo = u64::from(self.get_r(params.rdlo));
@@ -82,6 +83,7 @@ impl IsaMultiply for Processor {
     }
     fn exec_umull(&mut self, params: &Reg643232Params) -> ExecuteResult {
         if self.condition_passed() {
+            super::long_multiply::validate_long_registers(params)?;
             let rn = u64::from(self.get_r(params.rn));
             let rm = u64::from(self.get_r(params.rm));
             let result = rn.wrapping_mul(rm);

@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.13. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.14. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
@@ -80,6 +80,13 @@ All legal register/accumulator aliases are checked through both execution paths.
 SMULL now sign-extends negative operands before widening; another 2,048 QEMU
 records and every legal output/source assignment check the full 64-bit product.
 The architectural ARM guest includes a pinned negative SMULL result.
+
+UMAAL, SMLALxy, SMLALD/X and SMLSLD/X now execute. A 292,864-record QEMU oracle
+covers these nine DSP-only forms and the four base long multiply instructions,
+including unsigned separate-word accumulation, signed halfword/dual products,
+64-bit carry/wrap and preserved flags. Both paths check every legal register
+assignment and aliases; a standalone ARM guest checks 33,124 register cases.
+SP/PC operands and equal output registers fault consistently across all families.
 
 Fixed-point VCVT now has its own decoder rather than falling through to integer
 conversion and reading an immediate field as a register number. Every legal

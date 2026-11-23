@@ -187,6 +187,18 @@ The generator writes `isa_oracle.smull.bin`. Both execution paths check every
 legal output/source assignment, aliases and unchanged general registers/flags.
 The architectural ARM guest also requires `MIN * MAX = 0xc000000080000000`.
 
+`isa_oracle_long_multiply.bin` adds 292,864 ten-word records from
+`long_multiply_oracle.rs`: literal opcode, two inputs, accumulator low/high,
+initial APSR, result low/high, final APSR and magic `0x4d4c4c44`. All 13 long
+multiply forms use 512 boundary/seeded operand pairs, 11 accumulators and four
+flag states. The actual assembled opcodes are read by the guest. The generator
+writes `isa_oracle.long-multiply.bin` and selects 13 boundary cases in
+`isa_oracle.long-multiply-probe.rs` for `long_multiply_probe_cases.rs`.
+Both execution paths check every legal output/source assignment and aliases;
+the standalone ARM guest checks 33,124 register cases. The nine DSP-only forms
+remain undefined in base Armv7-M. All seventeen earlier binary datasets remain
+unchanged.
+
 Regenerate from the repository root:
 
 ```sh

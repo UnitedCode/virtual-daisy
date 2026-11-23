@@ -12,6 +12,13 @@ impl Processor {
         if !self.condition_passed() {
             return Ok(ExecuteSuccess::NotTaken);
         }
+        if opcode & 0xfff000c0 == 0xfbc00080
+            || opcode & 0xfff000e0 == 0xfbc000c0
+            || opcode & 0xfff000e0 == 0xfbd000c0
+            || opcode & 0xfff000f0 == 0xfbe00060
+        {
+            return self.exec_dsp_long_multiply(opcode);
+        }
         if opcode & 0xff800000 == 0xfb000000 && matches!((opcode >> 20) & 15, 2..=7) {
             return self.exec_dsp_multiply(opcode);
         }

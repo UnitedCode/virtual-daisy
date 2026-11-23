@@ -24,6 +24,7 @@ pub trait IsaSignedMultiply {
 impl IsaSignedMultiply for Processor {
     fn exec_smlal(&mut self, params: &Reg643232Params) -> ExecuteResult {
         if self.condition_passed() {
+            super::long_multiply::validate_long_registers(params)?;
             let rn = i64::from(self.get_r(params.rn) as i32);
             let rm = i64::from(self.get_r(params.rm) as i32);
 

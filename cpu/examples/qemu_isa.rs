@@ -79,6 +79,7 @@ fn main() {
     let mut parallel = Vec::new();
     let mut dsp_multiply = Vec::new();
     let mut smull = Vec::new();
+    let mut long_multiply = Vec::new();
     for line in hex.lines() {
         assert!(matches!(line.len(), 40 | 48 | 56 | 64 | 72 | 80 | 88 | 104));
         let destination = if line.len() == 48 && line.ends_with("53534154") {
@@ -103,6 +104,8 @@ fn main() {
             &mut fixed
         } else if line.len() == 64 {
             &mut doubles
+        } else if line.len() == 80 && line.ends_with("444c4c4d") {
+            &mut long_multiply
         } else if line.len() == 80 {
             &mut minmax
         } else if line.len() == 104 {
@@ -210,6 +213,34 @@ fn main() {
     fs::write(output.with_extension("dsp-multiply-probe.rs"), source).unwrap();
     assert_eq!(smull.len(), 2048 * 8 * 4);
     fs::write(output.with_extension("smull.bin"), &smull).unwrap();
+    assert_eq!(long_multiply.len(), 292_864 * 10 * 4);
+    fs::write(output.with_extension("long-multiply.bin"), &long_multiply).unwrap();
+    let mut cases = std::collections::BTreeMap::new();
+    for record in long_multiply.as_chunks::<40>().0 {
+        let words: [u32; 10] = core::array::from_fn(|i| {
+            u32::from_le_bytes(record[4 * i..4 * i + 4].try_into().unwrap())
+        });
+        if words[1..5] == [0x80000000; 4] && words[5] == 0xa80a0000 {
+            cases.insert(words[0], words);
+        }
+    }
+    assert_eq!(cases.len(), 13);
+    let mut source = String::from(
+        "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const LONG_CASES: [[u32; 6]; 13] = [\n",
+    );
+    for words in cases.values() {
+        source.push_str(&format!(
+            "    [0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x}],\n",
+            (words[0] & !0x000f000f) | 0x00020001,
+            words[1],
+            words[5],
+            words[6],
+            words[7],
+            words[8]
+        ));
+    }
+    source.push_str("];\n");
+    fs::write(output.with_extension("long-multiply-probe.rs"), source).unwrap();
     let opcodes = [0xfa82f081, 0xfa82f0a1, 0xfa82f091, 0xfa82f0b1];
     let mut word_source = String::from(
         "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const WORD_CASES: [[u32; 5]; 4] = [\n",
@@ -378,5 +409,9 @@ fn main() {
     println!(
         "2048 QEMU signed long multiply cases; {} bytes",
         smull.len()
+    );
+    println!(
+        "292864 QEMU long multiply/accumulate cases; {} bytes",
+        long_multiply.len()
     );
 }

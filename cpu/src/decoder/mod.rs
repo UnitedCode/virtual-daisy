@@ -395,7 +395,7 @@ fn decode_32(opcode: u32) -> Instruction {
     instruction
 }
 // Reject a stale generated table instead of running firmware with old masks.
-const _: () = assert!(GENERATED_DECODER_REVISION == 13);
+const _: () = assert!(GENERATED_DECODER_REVISION == 14);
 const _: () = assert!(
     GENERATED_DECODER_PROFILE
         == (cfg!(feature = "has-fp") as u8)
@@ -411,6 +411,21 @@ mod decoder_tests;
 #[cfg(feature = "has-dsp-ext")]
 fn decode_DSP_t1(opcode: u32) -> Instruction {
     let group = (opcode >> 20) & 15;
+    if opcode & 0xff800000 == 0xfb800000 {
+        let low = (opcode >> 12) & 15;
+        let high = (opcode >> 8) & 15;
+        if low == high
+            || [opcode & 15, low, high, (opcode >> 16) & 15]
+                .iter()
+                .any(|&r| r == 13 || r == 15)
+        {
+            return Instruction::UDF {
+                imm32: 0,
+                opcode: opcode.into(),
+                thumb32: true,
+            };
+        }
+    }
     if opcode & 0xff800000 == 0xfb000000 && matches!(group, 2..=7) {
         let accumulator = (opcode >> 12) & 15;
         if [opcode & 15, (opcode >> 8) & 15, (opcode >> 16) & 15]
