@@ -17,7 +17,7 @@ pub fn check(prefix: &Path, shared_stack: bool, eager: bool) -> Result<()> {
         fs::remove_file(&report)?;
     }
     let data = fs::read(grade::artifact(prefix, ".cpu.bin"))?;
-    if data.len() != 384 {
+    if data.len() != 400 {
         return Err("Truncated ARM CPU capture".into());
     }
     let words: Vec<u32> = data
@@ -93,6 +93,14 @@ pub fn check(prefix: &Path, shared_stack: bool, eager: bool) -> Result<()> {
     equal(words[3], 0x10110221, "MVFR0")?;
     equal(words[58], 0x12000011, "MVFR1")?;
     equal(words[59], 0x00000040, "MVFR2")?;
+    for (i, expected) in [
+        (96, 0x7f800001),
+        (97, 0x80000000),
+        (98, 0xffc01234),
+        (99, 0x80000000),
+    ] {
+        equal(words[i], expected, &format!("VMOV result {i}"))?;
+    }
     equal(
         words[3] & 0xfff,
         0x221,

@@ -1,3 +1,4 @@
+// Modified for Virtual Daisy; see UPSTREAM.md.
 //!
 //! Cortex Semihosting simulation
 //!
@@ -273,7 +274,7 @@ pub fn decode_semihostcmd(
             }
 
             SemihostingCommand::SysOpen {
-                name: String::from_utf8(string_bytes).unwrap(),
+                name: String::from_utf8(string_bytes).map_err(|_| Fault::DebugEvt)?,
                 mode,
             }
         }
@@ -350,9 +351,7 @@ pub fn decode_semihostcmd(
         SYS_EXIT => SemihostingCommand::SysException {
             reason: SysExceptionReason::from_u32(r1),
         },
-        _ => {
-            todo!("unknown semihosting command {}", r0);
-        }
+        _ => return Err(Fault::DebugEvt),
     };
     Ok(result)
 }

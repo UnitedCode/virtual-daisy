@@ -33,6 +33,8 @@ serial timestamps, and stereo WAV when the firmware produces audio.
 Failed executions keep a diagnostic report; previous captures are preserved.
 The default duration is one virtual second. Use `--duration-ms 100` for a shorter
 run, or `--input recording.wav` to supply serial PCM input.
+Add `--resample-input` when the recording's rate differs from the firmware's
+SAI clock. The capture report records the input rate and interpolation mode.
 
 Choose the physical revision your firmware targets:
 

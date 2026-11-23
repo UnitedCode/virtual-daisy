@@ -210,15 +210,23 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
     // Reimplement the bus interface while retaining Renode's NVIC/MPU execution.
     public sealed class DaisyNvic : NVIC, IDoubleWordPeripheral
     {
-        public DaisyNvic(IMachine machine, DaisyArchitecture architecture, byte priorityMask = 0xF0) : base(machine, priorityMask: priorityMask) { this.machine=machine; this.architecture = architecture; FilterCcrDiv0Write = false; }
+        public DaisyNvic(IMachine machine, DaisyArchitecture architecture, byte priorityMask = 0xF0) : base(machine, priorityMask: priorityMask) { this.machine=machine; this.architecture = architecture; FilterCcrDiv0Write = false; Divider=8; }
         public new uint ReadDoubleWord(long offset)
         {
+            if(offset==0x10) return (base.ReadDoubleWord(offset)&~4U)|(CoreOnlySysTick ? 4U:systickSource);
             if(offset == 0xd78 || offset == 0xd7c || offset == 0xd80 || offset == 0xd84 || offset == 0xf40 || offset == 0xf44 || offset == 0xf48) return architecture.ReadScb(offset);
             if(offset == 0xd14) return (base.ReadDoubleWord(offset) & ~(3U << 16)) | (architecture.ReadScb(offset) & (3U << 16));
             return base.ReadDoubleWord(offset);
         }
         public new void WriteDoubleWord(long offset, uint value)
         {
+            if(offset==0x10) {
+                if(machine.SystemBus.TryGetCurrentCPU(out var cpu)) cpu.SyncTime();
+                base.WriteDoubleWord(offset,value&~4U);
+                systickSource=value&4U;
+                Divider=CoreOnlySysTick || systickSource!=0 ? 1UL:8UL;
+                return;
+            }
             if(offset == 0xf40 || offset == 0xf44 || offset == 0xf48) return;
             if(offset == 0xd14) { architecture.WriteScb(offset, value); base.WriteDoubleWord(offset, value & ~(3U << 16)); Invalidate(); return; }
             if(offset == 0xd84 || (offset >= 0xf50 && offset <= 0xf74)) { architecture.WriteScb(offset, value); if(offset!=0xd84) Invalidate(); return; }
@@ -226,7 +234,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             base.WriteDoubleWord(offset, value);
             if(offset==0xdfc) ((DaisyRcc)machine["sysbus.rcc"]).TraceEnable((value&(1U<<24))!=0);
         }
-        public new void Reset() { base.Reset(); architecture.Reset(); }
+        public new void Reset() { base.Reset(); systickSource=0;Divider=8;architecture.Reset(); }
         private void Invalidate() {
             var cpu=(DaisyCortexM)machine["sysbus.cpu"];
             if(machine.SystemBus.TryGetCurrentCPU(out var _)) cpu.InvalidateAfterExecution();
@@ -234,6 +242,8 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         }
         public void SaveMemory(string path) { architecture.Save(path); }
         public DaisyArchitecture Architecture => architecture;
+        public bool CoreOnlySysTick {get;set;} // Deliberate old-model negative control.
+        private uint systickSource;
         private readonly DaisyArchitecture architecture;
         private readonly IMachine machine;
     }

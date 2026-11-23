@@ -57,7 +57,7 @@ For a Rust project, the library can also be used directly:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.1.1" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.1" }
 ```
 
 ## Checks

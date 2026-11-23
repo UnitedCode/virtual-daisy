@@ -25,7 +25,7 @@ development. Pin the Git revision or a release tag in shared projects:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.0" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.1" }
 ```
 
 `rust-host` is enabled by default. Projects using only the peripheral models or
@@ -65,13 +65,20 @@ project needs. For example, the separate Synthphone app owns its OLED and keypad
 ## Audio and serial
 
 `input` queues stereo frames at the serial PCM boundary; no host microphone opens.
+Use `input_at_rate` for recordings timestamped at another source rate. It performs
+linear interpolation onto the actual SAI clock, retaining phase across refills.
+Choose the mode before the first frame is consumed; don't mix modes or change
+the source rate during a run. Queued samples and interpolation phase survive
+SYSRESETREQ, just as the external signal and board time do.
 Drain `take_audio` regularly during long runs. It returns **both channels** as
 normalized `f32` samples. Codec power, input mute, DAC mute and WM8731 channel swap
 still apply. Firmware must configure its codec and SAI clocks first.
 
 The CLI accepts mono or stereo integer/float WAVs with at most two million
 samples. Mono is copied to both channels. It rejects non-finite/out-of-range
-samples and sample-rate mismatches; it does not resample. WAV headers use an
+samples. By default it rejects sample-rate mismatches. Pass `--resample-input`
+to interpolate from the WAV's declared source rate; reports record that choice.
+This is a file-input conversion, not a converter filter or analog model. WAV headers use an
 integer rate; `report.txt` preserves the exact rational clock rate.
 One capture uses one sample rate; rate changes fail with a saved diagnostic report.
 

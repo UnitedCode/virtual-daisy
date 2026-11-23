@@ -335,6 +335,15 @@ impl Processor {
 
     #[cfg(not(feature = "armv6m"))]
     fn fault_delivery_exception(&mut self, fault: Fault) -> Exception {
+        if fault == Fault::DebugEvt {
+            let group = 1_i16 << (((self.aircr >> 8) & 7) + 1);
+            let priority = self.get_exception_priority(Exception::DebugMonitor) & !(group - 1);
+            if self.demcr & (1 << 16) != 0 && priority < self.get_execution_priority() {
+                return Exception::DebugMonitor;
+            }
+            self.hfsr |= 1 << 31;
+            return Exception::HardFault;
+        }
         let mapped_exception = fault.exception();
 
         let enabled = self.configurable_fault_enabled(mapped_exception);
@@ -883,13 +892,13 @@ impl ExecutorHelper for Processor {
             #[cfg(feature = "has-fp")]
             Instruction::VMOV_reg_f64 { params } => self.exec_vmov_reg_f64(*params),
             #[cfg(feature = "has-fp")]
-            Instruction::VMOV_cr_scalar { .. } => unimplemented!(),
+            Instruction::VMOV_cr_scalar { params } => self.exec_vmov_scalar(params, false),
             #[cfg(feature = "has-fp")]
-            Instruction::VMOV_scalar_cr { .. } => unimplemented!(),
+            Instruction::VMOV_scalar_cr { params } => self.exec_vmov_scalar(params, true),
             #[cfg(feature = "has-fp")]
             Instruction::VMOV_cr_sp { params } => self.exec_vmov_cr_sp(params),
             #[cfg(feature = "has-fp")]
-            Instruction::VMOV_cr2_sp2 { .. } => unimplemented!(),
+            Instruction::VMOV_cr2_sp2 { params } => self.exec_vmov_cr2_sp2(params),
             #[cfg(feature = "has-fp")]
             Instruction::VMOV_cr2_dp { params } => self.exec_vmov_cr2_dp(params),
 

@@ -1,3 +1,4 @@
+// Modified for Virtual Daisy; see UPSTREAM.md.
 //!
 //! Cortex System Control Block Simulation
 //!
@@ -322,6 +323,7 @@ impl Processor {
             Fault::InvPc => self.cfsr |= CFSR_INVPC,
             Fault::Forced => self.set_hfsr_forced(),
             Fault::VectorTable => self.hfsr |= HFSR_VECTTBL,
+            Fault::DebugEvt => self.dfsr |= 1 << 1,
             _ => {}
         }
     }
@@ -649,6 +651,7 @@ impl SystemControlBlock for Processor {
 
     fn write_demcr(&mut self, value: u32) {
         self.demcr = value;
+        self.write_shcsr_pending_bit(value, 17, Exception::DebugMonitor);
     }
 
     #[cfg(any(feature = "armv7m", feature = "armv7em"))]
@@ -744,7 +747,8 @@ impl SystemControlBlock for Processor {
     }
 
     fn read_demcr(&self) -> u32 {
-        self.demcr
+        (self.demcr & !(1 << 17))
+            | (u32::from(self.exception_pending(Exception::DebugMonitor)) << 17)
     }
 
     #[cfg(any(feature = "armv7m", feature = "armv7em"))]

@@ -3,6 +3,7 @@
 //! The machine owns the CPU and physical board. Carrier hardware (keypads,
 //! displays and controls) belongs to the caller and attaches through `Carrier`.
 mod image;
+mod input;
 mod seed;
 mod serial;
 mod timer;
@@ -307,22 +308,21 @@ impl Machine {
     }
     /// Queue stereo serial input samples. No host microphone is opened.
     pub fn input(&mut self, samples: &[[f32; 2]]) -> Result<(), Error> {
-        if samples
-            .iter()
-            .flatten()
-            .any(|v| !v.is_finite() || v.abs() > 1.)
-        {
-            return Err(Error::new(
-                "input samples must be finite and within full scale",
-            ));
-        }
-        if self.seed.borrow().input.len().saturating_add(samples.len()) > 1_000_000 {
-            return Err(Error::new(
-                "serial input queue exceeds one million frames; feed it in smaller batches",
-            ));
-        }
-        self.seed.borrow_mut().input.extend(samples.iter().copied());
-        Ok(())
+        self.seed
+            .borrow_mut()
+            .input
+            .queue(samples, None)
+            .map_err(Error::from)
+    }
+    /// Queue a recording with its source clock, interpolating onto the actual
+    /// serial clock. Select this mode before the first input frame is consumed;
+    /// subsequent refills must use the same source rate.
+    pub fn input_at_rate(&mut self, samples: &[[f32; 2]], source_hz: u32) -> Result<(), Error> {
+        self.seed
+            .borrow_mut()
+            .input
+            .queue(samples, Some(source_hz))
+            .map_err(Error::from)
     }
     /// Number of input frames queued for the next serial audio clocks.
     pub fn queued_input_frames(&self) -> usize {
