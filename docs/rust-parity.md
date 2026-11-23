@@ -311,6 +311,29 @@ The legal 0–16/1–32 fraction ranges and extension behavior follow
 [Arm's fixed-point conversion guide](https://documentation-service.arm.com/static/5e7b6a6216d2907d594035c4), C4.8,
 and the [Cortex-M7 guide](https://support.arm.com/documentation/dui0646/c/The-Cortex-M7-Instruction-Set/Floating-point-instructions/VCVT-between-floating-point-and-fixed-point).
 
+## Startup clock observations
+
+The same unchanged production ELF and nonperiodic recording were rerun with
+clock observations enabled on 23 November 2026. The native, reference and private
+pacing-control WAVs each remain byte-identical to their earlier captures.
+
+| Host | First running interval, ns | First serial-frame edge, ns | Frames at 200 ms |
+| --- | ---: | ---: | ---: |
+| Rust, normal instruction costs | 12,963,872 | 12,984,625 | 9,012 |
+| Pinned reference | 12,459,000 | 12,479,753 | 9,037 |
+| Private one-cycle retirement control | 12,915,474 | 12,936,227 | 9,015 |
+
+The ordinary Rust first-frame edge is 504,872 ns later than the reference. The
+private control still starts 456,474 ns later. This separates startup clock
+activation from the later signal-processing delay; changing instruction costs
+alone does not remove the startup gap. The control is not shipped.
+
+The timestamps describe the rational clock model since its last reset. They are
+not a trace of the enable-register write or calibrated silicon startup time.
+The reference observes configuration on one-microsecond ticks; native execution
+advances at instruction and bus-service boundaries. A native instruction ended
+this run at 200,000,003 ns, three ns beyond the requested boundary.
+
 ## Supported scope and remaining limits
 
 | Area | Current scope |

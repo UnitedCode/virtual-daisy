@@ -14,6 +14,57 @@ fn fractional_audio_clock() -> ClockTree {
 }
 
 #[test]
+fn audio_observations_keep_exact_first_edge_across_split_intervals_and_stops() {
+    let mut whole = fractional_audio_clock();
+    let mut split = fractional_audio_clock();
+    let cr = (1 << 16) | (4 << 20);
+    for clock in [&mut whole, &mut split] {
+        clock.advance(0, 63, 9_000).unwrap();
+    }
+    let next = whole.next_audio_ns(cr, 63).unwrap().unwrap();
+    whole.advance(cr, 63, 100_000).unwrap();
+    split.advance(cr, 63, next - 1).unwrap();
+    assert_eq!(split.audio_observations().first_frame_ns, None);
+    split.advance(cr, 63, 1).unwrap();
+    assert_eq!(
+        split.audio_observations().first_frame_ns,
+        Some(u128::from(9_000 + next))
+    );
+    split.advance(cr, 63, 100_000 - next).unwrap();
+    assert_eq!(whole.audio_observations(), split.audio_observations());
+    let observed = whole.audio_observations();
+    assert_eq!(observed.first_running_interval_ns, Some(9_000));
+    assert_eq!(observed.elapsed_ns, 109_000);
+    assert_eq!(observed.generated_frames, 4);
+    whole.advance(0, 63, 1_000).unwrap();
+    assert_eq!(
+        whole.audio_observations().first_frame_ns,
+        observed.first_frame_ns
+    );
+    assert_eq!(whole.audio_observations().generated_frames, 4);
+    assert!(whole
+        .stats(cr, 63)
+        .unwrap()
+        .contains("sai_clock_timestamp_scope=MODEL_SINCE_RESET"));
+}
+
+#[test]
+fn stopped_and_zero_length_intervals_do_not_invent_audio_observations() {
+    let mut clock = ClockTree::default();
+    clock.advance(0, 0, 10_000).unwrap();
+    assert_eq!(clock.audio_observations().first_running_interval_ns, None);
+    assert_eq!(clock.audio_observations().first_frame_ns, None);
+    assert!(clock
+        .audio_observations()
+        .report()
+        .contains("sai_clock_first_frame_ns=NOT_OBSERVED"));
+    let mut enabled = fractional_audio_clock();
+    let cr = (1 << 16) | (4 << 20);
+    enabled.advance(cr, 63, 0).unwrap();
+    assert_eq!(enabled.audio_observations(), Default::default());
+}
+
+#[test]
 fn audio_deadlines_match_exact_frame_edges_across_fractional_phases_and_gates() {
     let mut clock = fractional_audio_clock();
     let cr = (1 << 16) | (4 << 20);

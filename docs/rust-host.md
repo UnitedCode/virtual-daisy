@@ -25,7 +25,7 @@ development. Pin the Git revision or a release tag in shared projects:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.17" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.18" }
 ```
 
 `rust-host` is enabled by default. Projects using only the peripheral models or
@@ -81,6 +81,16 @@ to interpolate from the WAV's declared source rate; reports record that choice.
 This is a file-input conversion, not a converter filter or analog model. WAV headers use an
 integer rate; `report.txt` preserves the exact rational clock rate.
 One capture uses one sample rate; rate changes fail with a saved diagnostic report.
+
+`memory_report` also records when the modeled serial clock first ran and emitted
+its first frame, its total elapsed nanoseconds and generated frame count. The
+reference writes the same `sai_clock_*` fields in its WAV clock report. These
+observations start again when the clock model resets. `NOT_OBSERVED` means no
+running clock or frame has been seen. The first-frame timestamp is the integer
+nanosecond ceiling of the model's rational edge; the running timestamp names the
+beginning of its first active advance interval. Adapter scheduling still limits
+when configuration changes are observed. These fields describe the model, not
+measured physical startup latency.
 
 `receive_serial` requires configured USART1 RX. Bytes arrive at the programmed
 baud rate, including FIFO limits and overrun. TX observations are timestamped at
