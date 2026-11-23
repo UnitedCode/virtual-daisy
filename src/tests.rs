@@ -290,3 +290,33 @@ fn adc_calibration_requires_regulator_and_exits_when_ready() {
     assert_eq!(adc.read(0x108).unwrap() & (1 << 31), 0);
     assert!(adc.read(0x154).is_err());
 }
+
+#[test]
+fn reference_translation_policy_uses_single_instructions_for_uncached_service() {
+    let mut state = Peripheral::new(12);
+    let before = state.memory.lock().unwrap().stats();
+    for address in [0x08000000, 0x24000000, 0x90000000] {
+        assert_eq!(
+            unsafe { daisy_runtime_fetch(&mut state, address, 0) },
+            5,
+            "uncached {address:#x}"
+        );
+    }
+    assert_eq!(
+        state.memory.lock().unwrap().stats(),
+        before,
+        "translation policy must not issue bus traffic"
+    );
+    assert_eq!(unsafe { daisy_runtime_fetch(&mut state, 0x6000, 0) }, 0);
+    state.write(0xd14, 0x20200).unwrap();
+    for address in [0x08000000, 0x24000000] {
+        assert_eq!(unsafe { daisy_runtime_fetch(&mut state, address, 0) }, 0);
+    }
+    assert_eq!(unsafe { daisy_runtime_fetch(&mut state, 0x90000000, 0) }, 5);
+    state.write(0xd98, 0).unwrap();
+    state.write(0xd9c, 0x08000000).unwrap();
+    state.write(0xda0, 0x03080009).unwrap();
+    state.write(0xd94, 5).unwrap();
+    assert_eq!(unsafe { daisy_runtime_fetch(&mut state, 0x08000000, 0) }, 5);
+    assert_eq!(unsafe { daisy_runtime_fetch(&mut state, 0x08000020, 0) }, 0);
+}

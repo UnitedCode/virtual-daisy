@@ -23,6 +23,17 @@ fn old_reference_unsigned_exchange_flags_fail_the_register_gate() {
         "ARM saturation failed at case 31 opcode 0xfaa2f040 register 14 actual 0xa8000000"
     );
 }
+
+#[test]
+fn old_reference_uncached_blocks_fail_the_instruction_width_gate() {
+    assert_eq!(
+        instruction_clock_probe::check(include_bytes!(
+            "fixtures/uncached_fetch_legacy_reference.bin"
+        ))
+        .unwrap_err(),
+        "ARM instruction fetch: 128 uncached NOPs advanced Thumb-16=184, Thumb-32=224 cycles"
+    );
+}
 #[path = "../src/systick_probe.rs"]
 mod systick_probe;
 

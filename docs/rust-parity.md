@@ -396,6 +396,46 @@ the core-register summary and MRS/MSR descriptions.
 
 ## Startup clock observations
 
+### Uncached instruction service (v0.2.24)
+
+The Rust host requested the same modeled instruction service twice for the two
+halves of a Thumb-32 word. It now holds both halves from one service when they
+fit within the same line. A word crossing the line boundary still needs its
+second transaction. Checks cover transaction counts, holding a fetched word
+through a physical-code change, and seeing new uncached bytes on the next
+instruction.
+
+The reference previously charged uncached service per translated block/line.
+It now uses one-instruction blocks for uncached executable memory. Cached code
+keeps ordinary translated blocks; QSPI retains its precise single-instruction
+policy. A policy query must not issue bus traffic. Explicit ELF program headers
+also keep the probe's ITCM and AXI code in separate, bounded load segments.
+
+The same ARM probe executes 128 narrow and 128 wide NOPs from uncached AXI SRAM.
+Baseline-subtracted DWT results are:
+
+| Host | Thumb-16 cycles | Thumb-32 cycles |
+| --- | ---: | ---: |
+| Rust | 768 | 768 |
+| Reference | 631 | 630 |
+| Saved old reference policy | 184 | 224 |
+
+The width gate rejects the old capture. Absolute counts still differ: Rust
+advances stalled CPUs in whole cycles, while the reference uses fractional MIPS
+progress. This checks the declared service model, not M7 pipeline latency.
+
+With the same production ELF and nonperiodic input, the first serial-frame gap
+is now 103,637 ns, down from 504,872 ns. At 200 ms Rust produces 9,018 frames and
+the reference 9,023, compared with 9,012 and 9,037 before these changes. First
+frame edges are 12,860,390 ns and 12,756,753 ns respectively.
+
+Waveform parity remains open. Unshifted RMS difference is 0.180187767, compared
+with 0.180121244 before the fetch changes. The signal onset still differs by
+about 49 frames at a 0.000001 threshold. Closer startup clocks do not establish
+matching audio processing or physical-device behavior.
+
+### Earlier measurements
+
 The same unchanged production ELF and nonperiodic recording were rerun with
 clock observations enabled on 23 November 2026. The native, reference and private
 pacing-control WAVs each remain byte-identical to their earlier captures.

@@ -1408,6 +1408,15 @@ impl SystemMemory {
         }
         Ok(value)
     }
+    /// Uncached instruction service is charged per instruction, independently
+    /// of the translator's chosen block length. QSPI also needs precise faults.
+    pub(crate) fn single_instruction_translation(&self, address: u32) -> bool {
+        Self::is_qspi(address, 2)
+            || ((Self::is_flash(address, 2) || Self::is_ram(address, 2))
+                && self
+                    .access_policy(address, true)
+                    .map_or(true, |policy| policy == Policy::Noncacheable))
+    }
     /// Check a linear Thumb translation immediately before it executes. Returns
     /// true when its decoded bytes differ, requiring a safe translation restart.
     /// This is block-granular functional fetching, not pipeline/speculation timing.
