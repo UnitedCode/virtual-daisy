@@ -1,5 +1,26 @@
 # Independent ARM instruction fixtures
 
+`control.bin` contains 9,664 records of five little-endian `u32` values:
+kind, opcode, initial APSR, returned PC (or `0xdeadbeef` when skipped), final APSR.
+Kind 0 is a wide conditional branch; 2/4 are narrow/wide hints, with bit 4 set
+for hints inside `ITE EQ`. The guest executes from `0x00200000` in the QEMU
+AN500 SSRAM. A target stub reads PC, so a branch record returns target + 4.
+All 14 branch conditions, 16 NZCV combinations and eight signed offsets are
+covered. Hint records cover narrow options 5–15 and wide options 5–239, with
+all NZCV combinations and both IT contexts. QEMU 11.1.3 and rustc 1.97.1
+generated this fixture. It does not use this interpreter to compute results.
+
+To reproduce it, choose a fresh output prefix:
+
+```sh
+cargo run --manifest-path cpu/Cargo.toml --example qemu_control -- /tmp/control-check.bin
+cmp cpu/fixtures/control.bin /tmp/control-check.bin
+```
+
+The generator requires `qemu-system-arm` and the `thumbv7em-none-eabihf` Rust
+target. It preserves the generated ELF and text capture beside the binary and
+rejects existing paths. Normal tests use the checked-in binary.
+
 `isa_oracle.bin` contains 1,050 records of five little-endian `u32` values:
 operand A, operand B, operation (add/subtract/multiply/divide/square root), result, FPSCR.
 The fixture executes ARM VFP instructions under QEMU's Cortex-M7 machine,

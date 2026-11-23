@@ -7,6 +7,28 @@ interpreter, not a Rust port of Renode.
 **Functional comparisons pass for the cases below. Full physical-device or
 cycle-for-cycle equivalence has not been established.**
 
+## Current checkpoint
+
+The Rust host runs production Synthphone firmware on Rev4, Rev5 and Rev7 without
+CPU faults or SAI FIFO errors. All 16 ARM/reference guest comparisons pass.
+Independent QEMU fixtures check numerical and instruction behavior; passing
+those cases does not establish complete ISA coverage.
+
+The latest three-board comparison uses SDK 0.2.37, native adapter 19, the Rust
+1.100 production ELF below and the same nonperiodic recording for 200 virtual ms.
+SDK 0.2.38 also reproduces the Rev5 Rust output byte for byte.
+
+| Board | Rust frames | Reference frames | First-frame time gap |
+| --- | ---: | ---: | ---: |
+| Rev4 | 9,505 | 9,508 | 61.831 us |
+| Rev5 | 9,020 | 9,023 | 67.331 us |
+| Rev7 | 9,505 | 9,508 | 61.831 us |
+
+**Still open:** three fewer frames on each board, PCM differences after alignment,
+and instruction/pipeline timing. Physical audio, converter filters, electrical
+behavior and complete carrier UI behavior need device validation. The historical
+checks below retain their original firmware, stimulus and version context.
+
 ## Comparison coverage, updated 23 November 2026
 
 Consumer firmware attachment exposed two additional missing paths. Keyboard
@@ -172,7 +194,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.18. Generated tables check their revision and
+The vendored CPU is revision 0.1.27. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -856,3 +878,24 @@ boundaries. A board-level ARM program loads/stores both FP widths through wrappe
 ITCM addresses and writes a completion marker. CPU 0.1.26 keeps decoder 21,
 native adapter 19 and unchanged retirement costs. This validates functional
 addressing and diagnostics; physical memory latency remains uncalibrated.
+
+### Conditional branches and unallocated hints (v0.2.38)
+
+Wide conditional branches now assemble their immediate as `S:J2:J1:imm6:imm11:0`.
+The old decoder swapped J1 and J2, sending some long branches to the wrong address.
+Reserved condition fields no longer become unconditional branches; allocated
+system instructions retain priority in the decoder table.
+
+Unallocated narrow hints and wide hints with `op1=000` now behave as NOPs,
+including inside IT blocks. Other reserved wide hint groups remain undefined.
+Known event, wait, debug and system instructions keep their dedicated decoding.
+These contracts follow the
+[Armv7-M manual](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820),
+sections A5.2.5, A5.3.4 and A7.7.12.
+
+An independent Cortex-M7 QEMU guest supplies 9,664 execution records: every
+conditional branch with all NZCV patterns and eight signed offsets, plus every
+unallocated hint with and without an IT block. Both execution paths check
+returned PC, flags, untouched registers and fault status. Reserved encodings
+have separate decoder checks. CPU 0.1.27 uses decoder 22; native adapter 19 and
+retirement costs are unchanged. This checks functional behavior, not bus timing.
