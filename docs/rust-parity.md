@@ -157,6 +157,35 @@ The vendored CPU is revision 0.1.1. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
+### Matched current-firmware audio
+
+A separate one-second Rev5 comparison uses that same Rust 1.100 ELF and the
+exact `tone.f32le` input retained by the [successful reference CI job](https://github.com/UnitedCode/synth-phone-e-v2-rust/actions/runs/45105129094/job/137464538550):
+224.492958 Hz at amplitude 0.2, timestamped at 48,014 Hz. Both hosts interpolate
+that serial input onto the derived SAI clock. Rust uses v0.2.3's default timed
+runtime with an explicit display-address sink. The reference job uses v0.2.2;
+v0.2.3 changes only its host watchdog, not the shared models.
+
+| Observation | Rust | Renode |
+| --- | --- | --- |
+| Output frames, including startup | 47,562 | 47,582 |
+| First frame above 1e-7 | 518 | 483 |
+| Derived sample clock | `3256703125/67584` Hz | `3256703125/67584` Hz |
+
+Both complete without CPU fault flags or SAI FIFO errors. The stereo float32
+comparison over 47,562 overlapping frames still has **0.165762603 unshifted RMS
+error** and 0.271650553 peak absolute error on normalized samples. Skipping the
+first 10,000 frames leaves 0.168667254 RMS error; discarding startup does not make
+the waveforms match.
+
+The first 4,096-frame diagnostic window reaches 0.021187815 channel-0 RMS error
+with a -256-frame right offset. A later window reaches 0.018752754 at +1,494
+frames. These short-window searches do not establish a unique delay for a
+periodic tone or explain every difference. They are not parity passes. The clock
+regression is fixed; exact DSP output and instruction/interrupt pacing still need
+further comparison. The earlier one-cycle experiment establishes a timing
+contribution for its own ELF, not a complete explanation for this newer build.
+
 ## Supported scope and remaining limits
 
 | Area | Current scope |
