@@ -194,7 +194,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.27. Generated tables check their revision and
+The vendored CPU is revision 0.1.28. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -899,3 +899,18 @@ unallocated hint with and without an IT block. Both execution paths check
 returned PC, flags, untouched registers and fault status. Reserved encodings
 have separate decoder checks. CPU 0.1.27 uses decoder 22; native adapter 19 and
 retirement costs are unchanged. This checks functional behavior, not bus timing.
+
+### Branch arithmetic boundaries (v0.2.39)
+
+Moving the raw-instruction audit's PC exposed debug-build overflow panics in
+conditional/unconditional branches. BL, BLX link formation and CBZ/CBNZ also
+used checked host arithmetic. All now use explicit 32-bit wrapping, matching
+the existing PC-register contract in release and debug builds.
+
+Three regressions check 22,048 cases across both executor paths. The conditional
+branch cases relocate independent QEMU PC results to six origins, covering
+signed and unsigned boundaries; other checks cover direct/link branches,
+every CBZ/CBNZ immediate and taken/skipped states, link values, flags and faults.
+These are instruction-level checks, not evidence that the Daisy maps executable
+memory at every tested origin. CPU 0.1.28 keeps decoder 22, native adapter 19 and
+the existing retirement costs.
