@@ -147,6 +147,68 @@ fn functional_wfi_and_nvic_deliver_a_real_arm_interrupt() {
     machine.run_until(5000, 2000).unwrap();
     assert_eq!(machine.read32(0x20000000).unwrap(), 1);
 }
+
+#[test]
+fn masked_synchronous_faults_escalate_through_both_board_runtimes() {
+    for board in Board::ALL {
+        for functional in [false, true] {
+            for enabled in [false, true] {
+                for masked in [false, true] {
+                    let mut code = program();
+                    code.resize(0x144, 0);
+                    for (at, value) in [(12, 0x08000101u32), (24, 0x08000101), (0x140, 0x20000100)]
+                    {
+                        code[at..at + 4].copy_from_slice(&value.to_le_bytes());
+                    }
+                    for (at, instruction) in [
+                        (0x80, if masked { 0xb672u16 } else { 0xb662 }), // CPSID/CPSIE I.
+                        (0x82, 0xde00),
+                        (0x84, 0xe7fe), // UDF; loop.
+                        // Write marker, IPSR, stacked PC and xPSR.
+                        (0x100, 0x480f),
+                        (0x102, 0x2166),
+                        (0x104, 0x6001),
+                        (0x106, 0xf3ef),
+                        (0x108, 0x8105),
+                        (0x10a, 0x6041),
+                        (0x10c, 0xf3ef),
+                        (0x10e, 0x8208),
+                        (0x110, 0x6991),
+                        (0x112, 0x6081),
+                        (0x114, 0x69d1),
+                        (0x116, 0x60c1),
+                        (0x118, 0xe7fe),
+                    ] {
+                        code[at..at + 2].copy_from_slice(&instruction.to_le_bytes());
+                    }
+                    let image = elf(&code);
+                    let mut machine = if functional {
+                        Machine::from_elf_functional(board, &image)
+                    } else {
+                        Machine::from_elf(board, &image)
+                    }
+                    .unwrap();
+                    if enabled {
+                        machine.write32(0xe000ed24, 1 << 18).unwrap();
+                    }
+                    machine.run_until(10_000, 5000).unwrap();
+                    assert_eq!(machine.read32(0x20000100).unwrap(), 0x66);
+                    assert_eq!(
+                        machine.read32(0x20000104).unwrap(),
+                        if enabled && !masked { 6 } else { 3 }
+                    );
+                    assert_eq!(machine.read32(0xe000ed28).unwrap(), 1 << 16);
+                    assert_eq!(
+                        machine.read32(0xe000ed2c).unwrap(),
+                        if enabled && !masked { 0 } else { 1 << 30 }
+                    );
+                    assert_eq!(machine.read32(0x20000108).unwrap(), 0x08000082);
+                    assert_ne!(machine.read32(0x2000010c).unwrap() & (1 << 24), 0);
+                }
+            }
+        }
+    }
+}
 #[test]
 fn functional_reset_preserves_dtcm_and_reenters_the_actual_reset_vector() {
     let mut code = program();

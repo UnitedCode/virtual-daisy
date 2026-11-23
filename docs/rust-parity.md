@@ -194,7 +194,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.29. Generated tables check their revision and
+The vendored CPU is revision 0.1.30. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -930,3 +930,20 @@ A small ARM image checks the same fault timing, escalation and frame through
 both timed and functional board runtimes on Rev4/5/7. CPU 0.1.29 keeps decoder
 22, native adapter 19 and instruction retirement costs. These tests use manual
 expectations; they are not an independent Renode or physical-device comparison.
+
+### Synchronous fault priorities (v0.2.41)
+
+Enabled MemManage, BusFault and UsageFault delivery now checks group priority
+against the effective execution priority, including PRIMASK, BASEPRI and
+PRIGROUP. A synchronous fault that cannot preempt escalates to HardFault and
+sets HFSR.FORCED. Faults at HardFault priority, including FAULTMASK in Thread
+mode, report lockup without pushing another frame. HardFault's own cause bits
+and breakpoint debug status retain their separate rules.
+
+Two CPU regressions check 51 priority/mask/lockup cases, fault status, frame PCs
+and unchanged stack pointers on lockup. A literal ARM CPSID/CPSIE + UDF image
+checks 24 combinations across all three boards and both runtimes, including
+enabled/disabled UsageFault and the stacked return state. Expectations follow
+[Armv7-M B1.5.4 and B1.5.8](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820).
+CPU 0.1.30 keeps decoder 22, native adapter 19 and retirement costs. These new
+cases are manual-based regressions, not physical-device measurements.
