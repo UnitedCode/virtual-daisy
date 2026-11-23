@@ -33,28 +33,6 @@ use std::{
 use virtual_daisy::board::Board;
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 const RATE: u32 = 48014;
-#[cfg(test)]
-mod wall_limit_tests {
-    use super::*;
-
-    #[test]
-    fn reference_wall_limits_preserve_defaults_and_require_finite_positive_bounds() {
-        for default in [180, 600] {
-            assert_eq!(parse_wall_limit(None, default).unwrap().as_secs(), default);
-        }
-        for value in [1, 300, 86_400] {
-            assert_eq!(
-                parse_wall_limit(Some(&value.to_string()), 180)
-                    .unwrap()
-                    .as_secs(),
-                value
-            );
-        }
-        for value in ["", "0", "-1", "1.5", "abc", "86401", "18446744073709551615"] {
-            assert!(parse_wall_limit(Some(value), 180).is_err(), "{value}");
-        }
-    }
-}
 #[derive(PartialEq)]
 enum RunMode {
     Full,
@@ -1262,4 +1240,27 @@ fn cli_main() -> Result<()> {
         );
     }
     Err("Usage: virtual-daisy capture|run|probe|timing|startup|storage|cpu|settings RENODE_RUNTIME OUTPUT_DIRECTORY --elf FIRMWARE.elf --board rev4|rev5|rev7 [--codec NAME] [--audio-boundary serial|ideal-line] [INPUT.wav]\n       virtual-daisy levels RENODE_RUNTIME PREPARED_DIRECTORY BEFORE.elf AFTER.elf VOCAL_48014.wav OUTPUT_DIRECTORY\n       virtual-daisy levels-analyze OUTPUT_DIRECTORY\n       virtual-daisy autotune RENODE_RUNTIME PREPARED_DIRECTORY BEFORE.elf AFTER.elf VOCAL_48014.wav OUTPUT_DIRECTORY\n       virtual-daisy autotune-analyze OUTPUT_DIRECTORY\n       virtual-daisy profiles\n       virtual-daisy grade CAPTURE_PREFIX".into())
+}
+
+#[cfg(test)]
+mod wall_limit_tests {
+    use super::*;
+
+    #[test]
+    fn reference_wall_limits_preserve_defaults_and_require_finite_positive_bounds() {
+        for default in [180, 600] {
+            assert_eq!(parse_wall_limit(None, default).unwrap().as_secs(), default);
+        }
+        for value in [1, 300, 86_400] {
+            assert_eq!(
+                parse_wall_limit(Some(&value.to_string()), 180)
+                    .unwrap()
+                    .as_secs(),
+                value
+            );
+        }
+        for value in ["", "0", "-1", "1.5", "abc", "86401", "18446744073709551615"] {
+            assert!(parse_wall_limit(Some(value), 180).is_err(), "{value}");
+        }
+    }
 }
