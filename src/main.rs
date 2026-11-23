@@ -33,6 +33,28 @@ use std::{
 use virtual_daisy::board::Board;
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 const RATE: u32 = 48014;
+#[cfg(test)]
+mod wall_limit_tests {
+    use super::*;
+
+    #[test]
+    fn reference_wall_limits_preserve_defaults_and_require_finite_positive_bounds() {
+        for default in [180, 600] {
+            assert_eq!(parse_wall_limit(None, default).unwrap().as_secs(), default);
+        }
+        for value in [1, 300, 86_400] {
+            assert_eq!(
+                parse_wall_limit(Some(&value.to_string()), 180)
+                    .unwrap()
+                    .as_secs(),
+                value
+            );
+        }
+        for value in ["", "0", "-1", "1.5", "abc", "86401", "18446744073709551615"] {
+            assert!(parse_wall_limit(Some(value), 180).is_err(), "{value}");
+        }
+    }
+}
 #[derive(PartialEq)]
 enum RunMode {
     Full,
@@ -55,7 +77,22 @@ fn checked(command: &mut Command) -> Result<()> {
 
 // A hung/crashed emulator cannot count as a successful negative control.
 fn bounded(command: &mut Command, log: &Path) -> Result<()> {
-    bounded_with_limit(command, log, Duration::from_secs(180))
+    bounded_with_limit(command, log, reference_wall_limit(180)?)
+}
+fn parse_wall_limit(value: Option<&str>, default: u64) -> Result<Duration> {
+    let seconds = value.map(str::parse::<u64>).transpose()?.unwrap_or(default);
+    if !(1..=86_400).contains(&seconds) {
+        return Err("VIRTUAL_DAISY_WALL_SECONDS must be in 1..=86400".into());
+    }
+    Ok(Duration::from_secs(seconds))
+}
+fn reference_wall_limit(default: u64) -> Result<Duration> {
+    let value = env::var("VIRTUAL_DAISY_WALL_SECONDS");
+    match value {
+        Ok(value) => parse_wall_limit(Some(&value), default),
+        Err(env::VarError::NotPresent) => parse_wall_limit(None, default),
+        Err(error) => Err(error.into()),
+    }
 }
 fn bounded_with_limit(command: &mut Command, log: &Path, limit: Duration) -> Result<()> {
     let output = File::create(log)?;
@@ -236,15 +273,11 @@ impl Host<'_> {
         bounded_with_limit(
             &mut command,
             &self.directory.join(format!("{label}.host.log")),
-            Duration::from_secs(if fault.starts_with("keyboard") {
-                env::var("VIRTUAL_DAISY_WALL_SECONDS")
-                    .unwrap_or_else(|_| "600".into())
-                    .parse()?
-            } else if fault == "settings" {
+            reference_wall_limit(if fault.starts_with("keyboard") || fault == "settings" {
                 600
             } else {
                 180
-            }),
+            })?,
         )?;
         grade::execution_evidence(&capture)?;
         if fault.starts_with("keyboard") {
