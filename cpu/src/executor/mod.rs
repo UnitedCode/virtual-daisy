@@ -31,6 +31,7 @@ mod misc_data_processing;
 mod multiply;
 mod packing;
 mod parallel_add;
+mod saturate;
 mod shift;
 mod signed_multiply;
 mod status_register;
@@ -59,6 +60,7 @@ use multiply::IsaMultiply;
 use packing::IsaPacking;
 #[cfg(feature = "has-dsp-ext")]
 use parallel_add::IsaParallelAddSub;
+use saturate::IsaSaturate;
 use shift::IsaShift;
 use signed_multiply::IsaSignedMultiply;
 use status_register::IsaStatusRegister;
@@ -743,6 +745,13 @@ impl ExecutorHelper for Processor {
             Instruction::REV16 { params, .. } => self.exec_rev16(*params),
             Instruction::REVSH { params, .. } => self.exec_revsh(*params),
 
+            Instruction::SSAT {
+                rd,
+                rn,
+                saturate_to,
+                shift_t,
+                shift_n,
+            } => self.exec_ssat(*rd, *rn, *saturate_to, *shift_t, *shift_n),
             Instruction::UBFX { params } => self.exec_ubfx(params),
             Instruction::SBFX { params } => self.exec_sbfx(params),
 

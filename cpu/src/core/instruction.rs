@@ -1002,7 +1002,13 @@ pub enum Instruction {
     //
     // Subgroup: Saturating instructions (ARMv7-M base arch)
     //
-    //SSAT
+    SSAT {
+        rd: Reg,
+        rn: Reg,
+        saturate_to: u32,
+        shift_t: SRType,
+        shift_n: usize,
+    },
     //USAT
 
     //
@@ -2683,6 +2689,13 @@ impl fmt::Display for Instruction {
                     String::new()
                 }
             ),
+            Self::SSAT {
+                rd,
+                rn,
+                saturate_to,
+                shift_t,
+                shift_n,
+            } => write!(f, "ssat {rd}, #{saturate_to}, {rn}, {shift_t:?} #{shift_n}"),
             Self::UBFX { params } => write!(
                 f,
                 "ubfx {}, {}, #{}, #{}",
@@ -3219,6 +3232,7 @@ pub fn instruction_size(instruction: &Instruction) -> usize {
         //SASX
         Instruction::SBC_imm { .. } => 4,
         Instruction::SBC_reg { thumb32, .. } => isize_t(*thumb32),
+        Instruction::SSAT { .. } => 4,
         Instruction::SBFX { .. } => 4,
         Instruction::SDIV { .. } => 4,
         Instruction::SEL { .. } => 4,
