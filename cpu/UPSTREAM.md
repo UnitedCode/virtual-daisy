@@ -30,8 +30,11 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.6. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.7. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
+VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
+when a profile lacks double precision or FPv5 rounding/selection instructions.
+CI runs the full CPU suite for FPv4-SP, FPv5-SP, FPv5-D16 and no-FPU builds.
 
 Changes are checked against the upstream instruction suite, executed ARM guests,
 the pinned Renode reference backend and ST's PM0253 programming manual. See

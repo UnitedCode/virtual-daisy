@@ -3,6 +3,16 @@ use super::*;
 use crate::core::instruction::AddressingMode;
 use crate::core::instruction::VSelParamsf64;
 
+fn profile_supports(opcode: u32, supported: bool) -> bool {
+    if !supported {
+        assert!(
+            matches!(decode_32(opcode), Instruction::UDF { .. }),
+            "unsupported instruction {opcode:08x}"
+        );
+    }
+    supported
+}
+
 #[test]
 fn test_decode_vabs_32() {
     //eef0 7ae7       vabs.f32        s15, s15
@@ -35,6 +45,9 @@ fn test_decode_vneg_f32() {
 
 #[test]
 fn test_decode_vneg_f64() {
+    if !profile_supports(0xeeb1_7b48, cfg!(feature = "fpv5-d16")) {
+        return;
+    }
     // eeb1 7b48       vneg.f64        d7, d8
 
     assert_eq!(
@@ -98,6 +111,9 @@ fn test_decode_vnmul_f32() {
 
 #[test]
 fn test_decode_vnmul_f64() {
+    if !profile_supports(0xee28_7b49, cfg!(feature = "fpv5-d16")) {
+        return;
+    }
     // ee28 7b49       vnmul.f64       d7, d8, d9
 
     assert_eq!(
@@ -217,6 +233,9 @@ fn test_decode_vct() {
 
 #[test]
 fn test_decode_vcvt_f32_f64() {
+    if !profile_supports(0xeeb7_7bc7, cfg!(feature = "fpv5-d16")) {
+        return;
+    }
     // eeb7 7bc7       vcvt.f32.f64    s14, d7
     assert_eq!(
         decode_32(0xeeb7_7bc7),
@@ -231,6 +250,9 @@ fn test_decode_vcvt_f32_f64() {
 
 #[test]
 fn test_decode_vcvt_f64_f32() {
+    if !profile_supports(0xeeb7_3ae3, cfg!(feature = "fpv5-d16")) {
+        return;
+    }
     // eeb7 3ae3       vcvt.f64.f32    d3, s7
     assert_eq!(
         decode_32(0xeeb7_3ae3),
@@ -379,6 +401,9 @@ fn test_decode_vmov_cr_sp_3() {
 
 #[test]
 fn test_decode_vmov_imm() {
+    if !profile_supports(0xeeb7_6b08, cfg!(feature = "fpv5-d16")) {
+        return;
+    }
     // eeb7 6b08       vmov.f64        d6, #120
 
     assert_eq!(
@@ -488,6 +513,12 @@ fn test_decode_vpush() {
 
 #[test]
 fn test_decode_vseleq_f32() {
+    if !profile_supports(
+        0xfe00_0a81,
+        cfg!(any(feature = "fpv5-d16", feature = "fpv5-sp-d16")),
+    ) {
+        return;
+    }
     // fe00 0a81       vseleq.f32      s0, s1, s2
     assert_eq!(
         decode_32(0xfe00_0a81),
@@ -504,6 +535,12 @@ fn test_decode_vseleq_f32() {
 
 #[test]
 fn test_decode_vselvs_f32_high_regs() {
+    if !profile_supports(
+        0xfe58_fa0f,
+        cfg!(any(feature = "fpv5-d16", feature = "fpv5-sp-d16")),
+    ) {
+        return;
+    }
     // fe58 fa0f       vselvs.f32      s31, s16, s30
     assert_eq!(
         decode_32(0xfe58_fa0f),
@@ -520,6 +557,12 @@ fn test_decode_vselvs_f32_high_regs() {
 
 #[test]
 fn test_decode_vselgt_f32() {
+    if !profile_supports(
+        0xfe77_7a27,
+        cfg!(any(feature = "fpv5-d16", feature = "fpv5-sp-d16")),
+    ) {
+        return;
+    }
     // fe77 7a27       vselgt.f32      s15, s14, s15
     assert_eq!(
         decode_32(0xfe77_7a27),
@@ -536,6 +579,9 @@ fn test_decode_vselgt_f32() {
 
 #[test]
 fn test_decode_vselge_f64() {
+    if !profile_supports(0xfe28_7b09, cfg!(feature = "fpv5-d16")) {
+        return;
+    }
     // fe28 7b09       vselge.f64      d7, d8, d9
     assert_eq!(
         decode_32(0xfe28_7b09),
@@ -552,6 +598,9 @@ fn test_decode_vselge_f64() {
 
 #[test]
 fn test_decode_vselgt_f64() {
+    if !profile_supports(0xfe3e_fb0d, cfg!(feature = "fpv5-d16")) {
+        return;
+    }
     // fe3e fb0d       vselgt.f64      d15, d14, d13
     assert_eq!(
         decode_32(0xfe3e_fb0d),
@@ -619,6 +668,12 @@ fn test_decode_vsub_f32() {
 
 #[test]
 fn test_decode_vrintz_f32() {
+    if !profile_supports(
+        0xeeb6_7ae7,
+        cfg!(any(feature = "fpv5-d16", feature = "fpv5-sp-d16")),
+    ) {
+        return;
+    }
     // eeb6 7ae7       vrintz.f32      s14, s15
     assert_eq!(
         decode_32(0xeeb6_7ae7),
@@ -633,6 +688,9 @@ fn test_decode_vrintz_f32() {
 
 #[test]
 fn test_decode_vrintz_f64() {
+    if !profile_supports(0xeeb6_7bc7, cfg!(feature = "fpv5-d16")) {
+        return;
+    }
     // eeb6 7bc7       vrintz.f64      d7, d7
     assert_eq!(
         decode_32(0xeeb6_7bc7),
