@@ -172,7 +172,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.14. Generated tables check their revision and
+The vendored CPU is revision 0.1.15. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -541,3 +541,21 @@ A single tone cannot identify a unique delay because its waveform repeats.
 The reference directory must come from this guest revision and compiler build:
 exact instruction addresses are intentionally compared. Keep its copied ELF,
 hashes, `.host.log`, result binaries and model reports together.
+
+
+### Rotated extensions and packing (v0.2.25)
+
+The Rust CPU now implements the missing SXTAB, SXTAH, SXTAB16, SXTB16 and UXTAB16
+forms at all rotations. UXTAB and UXTB16 are correctly restricted to DSP profiles;
+base sign/zero extensions remain available on Cortex-M3. The independent QEMU
+corpus adds 229,376 records across 112 extension/packing encodings, including all
+PKHBT left shifts and PKHTB arithmetic right shifts (encoded zero means 32).
+Both execution paths check every legal register assignment, aliases, unchanged
+registers/APSR and skipped IT instructions. Invalid SP/PC operands fault before
+writes. The same ARM guest now checks 37,632 register pairs against QEMU-pinned
+results in both backends. Its longer run budget accommodates additional cases;
+it does not calibrate CPU timing. These instructions preserve Q and GE.
+
+Instruction semantics follow the [Cortex-M7 instruction guide](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1),
+section 3.8. This closes the audited extension gaps; it does not establish full
+instruction, peripheral, audio-waveform or hardware timing parity.

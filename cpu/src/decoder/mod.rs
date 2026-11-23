@@ -122,6 +122,7 @@ mod udiv;
 mod umlal;
 mod umull;
 mod uxt;
+#[cfg(feature = "has-dsp-ext")]
 mod uxtab;
 
 #[cfg(feature = "has-fp")]
@@ -285,8 +286,7 @@ use {
     umlal::decode_UMLAL_t1,
     umull::decode_UMULL_t1,
     usat::decode_USAT_t1,
-    uxt::{decode_UXTB_t1, decode_UXTB_t2, decode_UXTB16_t1, decode_UXTH_t1, decode_UXTH_t2},
-    uxtab::decode_UXTAB_t1,
+    uxt::{decode_UXTB_t1, decode_UXTB_t2, decode_UXTH_t1, decode_UXTH_t2},
     wfe::{decode_WFE_t1, decode_WFE_t2},
     wfi::{decode_WFI_t1, decode_WFI_t2},
     yield_::{decode_YIELD_t1, decode_YIELD_t2},
@@ -395,7 +395,9 @@ fn decode_32(opcode: u32) -> Instruction {
     instruction
 }
 // Reject a stale generated table instead of running firmware with old masks.
-const _: () = assert!(GENERATED_DECODER_REVISION == 14);
+#[cfg(feature = "has-dsp-ext")]
+use self::{uxt::decode_UXTB16_t1, uxtab::decode_UXTAB_t1};
+const _: () = assert!(GENERATED_DECODER_REVISION == 15);
 const _: () = assert!(
     GENERATED_DECODER_PROFILE
         == (cfg!(feature = "has-fp") as u8)

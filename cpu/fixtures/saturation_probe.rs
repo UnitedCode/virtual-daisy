@@ -3,6 +3,7 @@ include!("saturation_probe_cases.rs");
 include!("qadd_probe_cases.rs");
 include!("parallel_probe_cases.rs");
 include!("dsp_multiply_probe_cases.rs");
+include!("extend_pack_probe_cases.rs");
 pub const REGISTERS: [u32; 14] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14];
 pub fn expected_matrix() -> (u32, u64) {
     let mut count = 0;
@@ -13,12 +14,22 @@ pub fn expected_matrix() -> (u32, u64) {
         .chain(WORD_CASES.into_iter().map(|row| (row, 1u8)))
         .chain(PARALLEL_CASES.into_iter().map(|row| (row, 1u8)))
         .chain(DSP_MULTIPLY_CASES.into_iter().map(|row| (row, 2u8)))
+        .chain(EXTEND_PACK_CASES.into_iter().map(|row| {
+            (
+                row,
+                if row[0] >> 24 == 0xfa && (row[0] >> 16) & 15 == 15 {
+                    3u8
+                } else {
+                    1u8
+                },
+            )
+        }))
     {
         for destination in 0..14 {
             for source in 0..14 {
                 let mut registers: [u32; 14] =
                     core::array::from_fn(|i| 0xdeadbeef ^ (REGISTERS[i] * 0x01010101));
-                if binary != 0 {
+                if matches!(binary, 1 | 2) {
                     registers[2] = input;
                 }
                 if binary == 2 {

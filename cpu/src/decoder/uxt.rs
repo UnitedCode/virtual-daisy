@@ -53,6 +53,7 @@ pub fn decode_UXTH_t2(opcode: u32) -> Instruction {
 }
 
 #[allow(non_snake_case)]
+#[cfg(feature = "has-dsp-ext")]
 pub fn decode_UXTB16_t1(opcode: u32) -> Instruction {
     Instruction::UXTB16 {
         params: Reg2UsizeParams {

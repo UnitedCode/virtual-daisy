@@ -12,6 +12,9 @@ impl Processor {
         if !self.condition_passed() {
             return Ok(ExecuteSuccess::NotTaken);
         }
+        if opcode & 0xff80f0c0 == 0xfa00f080 && ((opcode >> 20) & 7) <= 5 {
+            return self.exec_dsp_extend(opcode);
+        }
         if opcode & 0xfff000c0 == 0xfbc00080
             || opcode & 0xfff000e0 == 0xfbc000c0
             || opcode & 0xfff000e0 == 0xfbd000c0
@@ -64,6 +67,11 @@ impl Processor {
             }
             value as u32
         } else if opcode & 0xfff08010 == 0xeac00000 {
+            if !cfg!(feature = "has-dsp-ext")
+                || [rd, rn, rm].iter().any(|r| matches!(r, Reg::SP | Reg::PC))
+            {
+                return Err(Fault::UndefInstr);
+            }
             let shift = ((opcode >> 12) & 7) * 4 + ((opcode >> 6) & 3);
             if opcode & (1 << 5) == 0 {
                 (a & 0xffff) | (b.wrapping_shl(shift) & 0xffff0000)
@@ -75,8 +83,6 @@ impl Processor {
                 };
                 (a & 0xffff0000) | (shifted & 0xffff)
             }
-        } else if opcode & 0xfff0f0c0 == 0xfa10f080 {
-            a.wrapping_add(b.rotate_right(((opcode >> 4) & 3) * 8) & 0xffff)
         } else if key == 0xfa90f0a0 {
             b.reverse_bits()
         } else {

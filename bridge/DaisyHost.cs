@@ -155,7 +155,7 @@ public static class DaisyHost
             if(args[5]=="saturation-psr-control") ((DaisyCortexM)cpu).DisablePsr();
             bus.LoadELF(Path.Combine(Path.GetDirectoryName(args[3]),"saturation-probe.elf"));
             cpu.VectorTableOffset=0x6000;cpu.SP=bus.ReadDoubleWord(0x6000);cpu.PC=bus.ReadDoubleWord(0x6004);
-            emulation.RunFor(TimeInterval.FromMilliseconds(600));
+            emulation.RunFor(TimeInterval.FromMilliseconds(1600));
             File.WriteAllBytes(args[3]+".saturation.bin",bus.ReadBytes(0x20018400UL,128));
             emulation.Dispose();return;
         }

@@ -80,6 +80,7 @@ fn main() {
     let mut dsp_multiply = Vec::new();
     let mut smull = Vec::new();
     let mut long_multiply = Vec::new();
+    let mut extend_pack = Vec::new();
     for line in hex.lines() {
         assert!(matches!(line.len(), 40 | 48 | 56 | 64 | 72 | 80 | 88 | 104));
         let destination = if line.len() == 48 && line.ends_with("53534154") {
@@ -92,6 +93,8 @@ fn main() {
             &mut parallel
         } else if line.len() == 56 && line.ends_with("51414444") {
             &mut qadd
+        } else if line.len() == 56 && line.ends_with("45585450") {
+            &mut extend_pack
         } else if line.len() == 56 {
             &mut precision
         } else if line.len() == 64 && line.ends_with("4c4f4e47") {
@@ -125,6 +128,10 @@ fn main() {
             destination.push(u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap());
         }
     }
+    assert_eq!(extend_pack.len(), 229_376 * 7 * 4);
+    fs::write(output.with_extension("extend-pack.bin"), &extend_pack).unwrap();
+    let source = extension_cases(&extend_pack);
+    fs::write(output.with_extension("extend-pack-probe.rs"), source).unwrap();
     assert_eq!(bytes.len(), 210 * 5 * 5 * 4);
     fs::write(&output, &bytes).unwrap();
     assert_eq!(doubles.len(), 344 * 5 * 8 * 4);
@@ -414,4 +421,37 @@ fn main() {
         "292864 QEMU long multiply/accumulate cases; {} bytes",
         long_multiply.len()
     );
+    println!(
+        "229376 QEMU extension/packing cases; {} bytes",
+        extend_pack.len()
+    );
+}
+
+fn extension_cases(data: &[u8]) -> String {
+    let mut cases = std::collections::BTreeMap::new();
+    for row in data.as_chunks::<28>().0 {
+        let w: [u32; 7] =
+            core::array::from_fn(|i| u32::from_le_bytes(row[4 * i..4 * i + 4].try_into().unwrap()));
+        if w[1] == 0x80008000 && w[2] == w[1] && w[3] == 0xa80a0000 {
+            cases.insert(w[0], w);
+        }
+    }
+    assert_eq!(cases.len(), 112);
+    let mut source = String::from(
+        "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const EXTEND_PACK_CASES: [[u32; 5]; 112] = [\n",
+    );
+    for w in cases.values() {
+        let n = if w[0] >> 24 == 0xfa && (w[0] >> 16) & 15 == 15 {
+            15
+        } else {
+            2
+        };
+        let opcode = (w[0] & !0x000f000f) | (n << 16) | 1;
+        source.push_str(&format!(
+            "    [0x{opcode:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x}],\n",
+            w[1], w[3], w[4], w[5]
+        ));
+    }
+    source.push_str("];\n");
+    source
 }

@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(feature = "has-dsp-ext")]
+use crate::core::instruction::Reg3UsizeParams;
 
 #[test]
 fn test_decode_bfc() {
@@ -138,6 +140,7 @@ fn test_decode_ubfx() {
 }
 
 #[test]
+#[cfg(feature = "has-dsp-ext")]
 fn test_decode_uxtab_() {
     //0xfa54_f480 UXTAB.W R4, R4, R0
 
