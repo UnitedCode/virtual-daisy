@@ -725,7 +725,7 @@ fn architectural_guest_matches_reference_results() {
         machine
             .run_until(2_000_000, 1_000_000)
             .unwrap_or_else(|e| panic!("{label}: {e}"));
-        let words: Vec<_> = (0..104)
+        let words: Vec<_> = (0..112)
             .map(|i| machine.read32(0x20018000 + i * 4).unwrap())
             .collect();
         eprintln!(
@@ -733,6 +733,11 @@ fn architectural_guest_matches_reference_results() {
             machine.registers()
         );
         assert_eq!(words[0], 0xab, "guest completion");
+        assert_eq!(&words[104..108], &[0x40200, 0x40200, 0x7031b, 0x7031b]);
+        assert_eq!(words[108], 0);
+        assert_eq!(words[109] & 7, 0);
+        assert_ne!(words[110] & (1 << 9), 0);
+        assert_eq!(words[111], 0);
         assert_eq!(
             &words[96..100],
             &[0x7f800001, 0x80000000, 0xffc01234, 0x80000000]
@@ -822,7 +827,7 @@ fn architectural_guest_matches_reference_results() {
         if shared {
             assert_eq!(
                 counter(&machine, "exception_stack_words"),
-                if eager { 352 } else { 136 }
+                if eager { 360 } else { 144 }
             );
         }
         if let Some(reference) = std::env::var_os("VIRTUAL_DAISY_REFERENCE") {

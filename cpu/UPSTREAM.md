@@ -158,3 +158,11 @@ unchanged flags through both paths, including every legal GPR triple and
 aliases. Separate regressions cover trapped zero division and skipped IT
 instructions. The architectural guest appends four pinned division results,
 expanding its capture from 100 to 104 words without changing earlier result slots.
+
+Cortex-M7 CPUID profiles now keep CCR.BP and STKALIGN as read-only ones and
+ignore reserved CCR writes. The bus reports the effective register value to
+the device. Other profiles retain configurable stack alignment. The Daisy
+wrapper sets the M7 reset value to 0x40200. Tests execute an SVC from a stack
+offset by four bytes after a zero CCR write, then check the aligned frame,
+stacked xPSR flag and restored SP. The architectural guest appends those checks
+and CCR readback, bringing its capture to 112 words.

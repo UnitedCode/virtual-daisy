@@ -72,6 +72,17 @@ probe_ldrd_alias:
     ldrd r0, r1, [r0]
     eors r0, r1
     bx lr
+    .global probe_ccr_stack
+    .thumb_func
+probe_ccr_stack:
+    push {{r4, lr}}
+    mov r4, sp
+    sub sp, #4
+    svc #1
+    add sp, #4
+    mov r0, sp
+    subs r0, r0, r4
+    pop {{r4, pc}}
     .section .flashprobe,"a",%progbits
     .balign 32
     .space 28
@@ -83,6 +94,7 @@ extern "C" {
     fn probe_try_xn();
     fn probe_xn_resume();
     fn probe_ldrd_alias() -> u32;
+    fn probe_ccr_stack() -> u32;
 }
 
 #[no_mangle]
@@ -129,6 +141,11 @@ unsafe extern "C" fn probe_fault(frame: *mut u32, _return_code: u32) {
 }
 #[no_mangle]
 unsafe extern "C" fn probe_svc(frame: *mut u32, return_code: u32) {
+    if read_volatile(RESULTS.add(108)) == 1 {
+        record(109, frame as u32);
+        record(110, read_volatile(frame.add(7)));
+        return;
+    }
     record(44, return_code);
     record(45, read(0xe000ef34) & 1);
     record(47, read(0xe000ef38));
@@ -150,9 +167,21 @@ unsafe extern "C" fn probe_main() -> ! {
         phase(0xbad0f022);
         loop { asm!("wfi", options(nostack)); }
     }
-    for word in 0..104 {
+    for word in 0..112 {
         record(word, 0);
     }
+    // M7 read-only BP/STKALIGN and reserved fields, before later setup writes.
+    record(104, read(0xe000ed14));
+    write(0xe000ed14, 0);
+    record(105, read(0xe000ed14));
+    write(0xe000ed14, u32::MAX);
+    record(106, read(0xe000ed14));
+    write(0xe000ed14, 0x0003011b);
+    record(107, read(0xe000ed14));
+    write(0xe000ed14, 0);
+    record(108, 1);
+    record(111, probe_ccr_stack());
+    record(108, 0);
     record(2, read(0xe000ed90));
     for address in [0xe000ef40, 0xe000ef44, 0xe000ef48] {
         write(address, u32::MAX);

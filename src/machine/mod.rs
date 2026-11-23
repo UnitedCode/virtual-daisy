@@ -139,7 +139,7 @@ impl Machine {
         }
         cpu.device(Some(Box::new(seed::Device(seed.clone()))));
         cpu.cpuid = 0x411fc271;
-        cpu.ccr = 1 << 9;
+        cpu.ccr = (1 << 18) | (1 << 9);
         cpu.ictr = 4;
         cpu.priority_bits = 4;
         cpu.vtor = vectors;
