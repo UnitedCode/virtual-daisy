@@ -103,6 +103,20 @@ svc #0
 .endr
 END
 .ltorg
+.global bench_short_intervals
+.thumb_func
+bench_short_intervals:
+ldr r2, =0xe0001004
+ldr r3, =0x20019034
+.rept 7
+ldr r0, [r2]
+nop
+ldr r1, [r2]
+subs r1, r1, r0
+str r1, [r3], #4
+.endr
+bx lr
+.ltorg
 "#
 );
 unsafe extern "C" {
@@ -118,6 +132,7 @@ unsafe extern "C" {
     fn bench_tcm_pair128() -> u32;
     fn bench_tcm_multiple128() -> u32;
     fn bench_svc8() -> u32;
+    fn bench_short_intervals();
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn probe_main() -> ! {
@@ -148,6 +163,7 @@ pub unsafe extern "C" fn probe_main() -> ! {
     {
         write_volatile(RESULTS.add(i + 1), function());
     }
+    bench_short_intervals();
     write_volatile(RESULTS.add(20), read_volatile(0xe000ed28 as *const u32));
     write_volatile(RESULTS.add(21), read_volatile(0xe000ed2c as *const u32));
     write_volatile(RESULTS, 0xab00_c10c);

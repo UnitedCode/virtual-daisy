@@ -6,6 +6,7 @@ pub mod bus;
 pub mod clock;
 mod codec;
 pub use codec::SampleClocks;
+mod cpu_progress;
 mod dma;
 mod flash;
 mod gpio;
@@ -32,6 +33,7 @@ pub struct Peripheral {
     codec_reset_high: bool,
     memory: std::sync::Mutex<memory::SystemMemory>,
     clock: clock::ClockTree,
+    cpu_progress: cpu_progress::CpuProgress,
     line_stage: codec::LineStage,
     passband_delay: codec::PassbandDelay,
     axi: bus::Axi,
@@ -409,6 +411,7 @@ impl Peripheral {
             codec_reset_high: false,
             memory: std::sync::Mutex::new(memory::SystemMemory::default()),
             clock: clock::ClockTree::default(),
+            cpu_progress: cpu_progress::CpuProgress::default(),
             line_stage: codec::LineStage::default(),
             passband_delay: codec::PassbandDelay::default(),
             axi: bus::Axi::default(),
@@ -420,6 +423,7 @@ impl Peripheral {
     pub fn reset(&mut self) {
         self.memory.lock().unwrap().reset_registers();
         self.clock = clock::ClockTree::default();
+        self.cpu_progress = cpu_progress::CpuProgress::default();
         self.line_stage = codec::LineStage::default();
         self.passband_delay = codec::PassbandDelay::default();
         self.axi = bus::Axi::default();
@@ -1317,6 +1321,25 @@ pub unsafe extern "C" fn daisy_sai_rate(state: *mut Peripheral, rate: f64) -> u3
 #[no_mangle]
 pub unsafe extern "C" fn daisy_sai_capture_rate(state: *mut Peripheral) -> f64 {
     (*state).sai.sample_rate
+}
+
+/// Convert reference CPU progress to nanoseconds while retaining fractional phase.
+/// # Safety
+/// `state` must be live and exclusively serialized; `nanoseconds` must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn daisy_cpu_progress(
+    state: *mut Peripheral,
+    cycles: u64,
+    mips: u32,
+    nanoseconds: *mut u64,
+) -> u32 {
+    match (*state).cpu_progress.advance(cycles, mips) {
+        Ok(ns) => {
+            *nanoseconds = ns;
+            0
+        }
+        Err(_) => 1,
+    }
 }
 
 /// # Safety

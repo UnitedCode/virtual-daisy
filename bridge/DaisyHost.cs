@@ -32,7 +32,7 @@ public static class DaisyHost
             return File.Exists(path) ? context.LoadFromAssemblyPath(path) : null;
         };
         if(args[1] == "--disable-python") { DisablePython(root, args[2]); return; }
-        if(args[1] == "--verify-managed") { VerifyPythonGuard();VerifyPacingAdapter();VerifyNvicAdapter();return; }
+        if(args[1] == "--verify-managed") { VerifyPythonGuard();VerifyPacingAdapter();VerifyProgressAdapter();VerifyNvicAdapter();return; }
         Boot(args);
     }
     private static void DisablePython(string root, string output)
@@ -59,6 +59,13 @@ public static class DaisyHost
             var reads=body.Body.Instructions.Where(i=>i.OpCode==Mono.Cecil.Cil.OpCodes.Ldfld && i.Operand is Mono.Cecil.FieldReference f && f.Name=="skipInstructions").ToArray();
             if(reads.Length!=3) throw new InvalidOperationException("Pinned CPU pacing adapter point changed");
             reads[0].OpCode=Mono.Cecil.Cil.OpCodes.Callvirt;reads[0].Operand=getter;
+            var report=cpu.Methods.Single(m=>m.Name=="ReportProgress" && m.HasThis && m.Parameters.Count==1 && m.Parameters[0].ParameterType.MetadataType==Mono.Cecil.MetadataType.UInt64);
+            const string conversionSignature="Antmicro.Renode.Time.TimeInterval Antmicro.Renode.Time.TimeInterval::FromCPUCycles(System.UInt64,System.UInt32,System.UInt64&)";
+            var conversions=report.Body.Instructions.Where(i=>i.OpCode==Mono.Cecil.Cil.OpCodes.Call && i.Operand is Mono.Cecil.MethodReference m && m.FullName==conversionSignature).ToArray();
+            if(conversions.Length!=1) throw new InvalidOperationException("Pinned CPU progress adapter point changed");
+            report.Body.GetILProcessor().InsertBefore(conversions[0],Mono.Cecil.Cil.Instruction.Create(Mono.Cecil.Cil.OpCodes.Ldarg_0));
+            conversions[0].Operand=assembly.MainModule.ImportReference(typeof(DaisyCortexM).GetMethod(nameof(DaisyCortexM.ProgressTime)));
+            report.Body.MaxStackSize++;
             // The pinned NVIC incorrectly counts only system exceptions for
             // RETTOBASE. Keep its active stack authoritative, including IRQs.
             var nvic=assembly.MainModule.Types.Single(t=>t.FullName==typeof(NVIC).FullName);
@@ -102,6 +109,7 @@ public static class DaisyHost
         TypeManager.Instance.ScanFile(Assembly.GetExecutingAssembly().Location, false);
         VerifyPythonGuard();
         VerifyPacingAdapter();
+        VerifyProgressAdapter();
         VerifyNvicAdapter();
         var emulation = EmulationManager.Instance.CurrentEmulation;
         var machine = new Machine();
@@ -129,8 +137,9 @@ public static class DaisyHost
             cpu.PerformanceInMips=checked((uint)Math.Max(1UL,(hz+500000UL)/1000000UL));
         });
         emulation.MasterTimeSource.Quantum = TimeInterval.FromMicroseconds(1);
-        if(args[5]=="instruction-clock" || args[5]=="instruction-clock-control") {
+        if(args[5]=="instruction-clock" || args[5]=="instruction-clock-control" || args[5]=="instruction-clock-coarse-control") {
             if(args[5]=="instruction-clock-control") ((DaisyCortexM)cpu).DisablePrefixTime();
+            if(args[5]=="instruction-clock-coarse-control") ((DaisyCortexM)cpu).CoarseProgress=true;
             bus.LoadELF(Path.Combine(Path.GetDirectoryName(args[3]),"instruction_clock-probe.elf"));
             cpu.VectorTableOffset=0x6000;cpu.SP=bus.ReadDoubleWord(0x6000);cpu.PC=bus.ReadDoubleWord(0x6004);
             emulation.RunFor(TimeInterval.FromMilliseconds(2));
@@ -532,6 +541,16 @@ public static class DaisyHost
             if(reads!=2 || calls!=1) throw new InvalidOperationException("Missing native-wait IRQ pacing adapter");
         }
         Console.WriteLine("IRQ-aware wait pacing adapter verified");
+    }
+    private static void VerifyProgressAdapter() {
+        using(var assembly=Mono.Cecil.AssemblyDefinition.ReadAssembly(typeof(BaseCPU).Assembly.Location)) {
+            var cpu=assembly.MainModule.Types.Single(t=>t.FullName==typeof(BaseCPU).FullName);
+            var report=cpu.Methods.Single(m=>m.Name=="ReportProgress");
+            var calls=report.Body.Instructions.Where(i=>i.OpCode==Mono.Cecil.Cil.OpCodes.Call && i.Operand is Mono.Cecil.MethodReference m && m.Name==nameof(DaisyCortexM.ProgressTime) && m.DeclaringType.FullName==typeof(DaisyCortexM).FullName && m.Parameters.Count==4).ToArray();
+            if(calls.Length!=1 || calls[0].Previous?.OpCode!=Mono.Cecil.Cil.OpCodes.Ldarg_0 || report.Body.Instructions.Any(i=>i.Operand is Mono.Cecil.MethodReference m && m.Name=="FromCPUCycles"))
+                throw new InvalidOperationException("Missing fractional CPU progress adapter");
+        }
+        Console.WriteLine("Fractional CPU progress adapter verified");
     }
     private static void VerifyPythonGuard()
     {

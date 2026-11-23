@@ -25,6 +25,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint TimeNative(IntPtr state,ulong now);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint IrqNative(IntPtr state);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void AbandonNative(IntPtr state,ulong ns);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint ProgressNative(IntPtr state,ulong cycles,uint mips,out ulong ns);
         public DaisyArchitecture(IMachine machine,string libraryPath)
         {
             this.machine=machine;
@@ -48,6 +49,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             flashIrq=Marshal.GetDelegateForFunctionPointer<IrqNative>(NativeLibrary.GetExport(library,"daisy_flash_irq"));
             abandon=Marshal.GetDelegateForFunctionPointer<AbandonNative>(NativeLibrary.GetExport(library,"daisy_abandon_wait"));
             waitInterruptible=Marshal.GetDelegateForFunctionPointer<IrqNative>(NativeLibrary.GetExport(library,"daisy_wait_interruptible"));
+            progress=Marshal.GetDelegateForFunctionPointer<ProgressNative>(NativeLibrary.GetExport(library,"daisy_cpu_progress"));
         }
         public uint Read(uint address, uint width, bool cpu)
         {
@@ -70,6 +72,12 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public void AttachQspi(DaisyQspi qspi) {this.qspi=qspi;}
         public void AfterExecution() {qspi?.AfterMemoryAccess();}
         public IntPtr NativeState => native.State;
+        public ulong ProgressNanoseconds(ulong cycles,uint mips) {
+            lock(sync) {
+                if(progress(native.State,cycles,mips,out ulong ns)!=0) throw new InvalidOperationException("Invalid CPU progress interval");
+                return ns;
+            }
+        }
         public IntPtr RuntimeFetchPointer { get; }
         public IntPtr AlignmentPointer { get; }
         public IntPtr BarrierPointer {get;}
@@ -153,6 +161,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private readonly IrqNative flashIrq;
         private readonly AbandonNative abandon;
         private readonly IrqNative waitInterruptible;
+        private readonly ProgressNative progress;
     }
 
     public sealed class DaisyMemory : IExecutableIO

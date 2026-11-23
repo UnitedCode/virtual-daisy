@@ -288,6 +288,7 @@ impl Host<'_> {
             "systick-core-control",
             "instruction-clock",
             "instruction-clock-control",
+            "instruction-clock-coarse-control",
             "dsb-fault",
             "entry-fault",
             "wait-irq",
@@ -373,6 +374,24 @@ fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
     fs::write(
         grade::artifact(&broken, ".instruction-clock.txt"),
         format!("completed_block_only_time=caught\n{error}\n"),
+    )?;
+    let broken = host.boot(
+        "instruction-clock-coarse-control",
+        tone,
+        "instruction-clock-coarse-control",
+    )?;
+    let error = instruction_clock_probe::check(&fs::read(grade::artifact(
+        &broken,
+        ".instruction-clock.bin",
+    ))?)
+    .err()
+    .ok_or("Whole-cycle grouping escaped the instruction-clock gate")?;
+    if !error.contains("short DWT interval jumped") {
+        return Err(format!("Unexpected coarse-clock negative control: {error}").into());
+    }
+    fs::write(
+        grade::artifact(&broken, ".instruction-clock.txt"),
+        format!("whole_cycle_grouping=caught\n{error}\n"),
     )?;
     guest::prepare(
         host.directory,
