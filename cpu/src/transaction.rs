@@ -25,6 +25,7 @@ checkpoint_fields! {
     #[cfg(not(feature="armv6m"))] faultmask: bool,
     #[cfg(not(feature="armv6m"))] basepri: u8,
     control: Control, mode: ProcessorMode, running: bool, sleeping: bool, exit_code: u32,
+    waiting_for_event: bool, event_register: bool,
     exceptions: HashMap<usize,ExceptionState>, pending_exception_count: u32,
     pending_exceptions: Vec<usize>, pending_choice: Option<ExceptionState>,
     execution_priority: i16, itstate: u8,

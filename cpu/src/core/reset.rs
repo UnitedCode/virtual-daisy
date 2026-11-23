@@ -60,7 +60,9 @@ impl Reset for Processor {
         self.reset_scb_fault_state();
         self.reset_fp_system_state();
 
-        //self.event_reg.clear();
+        self.event_register = false;
+        self.waiting_for_event = false;
+        self.sleeping = false;
 
         self.itstate = 0;
         self.exclusive_monitor = None;

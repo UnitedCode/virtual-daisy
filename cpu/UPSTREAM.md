@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.15. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.16. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
@@ -127,3 +127,14 @@ SP/PC data registers before writing; all preserve APSR. A 229,376-record QEMU
 oracle checks all 112 extension/packing encodings, every legal general-register
 assignment and aliases through both paths, and skipped IT instructions. The
 standalone ARM saturation/packing matrix now has 37,632 cases.
+
+
+WFE/SEV use a single event latch with reset, exception-return and asynchronous
+exception events. SEVONPEND tracks new NVIC pending transitions even while IRQs
+are disabled, without inventing events when an existing pending IRQ is enabled.
+WFE and WFI have distinct wake conditions under PRIMASK; events never wake WFI.
+Sleep/event state participates in transactional rollback. Tests cover both
+instruction widths, ordinary/compiled execution, skipped IT conditions, reset,
+masked/disabled IRQs and preservation of an event received during WFI. A separate
+host-driven ARM guest checks nine sleep checkpoints against Renode and requires
+its old no-op event mode to fail. No physical sleep latency is claimed.

@@ -6,6 +6,7 @@ mod core;
 mod cpu_probe;
 #[cfg(feature = "rust-host")]
 mod emulate;
+mod events_probe;
 mod fetch_probe;
 #[path = "../cpu/fixtures/fixed_probe.rs"]
 mod fixed_probe;
@@ -172,6 +173,8 @@ impl Host<'_> {
         for suffix in [
             ".systick.bin",
             ".systick.txt",
+            ".events.bin",
+            ".events.txt",
             ".instruction-clock.bin",
             ".instruction-clock.txt",
             ".half.bin",
@@ -316,6 +319,8 @@ impl Host<'_> {
             "long-multiply",
             "saturation",
             "saturation-psr-control",
+            "events",
+            "events-noop-control",
             "psr",
             "dsb-fault",
             "entry-fault",
@@ -437,6 +442,25 @@ fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
     fs::write(
         grade::artifact(&old_psr, ".saturation.txt"),
         format!("legacy_psr_ge_loss=caught\n{error}\n"),
+    )?;
+    guest::prepare(
+        host.directory,
+        "events",
+        include_str!("../guests/events.rs"),
+    )?;
+    let events = host.boot("events", tone, "events")?;
+    events_probe::check(&fs::read(grade::artifact(&events, ".events.bin"))?)?;
+    fs::write(
+        grade::artifact(&events, ".events.txt"),
+        "wfe_wfi_event_latch_and_pending_edges=passed\n",
+    )?;
+    let broken = host.boot("events-noop-control", tone, "events-noop-control")?;
+    let error = events_probe::check(&fs::read(grade::artifact(&broken, ".events.bin"))?)
+        .err()
+        .ok_or("No-op WFE/SEV escaped the event gate")?;
+    fs::write(
+        grade::artifact(&broken, ".events.txt"),
+        format!("no_op_event_instructions=caught\n{error}\n"),
     )?;
     guest::prepare(
         host.directory,

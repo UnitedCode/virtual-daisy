@@ -2,6 +2,8 @@
 //! The same unmodified ARM guests run by the Renode reference harness.
 use std::{fs, path::PathBuf, process::Command};
 use virtual_daisy::{board::Board, machine::Machine};
+#[path = "../src/events_probe.rs"]
+mod events_probe;
 #[path = "../cpu/fixtures/fixed_probe.rs"]
 mod fixed_probe;
 #[path = "../cpu/fixtures/half_probe.rs"]
@@ -14,6 +16,62 @@ mod long_multiply_probe;
 mod psr_probe;
 #[path = "../cpu/fixtures/saturation_probe.rs"]
 mod saturation_probe;
+
+#[test]
+fn old_reference_sevonpend_bank_fails_the_event_gate() {
+    let bytes = include_bytes!("fixtures/events_legacy_reference.bin");
+    assert!(events_probe::check(bytes)
+        .unwrap_err()
+        .starts_with("ARM event guest did not complete:"));
+    let stages: Vec<_> = bytes[64..100]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| u32::from_le_bytes(*b))
+        .collect();
+    assert_eq!(stages, [1, 1, 1, 1, 1, 3, 5, 7, 7]);
+}
+
+#[test]
+#[ignore = "requires rustup target add thumbv7em-none-eabihf"]
+fn event_guest_checks_pending_edges_masks_wfe_wfi_and_exception_return() {
+    let (directory, image) = guest("events");
+    let mut machine = Machine::from_elf_at(Board::Rev5, &image, 0x6000).unwrap();
+    let mut deadline = 0;
+    for (index, expected) in events_probe::STAGES.into_iter().enumerate() {
+        match index {
+            1 | 2 | 8 => machine.pend_interrupt(5).unwrap(),
+            3 | 4 => {
+                machine.write32(0xe000e280, 1 << 5).unwrap();
+                machine.pend_interrupt(5).unwrap();
+            }
+            5..=7 => machine.signal_event(),
+            _ => {}
+        }
+        deadline += 1_000_000;
+        machine.run_until(deadline, 200_000).unwrap();
+        let stage = machine.read32(0x20019804).unwrap();
+        assert_eq!(stage, expected, "checkpoint {index}");
+        machine
+            .write32(0x20019840 + index as u32 * 4, stage)
+            .unwrap();
+    }
+    let data: Vec<_> = (0..32)
+        .flat_map(|i| machine.read32(0x20019800 + i * 4).unwrap().to_le_bytes())
+        .collect();
+    events_probe::check(&data).unwrap();
+    if let Some(path) = std::env::var_os("VIRTUAL_DAISY_REFERENCE") {
+        let path = PathBuf::from(path);
+        let reference = fs::read(path.join("events.events.bin")).unwrap();
+        events_probe::check(&reference).unwrap();
+        assert_eq!(data, reference);
+        assert!(events_probe::check(
+            &fs::read(path.join("events-noop-control.events.bin")).unwrap()
+        )
+        .is_err());
+    }
+    fs::remove_dir_all(directory).unwrap();
+}
 
 #[test]
 fn old_reference_unsigned_exchange_flags_fail_the_register_gate() {

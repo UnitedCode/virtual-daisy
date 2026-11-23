@@ -202,14 +202,14 @@ impl Machine {
         }
         if self.cpu.sleeping
             && self.cpu.get_pending_exception().is_none()
-            && !self.cpu.has_wakeup_condition()
+            && !self.cpu.sleep_wakeup_pending()
         {
             let cycles = self.seed.borrow().next_cycles(maximum_ns)?;
             self.cpu.advance_wait_cycles(
                 cycles.min(self.cpu.next_systick_cycles().unwrap_or(u32::MAX)),
             );
         } else {
-            if self.cpu.sleeping && self.cpu.has_wakeup_condition() {
+            if self.cpu.sleeping && self.cpu.sleep_wakeup_pending() {
                 self.cpu.sleeping = false;
             }
             self.cpu.step();
@@ -272,7 +272,7 @@ impl Machine {
             self.steps += 1;
             if self.cpu.sleeping
                 && self.cpu.get_pending_exception().is_none()
-                && !self.cpu.has_wakeup_condition()
+                && !self.cpu.sleep_wakeup_pending()
             {
                 let wait = deadline
                     .saturating_sub(self.cpu.cycle_count)
@@ -282,7 +282,7 @@ impl Machine {
                     ));
                 self.cpu.advance_wait_cycles(wait as u32);
             } else {
-                if self.cpu.sleeping && self.cpu.has_wakeup_condition() {
+                if self.cpu.sleeping && self.cpu.sleep_wakeup_pending() {
                     self.cpu.sleeping = false;
                 }
                 self.cpu.step();
@@ -321,6 +321,10 @@ impl Machine {
         self.cpu
             .nvic_write_ispr(interrupt / 32, 1 << (interrupt % 32));
         Ok(())
+    }
+    /// Signal the core's event input, for an attached device or test fixture.
+    pub fn signal_event(&mut self) {
+        self.cpu.signal_event();
     }
     /// Issue one peripheral DMA request edge for a fixture or attached device.
     pub fn request_dma(&mut self, stream: usize) -> Result<(), Error> {

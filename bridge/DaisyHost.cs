@@ -88,6 +88,18 @@ public static class DaisyHost
             activeIl.Append(activeIl.Create(Mono.Cecil.Cil.OpCodes.Ldc_I4_0));
             activeIl.Append(activeIl.Create(Mono.Cecil.Cil.OpCodes.Ceq));
             activeIl.Append(activeIl.Create(Mono.Cecil.Cil.OpCodes.Ret));
+            // SecurityBanked.Get expects "secure", but this pinned callback
+            // passes "target nonsecure". On M7 that reads the unused bank.
+            var pendingEvent=nvic.Methods.Single(m=>m.Name=="SetPendingWithoutEscalation");
+            var eventBanks=pendingEvent.Body.Instructions.Where(i=>i.Operand is Mono.Cecil.MethodReference call && call.Name=="IsInterruptTargetNonSecure").ToArray();
+            if(eventBanks.Length!=1 || !(eventBanks[0].Next?.Operand is Mono.Cecil.MethodReference bankGet)
+                || bankGet.Name!="Get" || !bankGet.DeclaringType.FullName.Contains("SecurityBanked"))
+                throw new InvalidOperationException("Pinned NVIC event bank adapter point changed");
+            var eventIl=pendingEvent.Body.GetILProcessor();
+            var invert=eventIl.Create(Mono.Cecil.Cil.OpCodes.Ldc_I4_0);
+            eventIl.InsertAfter(eventBanks[0],invert);
+            eventIl.InsertAfter(invert,eventIl.Create(Mono.Cecil.Cil.OpCodes.Ceq));
+            pendingEvent.Body.MaxStackSize++;
             // RM0433 ADC1/2 have twenty channels (0..19). The pinned H7
             // constructor incorrectly passes 19 to its channel container.
             var adc=assembly.MainModule.Types.Single(t=>t.FullName=="Antmicro.Renode.Peripherals.Analog.STM32H7_ADC");
@@ -157,6 +169,21 @@ public static class DaisyHost
             cpu.VectorTableOffset=0x6000;cpu.SP=bus.ReadDoubleWord(0x6000);cpu.PC=bus.ReadDoubleWord(0x6004);
             emulation.RunFor(TimeInterval.FromMilliseconds(1600));
             File.WriteAllBytes(args[3]+".saturation.bin",bus.ReadBytes(0x20018400UL,128));
+            emulation.Dispose();return;
+        }
+        if(args[5]=="events" || args[5]=="events-noop-control") {
+            bus.LoadELF(Path.Combine(Path.GetDirectoryName(args[3]),"events-probe.elf"));
+            cpu.VectorTableOffset=0x6000;cpu.SP=bus.ReadDoubleWord(0x6000);cpu.PC=bus.ReadDoubleWord(0x6004);
+            bool broken=args[5]=="events-noop-control";
+            cpu.WfeAndSevAsNop=broken;
+            for(uint index=0;index<(broken?1u:9u);index++) {
+                if(index==1 || index==2 || index==8) bus.WriteDoubleWord(0xe000e200,32);
+                else if(index==3 || index==4) {bus.WriteDoubleWord(0xe000e280,32);bus.WriteDoubleWord(0xe000e200,32);}
+                else if(index>=5 && index<=7) cpu.SetEventFlag();
+                emulation.RunFor(TimeInterval.FromMilliseconds(1));
+                bus.WriteDoubleWord(0x20019840+index*4,bus.ReadDoubleWord(0x20019804));
+            }
+            File.WriteAllBytes(args[3]+".events.bin",bus.ReadBytes(0x20019800UL,128));
             emulation.Dispose();return;
         }
         if(args[5]=="fixed") {
@@ -574,7 +601,16 @@ public static class DaisyHost
                 || !count.DeclaringType.FullName.StartsWith("System.Collections.Generic.Stack`1"))
                 throw new InvalidOperationException("Missing NVIC active-count adapter");
         }
+        using(var assembly=Mono.Cecil.AssemblyDefinition.ReadAssembly(typeof(NVIC).Assembly.Location)) {
+            var nvic=assembly.MainModule.Types.Single(t=>t.FullName==typeof(NVIC).FullName);
+            var pending=nvic.Methods.Single(m=>m.Name=="SetPendingWithoutEscalation");
+            var calls=pending.Body.Instructions.Where(i=>i.Operand is Mono.Cecil.MethodReference call && call.Name=="IsInterruptTargetNonSecure").ToArray();
+            if(calls.Length!=1 || calls[0].Next?.OpCode!=Mono.Cecil.Cil.OpCodes.Ldc_I4_0
+                || calls[0].Next?.Next?.OpCode!=Mono.Cecil.Cil.OpCodes.Ceq)
+                throw new InvalidOperationException("Missing NVIC pending-event bank adapter");
+        }
         Console.WriteLine("NVIC active-count adapter verified");
+        Console.WriteLine("NVIC pending-event bank adapter verified");
     }
     private static void VerifyPacingAdapter() {
         using(var assembly=Mono.Cecil.AssemblyDefinition.ReadAssembly(typeof(BaseCPU).Assembly.Location)) {

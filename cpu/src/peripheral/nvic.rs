@@ -180,7 +180,11 @@ impl NVIC for Processor {
 
     fn nvic_write_ispr(&mut self, index: usize, value: u32) {
         let value = value & self.implemented_interrupts(index);
+        let new_pending = value & !self.nvic_interrupt_pending[index];
         set_bits_array(&mut self.nvic_interrupt_pending, index, value);
+        if new_pending != 0 && self.scr.get_bit(4) {
+            self.signal_event();
+        }
         self.nvic_set_pending_exceptions(index);
     }
 

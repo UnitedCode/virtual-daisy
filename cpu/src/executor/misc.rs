@@ -16,8 +16,8 @@ pub trait IsaMisc {
     fn exec_pld_imm(&self) -> ExecuteResult;
     fn exec_pld_lit(&self) -> ExecuteResult;
     fn exec_pld_reg(&self) -> ExecuteResult;
-    fn exec_sev(&self) -> ExecuteResult;
-    fn exec_wfe(&self) -> ExecuteResult;
+    fn exec_sev(&mut self) -> ExecuteResult;
+    fn exec_wfe(&mut self) -> ExecuteResult;
     fn exec_yield(&self) -> ExecuteResult;
     fn exec_wfi(&mut self) -> ExecuteResult;
 }
@@ -81,16 +81,23 @@ impl IsaMisc for Processor {
         }
     }
 
-    fn exec_sev(&self) -> ExecuteResult {
+    fn exec_sev(&mut self) -> ExecuteResult {
         if self.condition_passed() {
+            self.signal_event();
             Ok(ExecuteSuccess::Taken { cycles: 1 })
         } else {
             Ok(ExecuteSuccess::NotTaken)
         }
     }
 
-    fn exec_wfe(&self) -> ExecuteResult {
+    fn exec_wfe(&mut self) -> ExecuteResult {
         if self.condition_passed() {
+            if self.event_register {
+                self.event_register = false;
+            } else if self.get_pending_exception().is_none() {
+                self.waiting_for_event = true;
+                self.sleeping = true;
+            }
             Ok(ExecuteSuccess::Taken { cycles: 1 })
         } else {
             Ok(ExecuteSuccess::NotTaken)
@@ -107,6 +114,7 @@ impl IsaMisc for Processor {
 
     fn exec_wfi(&mut self) -> ExecuteResult {
         if self.condition_passed() {
+            self.waiting_for_event = false;
             if self.get_pending_exception().is_none() && !self.has_wakeup_condition() {
                 self.sleeping = true;
             }

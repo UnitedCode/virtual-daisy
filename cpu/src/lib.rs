@@ -167,6 +167,8 @@ pub struct Processor {
     /// bit 1 : 1= processor sleeping, 0 : processor awake
     pub running: bool,
     pub sleeping: bool,
+    pub(crate) waiting_for_event: bool,
+    pub(crate) event_register: bool,
     pub exit_code: u32,
 
     ///
@@ -389,6 +391,8 @@ impl Processor {
             sram: RAM::new_with_fill(0x2000_0000, 128 * 1024, 0xcd),
             itm_file: None,
             sleeping: false,
+            waiting_for_event: false,
+            event_register: false,
             running: true,
             exit_code: 0,
             cycle_count: 0,

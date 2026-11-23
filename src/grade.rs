@@ -35,6 +35,7 @@ pub fn execution_evidence(prefix: &Path) -> Result<()> {
         || !host.contains("Native instruction-fetch tag verified")
         || !host.contains("IRQ-aware wait pacing adapter verified")
         || !host.contains("NVIC active-count adapter verified")
+        || !host.contains("NVIC pending-event bank adapter verified")
     {
         return Err("Missing execution/guard evidence".into());
     }

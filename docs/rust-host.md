@@ -25,7 +25,7 @@ development. Pin the Git revision or a release tag in shared projects:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.25" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.26" }
 ```
 
 `rust-host` is enabled by default. Projects using only the peripheral models or
@@ -147,3 +147,13 @@ exchange. Synthetic passes remain distinct from hardware validation.
 | Unsupported register/mode | Reduce to an ARM guest and open an issue with the access, firmware hash and expected register behavior. |
 
 API documentation: `cargo doc --no-deps --open`.
+
+
+## Event-driven firmware
+
+`Machine::signal_event()` supplies a digital event to the core. Use it when an
+attached device changes an event input; it wakes WFE and leaves WFI asleep.
+`Machine::pend_interrupt(n)` supplies an external IRQ pending edge, including
+while disabled in the NVIC. Firmware controls enabling, masking and SEVONPEND.
+The runner advances board time and peripherals while the core sleeps. These
+APIs do not simulate a board's electrical event pin or low-power supply state.
