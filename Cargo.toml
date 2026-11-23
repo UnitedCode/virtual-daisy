@@ -1,6 +1,6 @@
 [package]
 name = "virtual-daisy"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 publish = false
 authors = ["Nathan Bradshaw", "Enoch Bradshaw"]
@@ -17,7 +17,7 @@ default = ["rust-host"]
 rust-host = ["dep:zmu_cortex_m"]
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [[example]]
 name = "record_i2c"

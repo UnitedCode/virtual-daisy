@@ -1618,7 +1618,16 @@ pub enum Instruction {
         params: VAddSubParamsf64,
     },
     //VFNMA
-    //VMAXNM
+    #[cfg(feature = "has-fp")]
+    VMINMAXNM_f32 {
+        params: VAddSubParamsf32,
+        maximum: bool,
+    },
+    #[cfg(feature = "has-fp")]
+    VMINMAXNM_f64 {
+        params: VAddSubParamsf64,
+        maximum: bool,
+    },
     #[cfg(feature = "has-fp")]
     VMLA_f32 {
         params: VAddSubParamsf32,
@@ -2811,6 +2820,24 @@ impl fmt::Display for Instruction {
             #[cfg(feature = "has-fp")]
             Self::VABS_f32 { params } => write!(f, "vabs.f32 {}, {}", params.sd, params.sm),
             #[cfg(feature = "has-fp")]
+            Self::VMINMAXNM_f32 { params, maximum } => write!(
+                f,
+                "v{}nm.f32 {}, {}, {}",
+                if maximum { "max" } else { "min" },
+                params.sd,
+                params.sn,
+                params.sm
+            ),
+            #[cfg(feature = "has-fp")]
+            Self::VMINMAXNM_f64 { params, maximum } => write!(
+                f,
+                "v{}nm.f64 {}, {}, {}",
+                if maximum { "max" } else { "min" },
+                params.dd,
+                params.dn,
+                params.dm
+            ),
+            #[cfg(feature = "has-fp")]
             Self::VABS_f64 { params } => write!(f, "vabs.f64 {}, {}", params.dd, params.dm),
             #[cfg(feature = "has-fp")]
             Self::VNEG_f32 { params } => write!(f, "vneg.f32 {}, {}", params.sd, params.sm),
@@ -3283,8 +3310,8 @@ pub fn instruction_size(instruction: &Instruction) -> usize {
         Instruction::VLDM_T1 { .. } => 4,
         #[cfg(feature = "has-fp")]
         Instruction::VLDM_T2 { .. } => 4,
-        //VMAXNM
-        //VMINNM
+        #[cfg(feature = "has-fp")]
+        Instruction::VMINMAXNM_f32 { .. } | Instruction::VMINMAXNM_f64 { .. } => 4,
         //VMLA
         //VMLS
         #[cfg(feature = "has-fp")]

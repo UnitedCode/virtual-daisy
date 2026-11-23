@@ -11,6 +11,13 @@ exceptions instead of silently continuing; tests cover monitor vector/priority,
 HardFault/lockup, status clearing and explicit semihosting interception. Bus
 transactions remain opt-in for existing hosts.
 
+FPv5 min/max-number instructions have a separate executed QEMU oracle for both
+precisions, NaN payloads, signed zeros and FZ/DN status. Generic MCR2 decoding no
+longer captures data-processing encodings, and unsupported coprocessor transfers
+fault instead of silently acting as no-ops.
+The local CPU revision is 0.1.1. Generated decoder tables have a checked revision
+and deterministic ordering so stale build output cannot quietly omit new masks.
+
 Changes are checked against the upstream instruction suite, executed ARM guests,
 the pinned Renode reference backend and ST's PM0253 programming manual. See
 ../docs/rust-parity.md for the compared cases and remaining timing limits.

@@ -13,6 +13,7 @@ fn panic(_: &core::panic::PanicInfo)->!{exit(1)}
 macro_rules! floating{($op:literal,$a:expr,$b:expr)=>{{let value:u32;let flags:u32;unsafe{asm!("vmov s1, {a}","vmov s2, {b}","vmsr fpscr, {zero}",$op,"vmov {value}, s0","vmrs {flags}, fpscr",a=in(reg)$a,b=in(reg)$b,zero=in(reg)0u32,value=out(reg)value,flags=out(reg)flags,out("s0")_,out("s1")_,out("s2")_,options(nostack));}(value,flags)}};}
 macro_rules! controlled{($op:literal,$a:expr,$b:expr,$control:expr)=>{{let value:u32;let flags:u32;unsafe{asm!("vmov s1, {a}","vmov s2, {b}","vmsr fpscr, {control}",$op,"vmov {value}, s0","vmrs {flags}, fpscr",a=in(reg)$a,b=in(reg)$b,control=in(reg)$control,value=out(reg)value,flags=out(reg)flags,out("s0")_,out("s1")_,out("s2")_,options(nostack));}(value,flags)}};}
 macro_rules! floating64{($op:literal,$a:expr,$b:expr)=>{{let lo:u32;let hi:u32;let flags:u32;unsafe{asm!("vmov d1, {al}, {ah}","vmov d2, {bl}, {bh}","vmsr fpscr, {zero}",$op,"vmov {lo}, {hi}, d0","vmrs {flags}, fpscr",al=in(reg)$a as u32,ah=in(reg)($a>>32)as u32,bl=in(reg)$b as u32,bh=in(reg)($b>>32)as u32,zero=in(reg)0u32,lo=out(reg)lo,hi=out(reg)hi,flags=out(reg)flags,out("d0")_,out("d1")_,out("d2")_,options(nostack));}(lo,hi,flags)}};}
+macro_rules! controlled64{($op:literal,$a:expr,$b:expr,$control:expr)=>{{let lo:u32;let hi:u32;let flags:u32;unsafe{asm!("vmov d1, {al}, {ah}","vmov d2, {bl}, {bh}","vmsr fpscr, {control}",$op,"vmov {lo}, {hi}, d0","vmrs {flags}, fpscr",al=in(reg)$a as u32,ah=in(reg)($a>>32)as u32,bl=in(reg)$b as u32,bh=in(reg)($b>>32)as u32,control=in(reg)$control,lo=out(reg)lo,hi=out(reg)hi,flags=out(reg)flags,out("d0")_,out("d1")_,out("d2")_,options(nostack));}(lo,hi,flags)}};}
 #[unsafe(no_mangle)]
 extern "C" fn Reset()->!{
  unsafe{core::ptr::write_volatile(0xe000ed88 as *mut u32,0x00f00000);asm!("dsb","isb",options(nostack));}
@@ -59,5 +60,31 @@ extern "C" fn Reset()->!{
    }
   }
  }
+ let minmax32=[0u32,0x80000000,0x3f800000,0xbf800000,0x00800000,0x7f7fffff,1,0x80000001,0x7f800000,0xff800000,0x7fc12345,0x7f812345,0xffc54321,0xff854321,0x007fffff,0x807fffff];
+ let minmax64=[0u64,0x8000000000000000,0x3ff0000000000000,0xbff0000000000000,0x0010000000000000,0x7fefffffffffffff,1,0x8000000000000001,0x7ff0000000000000,0xfff0000000000000,0x7ff8123456789abc,0x7ff0123456789abc,0xfff8abcdef123456,0xfff0abcdef123456,0x000fffffffffffff,0x800fffffffffffff];
+ let mut seed=0x71b251654f1d389au64;
+ for i in 0..456 {
+  seed^=seed<<13;seed^=seed>>7;seed^=seed<<17;
+  let a64=if i<256{minmax64[i/16]}else{seed};
+  let a32=if i<256{minmax32[i/16]}else{seed as u32};
+  seed^=seed<<13;seed^=seed>>7;seed^=seed<<17;
+  let b64=if i<256{minmax64[i%16]}else{seed};
+  let b32=if i<256{minmax32[i%16]}else{seed as u32};
+  for mode in [0u32,1<<24,1<<25,3<<24] {
+   let control=mode|0xa0000010;
+   for (op,(value,flags)) in [controlled!("vmaxnm.f32 s0,s1,s2",a32,b32,control),controlled!("vminnm.f32 s0,s1,s2",a32,b32,control)].into_iter().enumerate() {
+    emit_minmax([32,a32,0,b32,0,op as u32,control,value,0,flags]);
+   }
+   for (op,(lo,hi,flags)) in [controlled64!("vmaxnm.f64 d0,d1,d2",a64,b64,control),controlled64!("vminnm.f64 d0,d1,d2",a64,b64,control)].into_iter().enumerate() {
+    emit_minmax([64,a64 as u32,(a64>>32)as u32,b64 as u32,(b64>>32)as u32,op as u32,control,lo,hi,flags]);
+   }
+  }
+ }
  exit(0)
+}
+
+fn emit_minmax(record:[u32;10]) {
+ let hex=b"0123456789abcdef";let mut line=[0u8;82];let mut n=0;
+ for word in record {for byte in word.to_le_bytes(){line[n]=hex[(byte>>4)as usize];line[n+1]=hex[(byte&15)as usize];n+=2;}}
+ line[80]=b'\n';unsafe{call(4,line.as_ptr()as u32);}
 }

@@ -134,6 +134,8 @@ mod vfma;
 mod vldm;
 #[cfg(feature = "has-fp")]
 mod vldr;
+#[cfg(any(feature = "fpv5-d16", feature = "fpv5-sp-d16"))]
+mod vminmaxnm;
 #[cfg(feature = "has-fp")]
 mod vmov;
 #[cfg(feature = "has-fp")]
@@ -293,6 +295,8 @@ use self::{
 
 use crate::Processor;
 use crate::core::thumb::ThumbCode;
+#[cfg(any(feature = "fpv5-d16", feature = "fpv5-sp-d16"))]
+use vminmaxnm::decode_VMINMAXNM_t1;
 
 #[cfg(feature = "has-fp")]
 use {
@@ -374,6 +378,15 @@ fn decode_UDF_t2(opcode: u32) -> Instruction {
 include!(concat!(env!("OUT_DIR"), "/decode_16.rs"));
 
 include!(concat!(env!("OUT_DIR"), "/decode_32.rs"));
+// Reject a stale generated table instead of running firmware with old masks.
+const _: () = assert!(GENERATED_DECODER_REVISION == 3);
+const _: () = assert!(
+    GENERATED_DECODER_PROFILE
+        == (cfg!(feature = "has-fp") as u8)
+            | ((cfg!(feature = "has-dsp-ext") as u8) << 1)
+            | ((cfg!(feature = "fpv5-d16") as u8) << 2)
+            | ((cfg!(feature = "fpv5-sp-d16") as u8) << 3)
+);
 
 #[cfg(test)]
 mod decoder_tests;

@@ -32,10 +32,12 @@ To compare fresh Renode captures, run the reference `cpu` suite, then set
 `VIRTUAL_DAISY_REFERENCE` to its output directory when running `arm_guests`.
 See [the parity record](docs/rust-parity.md) for comparison rules and evidence.
 
-Use `CARGO_TARGET_DIR` to share a compatible existing build cache. On hosts that
-reuse native cdylib and test artifacts, `CARGO_PROFILE_RELEASE_LTO=false` avoids
-mixing incompatible link-time optimization artifacts. Do not delete another
-checkout's active build output.
+Use `CARGO_TARGET_DIR` to share a compatible existing build cache. Normal SDK
+builds produce a Rust library; the reference runner explicitly builds its C ABI
+library with `cargo rustc --lib --crate-type cdylib`. This keeps the native ABI
+output out of ordinary Rust dependency builds. `CARGO_PROFILE_RELEASE_LTO=false`
+avoids mixing incompatible link-time optimization artifacts. Do not delete
+another checkout's active build output.
 
 ## Where changes belong
 

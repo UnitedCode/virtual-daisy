@@ -132,6 +132,31 @@ its instruction costs. Neither backend models the full M7 pipeline.
 No microphone, audio playback or physical device was used. Audio quality,
 complete UI behavior and physical-device timing remain unverified.
 
+### Newer compiler's fractional-clock regression
+
+The current production ELF, built with Rust 1.100, has SHA256
+`dcb44da90f428f7b7cd611acc1933e62771ff84e8622b21034ae48a8fa3f10ca`.
+Its float-to-integer casts use FPv5 `VMAXNM`/`VMINNM`. Version 0.2.1 lacked
+these instructions, and an incorrect generic MCR2 decode mask silently accepted
+them as no-ops. That made the PLL fractional numerator zero: Rust reported
+48,160.173 Hz while Renode programmed FRACN=827 and reported 48,187.487 Hz.
+
+Version 0.2.2 implements both precisions and corrects the decode mask. The same
+unmodified ELF now writes `PLL3FRACR=0x19d8` and derives exactly
+`3256703125/67584` Hz on Rust, matching the reference. The earlier Rust 1.97.1
+firmware comparisons above remain valid; their cast sequence did not use the
+missing instructions.
+
+An independent QEMU Cortex-M7 program supplies 7,296 bit-exact min/max result
+and FPSCR records, including signaling/quiet NaNs, both zeros, denormals,
+infinities and FZ/DN controls. Both interpreter execution paths pass with
+native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
+A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
+raise NOCP or undefined-instruction faults instead of succeeding silently.
+The vendored CPU is revision 0.1.1. Generated tables check their revision and
+feature profile, and use deterministic ordering. Normal Rust builds emit an
+`rlib`; the reference runner requests its C ABI library explicitly.
+
 ## Supported scope and remaining limits
 
 | Area | Current scope |
@@ -191,6 +216,9 @@ an explicit I2C display sink; it does not inspect pixels or open host audio.
 The test is ignored in ordinary CI because the firmware belongs to its consumer
 project. It is a finite capture, not a real-time host-performance test.
 Set `VIRTUAL_DAISY_AUDIO_BOARD=rev5` to check just one supported board.
+Set `VIRTUAL_DAISY_EXPECTED_AUDIO_HZ` to an independently established firmware
+rate to require agreement within one ppm. Captures retain PLL3 register values
+alongside the derived rate; a broad 47–49 kHz check alone misses this regression.
 
 The recording is timestamped at 48,014 Hz. Both backends interpolate onto the
 derived SAI clock; the Rust `input_at_rate` queue is checked sample-for-sample

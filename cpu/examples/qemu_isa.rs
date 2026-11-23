@@ -65,16 +65,19 @@ fn main() {
     let mut bytes = Vec::new();
     let mut doubles = Vec::new();
     let mut controlled = Vec::new();
+    let mut minmax = Vec::new();
     for line in hex.lines() {
-        assert!(matches!(line.len(), 40 | 48 | 64));
+        assert!(matches!(line.len(), 40 | 48 | 64 | 80));
         let destination = if line.len() == 40 {
             &mut bytes
         } else if line.len() == 64 {
             &mut doubles
+        } else if line.len() == 80 {
+            &mut minmax
         } else {
             &mut controlled
         };
-        for pair in line.as_bytes().chunks_exact(2) {
+        for pair in line.as_bytes().as_chunks::<2>().0 {
             destination.push(u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap());
         }
     }
@@ -84,6 +87,8 @@ fn main() {
     fs::write(output.with_extension("f64.bin"), &doubles).unwrap();
     assert_eq!(controlled.len(), 344 * 7 * 4 * 6 * 4);
     fs::write(output.with_extension("control.bin"), &controlled).unwrap();
+    assert_eq!(minmax.len(), 456 * 4 * 2 * 2 * 10 * 4);
+    fs::write(output.with_extension("minmax.bin"), &minmax).unwrap();
     fs::remove_file(&elf).unwrap();
     fs::remove_file(&capture).unwrap();
     println!("1050 QEMU ARM-ISA reference cases; {} bytes", bytes.len());
@@ -94,5 +99,9 @@ fn main() {
     println!(
         "9632 QEMU binary32 control-mode reference cases; {} bytes",
         controlled.len()
+    );
+    println!(
+        "7296 QEMU FPv5 minimum/maximum reference cases; {} bytes",
+        minmax.len()
     );
 }
