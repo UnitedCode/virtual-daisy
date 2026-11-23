@@ -686,3 +686,27 @@ and unchanged retirement costs. The contract follows the
 [Cortex-M7 guide, sections 2.3.7 and 4.3.7](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1).
 This checks register and exception behavior, not physical branch-predictor
 timing.
+
+### Reserved FPSCR bits on exception return (v0.2.31)
+
+VMSR already masked reserved FPSCR bits, but extended exception return copied
+the saved word without that mask. A handler could therefore introduce reserved
+bits through the frame. The generic FP exception helper also treated six of
+those bits as exception enables and could panic the host.
+
+Exception return now uses the same writable mask as VMSR. Cortex-M floating-point
+exceptions accumulate status without enabling that host trap. The helper test
+failed with a panic before the fix. The architectural guest independently failed
+when its handler set every reserved FPSCR bit in the saved frame; restored
+FPSCR must retain the valid rounding control and discard those bits. It checks
+both stack regions and lazy/eager preservation without changing the 112-word
+capture or frame counters. The classic native reference also preserved those
+reserved bits. Adapter 19 masks them in its own FPSCR writer before updating
+its floating-point state. The old failing capture is retained. No Rust FP
+exception implementation is shared with that correction. Decoder 16 is
+unchanged; CPU version is 0.1.20.
+
+The register fields follow the
+[Cortex-M7 guide, section 4.7.4](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1).
+This fixes exception-state handling; floating-point execution latency remains
+uncalibrated.

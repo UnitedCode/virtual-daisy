@@ -166,3 +166,10 @@ wrapper sets the M7 reset value to 0x40200. Tests execute an SVC from a stack
 offset by four bytes after a zero CCR write, then check the aligned frame,
 stacked xPSR flag and restored SP. The architectural guest appends those checks
 and CCR readback, bringing its capture to 112 words.
+
+Extended exception return now applies the same FPSCR writable mask as VMSR.
+Reserved bits in a saved frame cannot become FP exception enables. The
+Cortex-M FP exception helper accumulates status rather than reaching an
+unimplemented host trap. The architectural guest writes every reserved FPSCR
+bit into the saved frame and checks restored state on both backends, including
+lazy/eager preservation and shared SRAM. The capture remains 112 words.

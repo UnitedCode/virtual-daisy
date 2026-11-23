@@ -80,6 +80,8 @@ pub(crate) const FPCCR_ASPEN: usize = 31;
 
 // Shared FPSCR/FPDSCR status-control field range
 #[cfg(feature = "has-fp")]
+pub(crate) const FPSCR_WRITABLE_MASK: u32 = 0xf7c0_009f;
+#[cfg(feature = "has-fp")]
 pub(crate) const FPSCR_STATUS_CONTROL_START: usize = 22;
 #[cfg(feature = "has-fp")]
 pub(crate) const FPSCR_STATUS_CONTROL_END: usize = 27;

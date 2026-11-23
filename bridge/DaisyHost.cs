@@ -140,7 +140,7 @@ public static class DaisyHost
         ((DaisyGpio)machine["sysbus.gpioPortD"]).ConfigureStraps(uint.Parse(args[7]));
         Console.WriteLine("Board: " + args[6]);
         var cpu = (CortexM)machine["sysbus.cpu"];
-        if(((DaisyCortexM)cpu).FetchTagVersion!=18) throw new InvalidOperationException("Missing native instruction-fetch/runtime adapter");
+        if(((DaisyCortexM)cpu).FetchTagVersion!=19) throw new InvalidOperationException("Missing native instruction-fetch/runtime adapter");
         Console.WriteLine("Native instruction-fetch tag verified");
         cpu.VectorTableOffset = 0x08000000;
         cpu.SP = bus.ReadDoubleWord(0x08000000);
