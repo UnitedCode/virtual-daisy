@@ -70,6 +70,7 @@ fn main() {
     let mut arithmetic = Vec::new();
     let mut fused = Vec::new();
     let mut precision = Vec::new();
+    let mut accumulate = Vec::new();
     for line in hex.lines() {
         assert!(matches!(line.len(), 40 | 48 | 56 | 64 | 72 | 80 | 88 | 104));
         let destination = if line.len() == 40 {
@@ -81,7 +82,11 @@ fn main() {
         } else if line.len() == 80 {
             &mut minmax
         } else if line.len() == 104 {
-            &mut fused
+            if line.ends_with("564d4c41") {
+                &mut accumulate
+            } else {
+                &mut fused
+            }
         } else if line.len() == 88 {
             &mut arithmetic
         } else if line.len() == 72 {
@@ -109,6 +114,8 @@ fn main() {
     fs::write(output.with_extension("fused.bin"), &fused).unwrap();
     assert_eq!(precision.len(), 32_768 * 7 * 4);
     fs::write(output.with_extension("precision.bin"), &precision).unwrap();
+    assert_eq!(accumulate.len(), 49_152 * 13 * 4);
+    fs::write(output.with_extension("accumulate.bin"), &accumulate).unwrap();
     fs::remove_file(&elf).unwrap();
     fs::remove_file(&capture).unwrap();
     println!("1050 QEMU ARM-ISA reference cases; {} bytes", bytes.len());
@@ -136,5 +143,9 @@ fn main() {
     println!(
         "32768 QEMU precision conversion cases; {} bytes",
         precision.len()
+    );
+    println!(
+        "49152 QEMU nonfused accumulate cases; {} bytes",
+        accumulate.len()
     );
 }

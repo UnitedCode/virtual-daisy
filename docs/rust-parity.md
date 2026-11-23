@@ -158,6 +158,15 @@ The vendored CPU is revision 0.1.7. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
+### Nonfused multiply-accumulates
+
+The existing nonfused VMLA/VMLS/VNMLS/VNMLA implementation passes another
+49,152 independent QEMU result/FPSCR records. Both precisions, all rounding and
+flush/NaN controls, clear/sticky flags and both execution paths are covered with
+native arithmetic on/off. These instructions are present in the production
+firmware. The audit found no arithmetic mismatch in this corpus; it does not
+explain the remaining waveform difference.
+
 ### Precision conversions
 
 Single/double precision VCVT instructions now use integer-backed IEEE conversion
