@@ -382,6 +382,10 @@ fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
         "saturation",
         &include_str!("../guests/saturation.rs")
             .replace(
+                "// PARALLEL_CASES",
+                include_str!("../cpu/fixtures/parallel_probe_cases.rs"),
+            )
+            .replace(
                 "// WORD_CASES",
                 include_str!("../cpu/fixtures/qadd_probe_cases.rs"),
             )
@@ -394,7 +398,7 @@ fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
     saturation_probe::check(&fs::read(grade::artifact(&saturation, ".saturation.bin"))?)?;
     fs::write(
         grade::artifact(&saturation, ".saturation.txt"),
-        "saturation_register_pairs=3136\nindependent_numerical_expectations=QEMU\n",
+        "saturation_register_pairs=10192\nindependent_numerical_expectations=QEMU\n",
     )?;
     let old_psr = host.boot("saturation-psr-control", tone, "saturation-psr-control")?;
     let error = saturation_probe::check(&fs::read(grade::artifact(&old_psr, ".saturation.bin"))?)
@@ -933,7 +937,7 @@ fn run(
         }
         let summary = concat!(
             "ARM PSR masks/aliases, unprivileged writes and SVC GE restoration: passed\n",
-            "ARM saturation across 3,136 register pairs: passed\n",
+            "ARM saturation across 10,192 register pairs: passed\n",
             "ARM fixed conversions across 960 register cases: passed\n",
             "ARM half conversions across 6,144 register pairs: passed\n",
             "ARM SAI FIFO/mute IRQ87 and SDRAM rows/read-ahead/refresh IRQ48: passed\n",

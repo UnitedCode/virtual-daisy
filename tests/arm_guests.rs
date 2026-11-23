@@ -12,6 +12,15 @@ mod instruction_clock_probe;
 mod psr_probe;
 #[path = "../cpu/fixtures/saturation_probe.rs"]
 mod saturation_probe;
+
+#[test]
+fn old_reference_unsigned_exchange_flags_fail_the_register_gate() {
+    let bytes = include_bytes!("../cpu/fixtures/parallel_legacy_reference.bin");
+    assert_eq!(
+        saturation_probe::check(bytes).unwrap_err(),
+        "ARM saturation failed at case 31 opcode 0xfaa2f040 register 14 actual 0xa8000000"
+    );
+}
 #[path = "../src/systick_probe.rs"]
 mod systick_probe;
 
@@ -36,7 +45,8 @@ fn psr_guest_checks_masked_alias_writes_and_unprivileged_exception_preservation(
 fn saturation_guest_executes_all_register_pairs_including_lr() {
     let (directory, image) = guest("saturation");
     let mut machine = Machine::from_elf_at(Board::Rev5, &image, 0x6000).unwrap();
-    machine.run_until(100_000_000, 12_000_000).unwrap();
+    // The packed-DSP additions more than triple the register matrix.
+    machine.run_until(400_000_000, 48_000_000).unwrap();
     let data: Vec<_> = (0..32)
         .flat_map(|i| machine.read32(0x20018400 + i * 4).unwrap().to_le_bytes())
         .collect();
@@ -148,6 +158,10 @@ fn guest(name: &str) -> (PathBuf, Vec<u8>) {
     fs::write(
         &source,
         content
+            .replace(
+                "// PARALLEL_CASES",
+                include_str!("../cpu/fixtures/parallel_probe_cases.rs"),
+            )
             .replace(
                 "// WORD_CASES",
                 include_str!("../cpu/fixtures/qadd_probe_cases.rs"),

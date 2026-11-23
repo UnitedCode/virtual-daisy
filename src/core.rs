@@ -47,7 +47,7 @@ const PREFIX_RESTORE: &str = r#"
         cpu->instructions_count_value += to_charge;
         cpu->instructions_count_total_value += to_charge;
 "#;
-const MARKER:&str="\nuint32_t tlib_daisy_fetch_tag_version(void) { return 15; }\nEXC_INT_0(uint32_t, tlib_daisy_fetch_tag_version)\nvoid *daisy_fetch_state;\nuint32_t (*daisy_fetch_runtime)(void *, uint32_t, uint32_t);\nvoid tlib_daisy_set_runtime_fetch(void *state, void *callback) { daisy_fetch_state = state; daisy_fetch_runtime = callback; }\nEXC_VOID_2(tlib_daisy_set_runtime_fetch, void *, state, void *, callback)\nuint64_t tlib_daisy_memory_context(void) { target_ulong data[TARGET_INSN_START_WORDS]; if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_STACKING) { return UINT64_MAX-1; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_UNSTACKING) { return UINT64_MAX-2; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_VECTOR_READ) { return UINT64_MAX; } if(!cpu->current_tb || !cpu->mem_io_pc) { return 0; } if(cpu_get_data_for_pc(cpu, cpu->current_tb, cpu->mem_io_pc, true, data, false) < 0) { return 0; } return ((uint64_t)data[0] << 32) | cpu->regs[13]; }\nEXC_INT_0(uint64_t, tlib_daisy_memory_context)\n";
+const MARKER:&str="\nuint32_t tlib_daisy_fetch_tag_version(void) { return 16; }\nEXC_INT_0(uint32_t, tlib_daisy_fetch_tag_version)\nvoid *daisy_fetch_state;\nuint32_t (*daisy_fetch_runtime)(void *, uint32_t, uint32_t);\nvoid tlib_daisy_set_runtime_fetch(void *state, void *callback) { daisy_fetch_state = state; daisy_fetch_runtime = callback; }\nEXC_VOID_2(tlib_daisy_set_runtime_fetch, void *, state, void *, callback)\nuint64_t tlib_daisy_memory_context(void) { target_ulong data[TARGET_INSN_START_WORDS]; if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_STACKING) { return UINT64_MAX-1; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_UNSTACKING) { return UINT64_MAX-2; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_VECTOR_READ) { return UINT64_MAX; } if(!cpu->current_tb || !cpu->mem_io_pc) { return 0; } if(cpu_get_data_for_pc(cpu, cpu->current_tb, cpu->mem_io_pc, true, data, false) < 0) { return 0; } return ((uint64_t)data[0] << 32) | cpu->regs[13]; }\nEXC_INT_0(uint64_t, tlib_daisy_memory_context)\n";
 const RUNTIME: &str = r#"
     if(cpu->tb_restart_request == 0 && cpu->current_tb->size != 0 && daisy_fetch_runtime) {
         uint32_t result = daisy_fetch_runtime(daisy_fetch_state, cpu->current_tb->pc, cpu->current_tb->size);
@@ -477,6 +477,54 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
             "#define EXCP_UNALIGNED      22 /* Data alignment UsageFault */\n#define EXCP_DIV_0",
         )?;
         fs::write(cpu_header, code)?;
+        // Keep the native arithmetic independent. Repair its operand
+        // representation and GE lane packing, rather than replacing its math.
+        let packed = tlib_dir.join("arch/arm_common/op_addsub.h");
+        let mut code = fs::read_to_string(&packed)?;
+        let start = code
+            .find("#ifdef PFX_U\n")
+            .ok_or("Missing unsigned DSP helpers")?;
+        let end = code[start..]
+            .find("#ifdef PFX_SH\n")
+            .ok_or("Missing signed halving helpers")?
+            + start;
+        let mut unsigned = code[start..end].to_owned();
+        if unsigned.matches("(int32_t)((int16_t)").count() != 4 {
+            return Err("Pinned unsigned DSP operand representations changed".into());
+        }
+        unsigned = unsigned
+            .replace("(int32_t)((int16_t)a)", "(int32_t)a")
+            .replace("(int32_t)((int16_t)b)", "(int32_t)b");
+        code.replace_range(start..end, &unsigned);
+        for helper in ["subaddx", "addsubx"] {
+            let start = code
+                .find(&format!("uint32_t HELPER(glue(PFX, {helper}))"))
+                .ok_or("Missing exchange helper")?;
+            let end = code[start..]
+                .find("\n}\n")
+                .ok_or("Missing exchange helper end")?
+                + start
+                + 3;
+            let mut exchange = code[start..end].to_owned();
+            // The top result belongs to GE[3:2], the bottom to GE[1:0].
+            pinned_replace(
+                &mut exchange,
+                "    ge_flags |= (3 * ge);",
+                "    ge_flags |= (3 * ge) << 2;",
+            )?;
+            let bottom = exchange
+                .find("    res_bottom =")
+                .ok_or("Missing exchange bottom lane")?;
+            let (top, tail) = exchange.split_at(bottom);
+            let mut tail = tail.to_owned();
+            pinned_replace(
+                &mut tail,
+                "    ge_flags |= (3 * ge) << 2;",
+                "    ge_flags |= (3 * ge);",
+            )?;
+            code.replace_range(start..end, &format!("{top}{tail}"));
+        }
+        fs::write(packed, code)?;
         let exec = tlib_dir.join("cpu-exec.c");
         let mut code = fs::read_to_string(&exec)?;
         let needle = "int cpu_exec(CPUState *env)";
@@ -596,6 +644,6 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
         rid,
         &core,
     )?;
-    fs::write(directory.join("cpu-core.txt"),format!("infrastructure_commit={INFRA}\ntlib_commit={TLIB}\nfetch_tag_version=15\ncore_sha256={:x}\nsdk_version={}\nhalf_kernel_source_sha256={:x}\npsr_kernel_source_sha256={:x}\n",Sha256::digest(fs::read(core)?),env!("CARGO_PKG_VERSION"),Sha256::digest(include_bytes!("../cpu/src/executor/fp_half.rs")),Sha256::digest(include_bytes!("../cpu/src/core/status.rs"))))?;
+    fs::write(directory.join("cpu-core.txt"),format!("infrastructure_commit={INFRA}\ntlib_commit={TLIB}\nfetch_tag_version=16\ncore_sha256={:x}\nsdk_version={}\nhalf_kernel_source_sha256={:x}\npsr_kernel_source_sha256={:x}\n",Sha256::digest(fs::read(core)?),env!("CARGO_PKG_VERSION"),Sha256::digest(include_bytes!("../cpu/src/executor/fp_half.rs")),Sha256::digest(include_bytes!("../cpu/src/core/status.rs"))))?;
     Ok(())
 }

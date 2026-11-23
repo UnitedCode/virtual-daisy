@@ -172,7 +172,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.11. Generated tables check their revision and
+The vendored CPU is revision 0.1.12. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -318,7 +318,7 @@ USAT, SSAT16 and USAT16 now execute. The existing SSAT and these additions pass
 scalar shift, representative lane/boundary/seeded inputs, sticky Q, and unchanged
 NZCV/GE. Both execution paths pass. DSP-only halfword forms remain undefined in
 base Armv7-M; CI now checks that profile separately. A standalone ARM guest tests
-3,136 legal source/destination pairs, including LR and aliases.
+10,192 legal source/destination pairs, including LR and aliases.
 
 QSUB, QDADD and QDSUB now execute alongside QADD. Another 8,192 independent
 QEMU records cover all four word operations, signed boundaries, seeded operands
@@ -328,6 +328,23 @@ result fits. Both execution paths check every legal register triple and aliases.
 The standalone saturation guest includes all four operations in its register
 matrix. SP/PC operands fault, skipped conditions preserve state, and base
 Armv7-M rejects these DSP-only encodings.
+
+All 36 packed add/subtract forms now execute: signed/unsigned normal,
+saturating and halving byte/halfword operations, including ASX/SAX exchange.
+Another 73,728 independent QEMU records check lane results and APSR fields.
+Normal forms replace GE from the full lane result; packed saturation and halving
+preserve all flags, including Q. This differs from scalar saturation.
+Tests cover every legal register triple, aliases, skipped conditions, invalid
+registers and reserved encodings. The standalone ARM guest includes every form.
+UADD8 keeps its typed instruction representation and uses the same lane kernel.
+See [Arm's packed arithmetic definitions](https://arm-software.github.io/acle/main/acle.html#simd32-intrinsics).
+
+The expanded guest found two reference defects: unsigned halfword subtraction
+sign-extended its operands before computing GE, and exchanged halfwords wrote
+GE to the opposite lane pair. Native adapter revision 16 corrects the existing
+C operand representation and GE packing. The reference arithmetic remains
+independent of Rust's lane kernel. A saved capture from revision 15 must fail
+the register gate at UASX's APSR check.
 
 That guest exposed three additional Rust bugs. A literal load into PC advanced
 another four bytes after branching, and MSR's field masks for GE or combined
@@ -391,7 +408,7 @@ for model-level details and primary sources.
 
 ```sh
 rustup target add thumbv7em-none-eabihf
-cargo test --locked --test arm_guests -- --ignored
+cargo test --locked --release --test arm_guests -- --ignored
 ```
 
 For a fresh cross-backend comparison, run the reference `cpu` command with an
@@ -400,7 +417,7 @@ explicit runtime, output directory, firmware ELF and board profile (see
 
 ```sh
 VIRTUAL_DAISY_REFERENCE=/path/to/reference-results \
-  cargo test --locked --test arm_guests -- --ignored
+  cargo test --locked --release --test arm_guests -- --ignored
 ```
 
 The original hand-generated Thumb programs need no ARM compiler:

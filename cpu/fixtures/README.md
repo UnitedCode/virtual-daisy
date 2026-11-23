@@ -152,6 +152,23 @@ four cases for `qadd_probe_cases.rs`. Those extend the ARM guest to 3,136 regist
 pairs. CPU checks cover every legal register triple and aliases on both paths.
 All thirteen earlier binary datasets regenerate unchanged.
 
+`isa_oracle_parallel.bin` adds 73,728 seven-word records from `parallel_oracle.rs`:
+literal opcode, first input, second input, initial APSR, result, final APSR,
+magic `0x504d4953`. All 36 packed arithmetic forms each execute 256 boundary
+pairs and 256 seeded pairs under four flag states. The guest reads the assembler's
+actual instruction bytes, so the expectations do not reuse the Rust decoder.
+Normal operations replace GE; saturating and halving forms preserve all flags.
+The generator writes `isa_oracle.parallel.bin` and extracts 36 boundary cases
+as `isa_oracle.parallel-probe.rs` for `parallel_probe_cases.rs`.
+The standalone ARM register matrix now includes 10,192 executions, including LR.
+All fourteen earlier binary datasets remain unchanged.
+
+`parallel_legacy_reference.bin` is the 128-byte saturation-guest capture from
+native adapter revision 15. It fails at case 31, UASX `0xfaa2f040`, APSR register
+slot 14: actual `0xa8000000` instead of the QEMU-pinned GE result. Revision 16
+repairs unsigned halfword operand representation and exchange GE lane packing
+in the independent native implementation. The saved capture must still fail.
+
 Regenerate from the repository root:
 
 ```sh

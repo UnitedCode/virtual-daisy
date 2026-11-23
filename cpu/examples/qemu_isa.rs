@@ -76,6 +76,7 @@ fn main() {
     let mut saturation = Vec::new();
     let mut psr = Vec::new();
     let mut qadd = Vec::new();
+    let mut parallel = Vec::new();
     for line in hex.lines() {
         assert!(matches!(line.len(), 40 | 48 | 56 | 64 | 72 | 80 | 88 | 104));
         let destination = if line.len() == 48 && line.ends_with("53534154") {
@@ -84,6 +85,8 @@ fn main() {
             &mut half
         } else if line.len() == 40 {
             &mut bytes
+        } else if line.len() == 56 && line.ends_with("53494d50") {
+            &mut parallel
         } else if line.len() == 56 && line.ends_with("51414444") {
             &mut qadd
         } else if line.len() == 56 {
@@ -141,6 +144,33 @@ fn main() {
     fs::write(output.with_extension("psr.bin"), &psr).unwrap();
     assert_eq!(qadd.len(), 8192 * 7 * 4);
     fs::write(output.with_extension("qadd.bin"), &qadd).unwrap();
+    assert_eq!(parallel.len(), 73_728 * 7 * 4);
+    fs::write(output.with_extension("parallel.bin"), &parallel).unwrap();
+    let mut cases = std::collections::BTreeMap::new();
+    for record in parallel.as_chunks::<28>().0 {
+        let words: [u32; 7] = core::array::from_fn(|i| {
+            u32::from_le_bytes(record[4 * i..4 * i + 4].try_into().unwrap())
+        });
+        if words[1] == 0x7fff8000 && words[2] == words[1] && words[3] == 0xa80a0000 {
+            cases.insert(words[0], words);
+        }
+    }
+    assert_eq!(cases.len(), 36);
+    let mut source = String::from(
+        "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const PARALLEL_CASES: [[u32; 5]; 36] = [\n",
+    );
+    for words in cases.values() {
+        source.push_str(&format!(
+            "    [0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x}],\n",
+            (words[0] & !0x000f000f) | 0x00020001,
+            words[1],
+            words[3],
+            words[4],
+            words[5]
+        ));
+    }
+    source.push_str("];\n");
+    fs::write(output.with_extension("parallel-probe.rs"), source).unwrap();
     let opcodes = [0xfa82f081, 0xfa82f0a1, 0xfa82f091, 0xfa82f0b1];
     let mut word_source = String::from(
         "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const WORD_CASES: [[u32; 5]; 4] = [\n",
@@ -297,5 +327,9 @@ fn main() {
     println!(
         "8192 QEMU saturating word arithmetic cases; {} bytes",
         qadd.len()
+    );
+    println!(
+        "73728 QEMU packed DSP arithmetic cases; {} bytes",
+        parallel.len()
     );
 }

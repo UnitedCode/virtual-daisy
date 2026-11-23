@@ -1896,3 +1896,5 @@ mod tests {
 mod native_float;
 
 mod browser_dsp;
+
+mod parallel_dsp;

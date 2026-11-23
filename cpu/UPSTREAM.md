@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.11. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.12. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
@@ -48,7 +48,7 @@ That adapter comparison checks integration; QEMU supplies independent math.
 
 USAT, SSAT16 and USAT16 now execute, alongside the existing SSAT. A 520,192-record
 QEMU oracle checks every saturation width and legal scalar shift, both lanes,
-sticky Q and preserved NZCV/GE. A separate ARM guest checks 3,136 register pairs,
+sticky Q and preserved NZCV/GE. A separate ARM guest checks 10,192 register pairs,
 including LR and aliased operands. An integration failure also exposed the
 MSR decoder's missing field-mask forms and LDR-literal-to-PC advancing four bytes
 past its branch target. EPSR MRS reads no longer leak GE bits.
@@ -65,6 +65,13 @@ checks the doubled operand's intermediate clamp, sticky Q and unchanged NZCV/GE.
 Both execution paths cover every legal register triple, including aliases and LR.
 The saturation ARM guest includes all four word operations. Invalid SP/PC operands
 fault, and profiles without DSP reject these encodings.
+
+All 36 packed DSP add/subtract forms share a lane kernel, including signed and
+unsigned normal, saturating, halving and halfword exchange operations. UADD8's
+typed decoder representation is preserved. A 73,728-record independent QEMU
+oracle checks results and GE/unchanged flags; both execution paths check every
+legal register triple and aliases. Packed saturating operations preserve Q.
+The standalone ARM guest includes all forms, with raw-register and APSR checks.
 
 Fixed-point VCVT now has its own decoder rather than falling through to integer
 conversion and reading an immediate field as a register number. Every legal
