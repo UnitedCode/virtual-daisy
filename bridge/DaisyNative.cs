@@ -300,6 +300,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void FaultNative(IntPtr state, uint dropRx);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint ConfigureNative(IntPtr state, uint rxChannel);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint RateNative(IntPtr state, double rate);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate double CaptureRateNative(IntPtr state);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint Requests(IntPtr state);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void Input(IntPtr state, float[] samples, UIntPtr frames);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint SaveNative(IntPtr state, [MarshalAs(UnmanagedType.LPUTF8Str)] string path, uint sampleRate);
@@ -317,6 +318,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             codecTick = Marshal.GetDelegateForFunctionPointer<CodecTickNative>(NativeLibrary.GetExport(library, "daisy_sai_tick_codec"));
             codecClock=Marshal.GetDelegateForFunctionPointer<CodecClockNative>(NativeLibrary.GetExport(library,"daisy_codec_clocks"));
             setRate = Marshal.GetDelegateForFunctionPointer<RateNative>(NativeLibrary.GetExport(library, "daisy_sai_rate"));
+            captureRate = Marshal.GetDelegateForFunctionPointer<CaptureRateNative>(NativeLibrary.GetExport(library, "daisy_sai_capture_rate"));
             fault = Marshal.GetDelegateForFunctionPointer<FaultNative>(NativeLibrary.GetExport(library, "daisy_sai_fault"));
             requests = Marshal.GetDelegateForFunctionPointer<Requests>(NativeLibrary.GetExport(library, "daisy_sai_requests"));
             irq = Marshal.GetDelegateForFunctionPointer<Requests>(NativeLibrary.GetExport(library, "daisy_sai_irq"));
@@ -354,7 +356,17 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             }
         }
         public void LoadInput(float[] samples) { lock(sync) input(native.State, samples, (UIntPtr)(samples.Length / 2)); }
-        public void Save(string path) { uint rate=rcc.Rate(cr1,frcr); lock(sync) { if(save(native.State,path,rate)!=0) throw new IOException("Could not save virtual SAI output"); } rcc.Save(cr1,frcr,path+".clock.txt"); codec.Save(path+".codec.txt",IdealLineInput,rcc.ExactRate(cr1,frcr)); }
+        public void Save(string path) {
+            double exact;
+            lock(sync) {
+                exact=captureRate(native.State);
+                if(!double.IsFinite(exact) || exact<0 || exact>384000) throw new InvalidOperationException("Invalid recorded audio rate");
+                if(save(native.State,path,checked((uint)Math.Round(exact)))!=0) throw new IOException("Could not save virtual SAI output");
+            }
+            if(exact==0) return;
+            rcc.Save(cr1,frcr,path+".clock.txt");
+            codec.Save(path+".codec.txt",IdealLineInput,exact);
+        }
         public void Reset() { lock(sync) { native.Reset(); cr1=0; frcr=0;IRQ.Unset(); } }
         public void Dispose() { clock.Dispose(); }
         public long Size { get { return 0x400; } }
@@ -367,6 +379,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private readonly DaisyNative native;
         private readonly DaisyI2c codec;
         private readonly DaisyRcc rcc;
+        private readonly CaptureRateNative captureRate;
         private readonly uint rxChannel;
         private readonly DaisyDma dma;
         private readonly IManagedThread clock;

@@ -17,6 +17,7 @@ pub mod memory;
 pub mod nor;
 pub mod qspi;
 mod sai;
+mod sai_capture;
 #[cfg(test)]
 mod tests;
 pub mod uart;
@@ -1120,7 +1121,21 @@ pub unsafe extern "C" fn daisy_fmc_save(
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
         let path = std::ffi::CStr::from_ptr(path).to_str()?;
         let reg = |offset| (*fmc).registers.get(&offset).copied().unwrap_or(0);
-        let rate = (*clock).clock.fmc_rate()?.ok_or("FMC clock disabled")?;
+        let raw = |status| {
+            format!("fmc_state={status}\nrcc_ahb3enr={:#010x}\nsdcr1={:#010x}\nsdtr1={:#010x}\nsdrtr={:#010x}\n",(*clock).clock.read(0xd4),reg(0x140),reg(0x148),reg(0x154))
+        };
+        if (*clock).clock.read(0xd4) & (1 << 12) == 0 {
+            std::fs::write(path, raw("CLOCK_DISABLED"))?;
+            return Ok(());
+        }
+        let Some(rate) = (*clock).clock.fmc_rate()? else {
+            std::fs::write(path, raw("CLOCK_STOPPED"))?;
+            return Ok(());
+        };
+        if reg(0x140) == 0x2d0 && reg(0x148) == 0x0fff_ffff && reg(0x154) == 0 {
+            std::fs::write(path, raw("UNCONFIGURED"))?;
+            return Ok(());
+        }
         let timing = bus::SdramTiming::decode(reg(0x140), reg(0x148), reg(0x154), rate)?;
         std::fs::write(path, timing.report())?;
         Ok(())
@@ -1296,6 +1311,14 @@ pub unsafe extern "C" fn daisy_sai_rate(state: *mut Peripheral, rate: f64) -> u3
     0
 }
 
+/// The rate actually used by the captured frames, or zero before audio starts.
+/// # Safety
+/// `state` must be a live, serialized SAI state.
+#[no_mangle]
+pub unsafe extern "C" fn daisy_sai_capture_rate(state: *mut Peripheral) -> f64 {
+    (*state).sai.sample_rate
+}
+
 /// # Safety
 /// `state` must be a live, exclusively accessed codec state.
 #[no_mangle]
@@ -1381,33 +1404,7 @@ pub unsafe extern "C" fn daisy_sai_save(
         Ok(path) => path,
         Err(_) => return 1,
     };
-    let audio = &(*state).sai;
-    let result = (|| -> Result<(), Box<dyn std::error::Error>> {
-        let mut wav = hound::WavWriter::create(
-            path,
-            hound::WavSpec {
-                channels: 2,
-                sample_rate,
-                bits_per_sample: 32,
-                sample_format: hound::SampleFormat::Float,
-            },
-        )?;
-        for frame in &audio.output {
-            for sample in frame {
-                wav.write_sample(*sample)?;
-            }
-        }
-        wav.finalize()?;
-        std::fs::write(
-            format!("{path}.stats"),
-            format!(
-                "frames={}\nunderruns={}\noverruns={}\n",
-                audio.frames, audio.underruns, audio.overruns
-            ),
-        )?;
-        Ok(())
-    })();
-    u32::from(result.is_err())
+    u32::from(sai_capture::save(&(*state).sai, path, sample_rate).is_err())
 }
 
 #[no_mangle]
