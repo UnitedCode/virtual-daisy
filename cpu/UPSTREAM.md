@@ -30,11 +30,19 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.7. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.8. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
 CI runs the full CPU suite for FPv4-SP, FPv5-SP, FPv5-D16 and no-FPU builds.
+
+VCVTB/VCVTT half-storage conversions use an integer kernel for IEEE and ARM
+alternative-half formats, direct binary64 narrowing, FPSCR controls and flags.
+A 331,776-record QEMU oracle checks both interpreter paths and native settings;
+an ARM guest checks every legal register pairing and preserved packed halves.
+The public raw-bit conversion API lets the optional Renode adapter use the same
+kernel, correcting its unsupported double-half and incorrect inexact flag paths.
+That adapter comparison checks integration; QEMU supplies independent math.
 
 Changes are checked against the upstream instruction suite, executed ARM guests,
 the pinned Renode reference backend and ST's PM0253 programming manual. See

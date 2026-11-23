@@ -26,6 +26,32 @@
 #![allow(clippy::many_single_char_names)]
 #![allow(clippy::too_many_arguments)]
 
+/// Convert a half storage value to/from binary32 or binary64, without registers.
+///
+/// `precision` is 32 or 64. Input bits must fit the source format. `fpscr`
+/// supplies rounding, FZ, DN and AHP controls. The returned status contains newly
+/// raised exception flags; callers preserve sticky flags by ORing them.
+/// Instruction feature and register checks remain the decoder's responsibility.
+#[cfg(feature = "has-fp")]
+pub fn convert_half_bits(
+    bits: u64,
+    precision: u32,
+    to_half: bool,
+    fpscr: u32,
+) -> Option<(u64, u32)> {
+    if !matches!(precision, 32 | 64)
+        || (!to_half && bits > u64::from(u16::MAX))
+        || (to_half && precision == 32 && bits > u64::from(u32::MAX))
+    {
+        return None;
+    }
+    Some(if to_half {
+        executor::fp_half::to_half(bits, precision as usize, fpscr)
+    } else {
+        executor::fp_half::from_half(bits as u16, precision as usize, fpscr)
+    })
+}
+
 extern crate byteorder;
 extern crate enum_set;
 

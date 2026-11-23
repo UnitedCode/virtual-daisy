@@ -23,6 +23,40 @@ mod sai_capture;
 mod tests;
 pub mod uart;
 
+/// Stateless half conversion used by the optional reference CPU adapter.
+/// Returns nonzero for invalid inputs or a library built without `rust-host`.
+/// # Safety
+/// `result` and `flags` must point to writable output values.
+#[no_mangle]
+pub unsafe extern "C" fn daisy_fp_half(
+    bits: u64,
+    precision: u32,
+    to_half: u32,
+    control: u32,
+    result: *mut u64,
+    flags: *mut u32,
+) -> u32 {
+    #[cfg(feature = "rust-host")]
+    {
+        if to_half > 1 {
+            return 1;
+        }
+        match zmu_cortex_m::convert_half_bits(bits, precision, to_half != 0, control) {
+            Some((value, status)) => {
+                *result = value;
+                *flags = status;
+                0
+            }
+            None => 1,
+        }
+    }
+    #[cfg(not(feature = "rust-host"))]
+    {
+        let _ = (bits, precision, to_half, control, result, flags);
+        1
+    }
+}
+
 pub struct Peripheral {
     kind: u32,
     registers: BTreeMap<u64, u32>,

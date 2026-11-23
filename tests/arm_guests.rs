@@ -2,10 +2,34 @@
 //! The same unmodified ARM guests run by the Renode reference harness.
 use std::{fs, path::PathBuf, process::Command};
 use virtual_daisy::{board::Board, machine::Machine};
+#[path = "../cpu/fixtures/half_probe.rs"]
+mod half_probe;
 #[path = "../src/instruction_clock_probe.rs"]
 mod instruction_clock_probe;
 #[path = "../src/systick_probe.rs"]
 mod systick_probe;
+
+#[test]
+#[ignore = "requires rustup target add thumbv7em-none-eabihf"]
+fn half_guest_executes_storage_formats_and_direct_double_rounding() {
+    let (directory, image) = guest("half");
+    let mut machine = Machine::from_elf_at(Board::Rev5, &image, 0x6000).unwrap();
+    machine.run_until(500_000_000, 40_000_000).unwrap();
+    let data: Vec<_> = (0..32)
+        .flat_map(|i| machine.read32(0x20018c00 + i * 4).unwrap().to_le_bytes())
+        .collect();
+    half_probe::check(&data).unwrap();
+    if let Some(path) = std::env::var_os("VIRTUAL_DAISY_REFERENCE") {
+        let path = PathBuf::from(path);
+        half_probe::check(&fs::read(path.join("half.half.bin")).unwrap()).unwrap();
+        half_probe::check_legacy_double(
+            &fs::read(path.join("half-double-control.half.bin")).unwrap(),
+            &fs::read(path.join("half-double-control.half-site.bin")).unwrap(),
+        )
+        .unwrap();
+    }
+    fs::remove_dir_all(directory).unwrap();
+}
 
 #[test]
 #[ignore = "requires rustup target add thumbv7em-none-eabihf"]

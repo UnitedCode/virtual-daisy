@@ -2,9 +2,44 @@
 use crate::core::fpregister::IntegralRounding;
 use crate::core::{
     bits::Bits,
-    instruction::{Instruction, VCVTParams, VCVTParamsF32F64, VCVTParamsF64F32},
+    instruction::{Instruction, VCVTHalfParams, VCVTParams, VCVTParamsF32F64, VCVTParamsF64F32},
     register::{DoubleReg, ExtensionReg, SingleReg},
 };
+
+#[allow(non_snake_case)]
+pub fn decode_VCVT_half_t1(opcode: u32) -> Instruction {
+    let d = ((opcode >> 22) & 1) as u8;
+    let m = ((opcode >> 5) & 1) as u8;
+    let vd = ((opcode >> 12) & 15) as u8;
+    let vm = (opcode & 15) as u8;
+    let to_half = opcode & (1 << 16) != 0;
+    let double = opcode & (1 << 8) != 0;
+    if double && (!cfg!(feature = "fpv5-d16") || if to_half { m != 0 } else { d != 0 }) {
+        return Instruction::UDF {
+            imm32: 0,
+            opcode: opcode.into(),
+            thumb32: true,
+        };
+    }
+    let half = SingleReg::from(if to_half { vd << 1 | d } else { vm << 1 | m });
+    let full = if double {
+        ExtensionReg::Double {
+            reg: DoubleReg::from(if to_half { vm } else { vd }),
+        }
+    } else {
+        ExtensionReg::Single {
+            reg: SingleReg::from(if to_half { vm << 1 | m } else { vd << 1 | d }),
+        }
+    };
+    Instruction::VCVT_half {
+        params: VCVTHalfParams {
+            half,
+            full,
+            to_half,
+            top: opcode & (1 << 7) != 0,
+        },
+    }
+}
 
 #[allow(non_snake_case)]
 #[inline(always)]

@@ -27,6 +27,9 @@ pub(super) fn valid(opcode: u32, instruction: &Instruction) -> bool {
         VCMP_f64 { params } => (0x0040_0000 | if params.with_zero { 0 } else { 0x20 }, true),
         VCVT_f32_f64 { .. } => (0x20, true),
         VCVT_f64_f32 { .. } => (0x0040_0000, true),
+        VCVT_half { params } if matches!(params.full, ExtensionReg::Double { .. }) => {
+            (if params.to_half { 0x20 } else { 0x0040_0000 }, true)
+        }
         VCVT { params } | VCVT_directed { params, .. } if params.dp_operation => {
             (if params.to_integer { 0x20 } else { 0x0040_0000 }, true)
         }

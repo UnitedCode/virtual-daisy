@@ -42,6 +42,8 @@ mod fp_data_processing;
 #[cfg(feature = "has-fp")]
 mod fp_generic;
 #[cfg(feature = "has-fp")]
+pub(crate) mod fp_half;
+#[cfg(feature = "has-fp")]
 mod fp_ieee;
 #[cfg(feature = "has-fp")]
 mod fp_load_and_store;
@@ -1020,6 +1022,8 @@ impl ExecutorHelper for Processor {
             Instruction::VCVT_f64_f32 { params } => self.exec_vcvt_f64_f32(*params),
             #[cfg(feature = "has-fp")]
             Instruction::VCVT_f32_f64 { params } => self.exec_vcvt_f32_f64(*params),
+            #[cfg(feature = "has-fp")]
+            Instruction::VCVT_half { params } => self.exec_vcvt_half(*params),
             #[cfg(feature = "has-fp")]
             Instruction::VSEL_f32 { params } => self.exec_vsel_f32(*params),
             #[cfg(feature = "has-fp")]

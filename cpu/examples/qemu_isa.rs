@@ -48,7 +48,7 @@ fn main() {
         .stderr(Stdio::from(fs::File::create(&capture).unwrap()))
         .spawn()
         .unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
             break status;
@@ -56,7 +56,7 @@ fn main() {
         if std::time::Instant::now() > deadline {
             child.kill().unwrap();
             let _ = child.wait();
-            panic!("QEMU reference guest exceeded ten seconds");
+            panic!("QEMU reference guest exceeded thirty seconds");
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     };
@@ -71,9 +71,12 @@ fn main() {
     let mut fused = Vec::new();
     let mut precision = Vec::new();
     let mut accumulate = Vec::new();
+    let mut half = Vec::new();
     for line in hex.lines() {
         assert!(matches!(line.len(), 40 | 48 | 56 | 64 | 72 | 80 | 88 | 104));
-        let destination = if line.len() == 40 {
+        let destination = if line.len() == 72 && line.ends_with("48414c46") {
+            &mut half
+        } else if line.len() == 40 {
             &mut bytes
         } else if line.len() == 56 {
             &mut precision
@@ -116,6 +119,8 @@ fn main() {
     fs::write(output.with_extension("precision.bin"), &precision).unwrap();
     assert_eq!(accumulate.len(), 49_152 * 13 * 4);
     fs::write(output.with_extension("accumulate.bin"), &accumulate).unwrap();
+    assert_eq!(half.len(), 331_776 * 9 * 4);
+    fs::write(output.with_extension("half.bin"), &half).unwrap();
     fs::remove_file(&elf).unwrap();
     fs::remove_file(&capture).unwrap();
     println!("1050 QEMU ARM-ISA reference cases; {} bytes", bytes.len());
@@ -148,4 +153,5 @@ fn main() {
         "49152 QEMU nonfused accumulate cases; {} bytes",
         accumulate.len()
     );
+    println!("331776 QEMU half conversion cases; {} bytes", half.len());
 }
