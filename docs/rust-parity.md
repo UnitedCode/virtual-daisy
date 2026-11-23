@@ -856,3 +856,24 @@ boundaries. A board-level ARM program loads/stores both FP widths through wrappe
 ITCM addresses and writes a completion marker. CPU 0.1.26 keeps decoder 21,
 native adapter 19 and unchanged retirement costs. This validates functional
 addressing and diagnostics; physical memory latency remains uncalibrated.
+
+### Conditional branches and unallocated hints (v0.2.38)
+
+Wide conditional branches now assemble their immediate as `S:J2:J1:imm6:imm11:0`.
+The old decoder swapped J1 and J2, sending some long branches to the wrong address.
+Reserved condition fields no longer become unconditional branches; allocated
+system instructions retain priority in the decoder table.
+
+Unallocated narrow hints and wide hints with `op1=000` now behave as NOPs,
+including inside IT blocks. Other reserved wide hint groups remain undefined.
+Known event, wait, debug and system instructions keep their dedicated decoding.
+These contracts follow the
+[Armv7-M manual](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820),
+sections A5.2.5, A5.3.4 and A7.7.12.
+
+An independent Cortex-M7 QEMU guest supplies 9,664 execution records: every
+conditional branch with all NZCV patterns and eight signed offsets, plus every
+unallocated hint with and without an IT block. Both execution paths check
+returned PC, flags, untouched registers and fault status. Reserved encodings
+have separate decoder checks. CPU 0.1.27 uses decoder 22; native adapter 19 and
+retirement costs are unchanged. This checks functional behavior, not bus timing.

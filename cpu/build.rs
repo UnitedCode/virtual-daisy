@@ -109,7 +109,7 @@ fn generate_decode(
         .collect();
 
     if bits == 32 {
-        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 21;")?;
+        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 22;")?;
         let profile = u8::from(cargo_feature_enabled("has-fp"))
             | (u8::from(cargo_feature_enabled("has-dsp-ext")) << 1)
             | (u8::from(cargo_feature_enabled("fpv5-d16")) << 2)
@@ -263,6 +263,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ("11110011101011111000000000000010", "WFE_t2"),
         ("11110011101011111000000000000001", "YIELD_t2"),
         ("11110011101011111000000000000000", "NOP_t2"),
+        ("111100111010111110000...........", "HINT_t2"),
         ("111100111000....1000..00........", "MSR_reg_t1"),
         ("1111001110.0....0.........0.....", "USAT_t1"),
         ("11110011011011110.........0.....", "BFC_t1"),
@@ -537,6 +538,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         ("1011110.........", "POP_reg_t1"),
         ("10111110........", "BKPT_t1"),
         ("10111111........", "IT_t1"),
+        ("10111111....0000", "NOP_t1"),
         ("1011111100000000", "NOP_t1"),
         ("1011111100010000", "YIELD_t1"),
         ("1011111100100000", "WFE_t1"),

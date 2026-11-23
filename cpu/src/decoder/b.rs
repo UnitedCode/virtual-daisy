@@ -43,6 +43,15 @@ pub fn decode_B_t2(opcode: u16) -> Instruction {
 #[inline(always)]
 pub fn decode_B_t3(opcode: u32) -> Instruction {
     let cond: u16 = opcode.get_bits(22..26) as u16;
+    // Conditions 1110/1111 select related encodings, never an AL branch.
+    // The generated table handles allocated aliases before this fallback.
+    if cond >= 14 {
+        return Instruction::UDF {
+            imm32: 0,
+            opcode: opcode.into(),
+            thumb32: true,
+        };
+    }
 
     let imm = build_imm_6_11(opcode);
 
@@ -54,10 +63,7 @@ pub fn decode_B_t3(opcode: u32) -> Instruction {
             },
             thumb32: true,
         },
-        None => Instruction::B_t24 {
-            imm32: imm,
-            thumb32: true,
-        },
+        None => unreachable!("conditions 0..14 are allocated"),
     }
 }
 

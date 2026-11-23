@@ -372,7 +372,7 @@ pub fn build_imm_6_11(opcode: u32) -> i32 {
     let imm11 = t2 & 0x7ff;
 
     sign_extend(
-        (imm11 << 1) + (imm6 << 12) + (j2 << 18) + (j1 << 19) + (s << 20),
+        (imm11 << 1) + (imm6 << 12) + (j2 << 19) + (j1 << 18) + (s << 20),
         20,
         32,
     ) as i32

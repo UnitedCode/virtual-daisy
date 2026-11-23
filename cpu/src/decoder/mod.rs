@@ -247,7 +247,7 @@ use {
     msr::decode_MSR_reg_t1,
     mul::{decode_MUL_t1, decode_MUL_t2},
     mvn::{decode_MVN_imm_t1, decode_MVN_reg_t1, decode_MVN_reg_t2},
-    nop::{decode_NOP_t1, decode_NOP_t2},
+    nop::{decode_HINT_t2, decode_NOP_t1, decode_NOP_t2},
     orn::{decode_ORN_imm_t1, decode_ORN_reg_t1},
     orr::{decode_ORR_imm_t1, decode_ORR_reg_t1, decode_ORR_reg_t2},
     pld::{decode_PLD_imm_t1, decode_PLD_imm_t2, decode_PLD_lit_t1, decode_PLD_reg_t1},
@@ -419,7 +419,7 @@ fn decode_32(opcode: u32) -> Instruction {
 // Reject a stale generated table instead of running firmware with old masks.
 #[cfg(feature = "has-dsp-ext")]
 use self::{uxt::decode_UXTB16_t1, uxtab::decode_UXTAB_t1};
-const _: () = assert!(GENERATED_DECODER_REVISION == 21);
+const _: () = assert!(GENERATED_DECODER_REVISION == 22);
 const _: () = assert!(
     GENERATED_DECODER_PROFILE
         == (cfg!(feature = "has-fp") as u8)
