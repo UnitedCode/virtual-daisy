@@ -81,6 +81,8 @@ fn generate_decode(
     // - go through the list of bitmasks in the order of specificity
     // - test first the ones that have most bits set
     // - first one to match is the one
+    // Rn=PC literal aliases are resolved before this table; specificity alone
+    // cannot distinguish them from register-offset and unprivileged forms.
     //
 
     // collect mask keys to string vector
@@ -107,7 +109,7 @@ fn generate_decode(
         .collect();
 
     if bits == 32 {
-        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 17;")?;
+        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 18;")?;
         let profile = u8::from(cargo_feature_enabled("has-fp"))
             | (u8::from(cargo_feature_enabled("has-dsp-ext")) << 1)
             | (u8::from(cargo_feature_enabled("fpv5-d16")) << 2)

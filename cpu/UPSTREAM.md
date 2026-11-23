@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.18. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.22. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
@@ -182,3 +182,13 @@ and word LDR writes to PC and the compare/test aliases. UDF now respects a
 failed IT condition. The architectural guest checks nine hints and skipped
 16/32-bit UDFs, preserving APSR/base/offset and capturing 116 words. Decoder
 revision is 17. The reference adapter remains 19.
+
+Literal LDRB/LDRH/LDRSB/LDRSH/LDRD now execute instead of decoding as UDF.
+Rn=PC selects the literal form before generic register-offset masks, including
+negative word LDR offsets. Literal bases use Align(PC, 4). Tests cover every
+immediate, both offset signs and PC alignments, general-register destinations,
+distinct doubleword pairs, flags and ordinary/compiled execution. TBB/TBH wrap
+their address arithmetic rather than panicking in debug builds. The ARM guest
+checks both literal pools and wrapped table accesses against the independent
+reference, bringing its capture to 128 words. Decoder revision is 18; reference
+adapter 19 and instruction retirement costs are unchanged.

@@ -22,6 +22,11 @@ use crate::{
 };
 
 impl Processor {
+    #[inline(always)]
+    fn load_base(&self, register: Reg) -> u32 {
+        let base = self.get_r(register);
+        if register == Reg::PC { base & !3 } else { base }
+    }
     pub(super) fn exec_unprivileged(&mut self, opcode: u32) -> ExecuteResult {
         if !self.condition_passed() {
             return Ok(ExecuteSuccess::NotTaken);
@@ -359,7 +364,7 @@ impl IsaLoadAndStore for Processor {
     #[inline(always)]
     fn exec_ldrb_imm(&mut self, params: &Reg2FullParams) -> ExecuteResult {
         if self.condition_passed() {
-            let rn = self.get_r(params.rn);
+            let rn = self.load_base(params.rn);
             let offset_address = if params.add {
                 rn.wrapping_add(params.imm32)
             } else {
@@ -382,7 +387,7 @@ impl IsaLoadAndStore for Processor {
     fn exec_ldrh_imm(&mut self, params: &Reg2FullParams) -> ExecuteResult {
         if self.condition_passed() {
             let (address, offset_address) = resolve_addressing(
-                self.get_r(params.rn),
+                self.load_base(params.rn),
                 params.imm32,
                 params.add,
                 params.index,
@@ -403,7 +408,7 @@ impl IsaLoadAndStore for Processor {
     fn exec_ldrsb_imm(&mut self, params: &Reg2FullParams) -> ExecuteResult {
         if self.condition_passed() {
             let (address, offset_address) = resolve_addressing(
-                self.get_r(params.rn),
+                self.load_base(params.rn),
                 params.imm32,
                 params.add,
                 params.index,
@@ -422,7 +427,7 @@ impl IsaLoadAndStore for Processor {
     #[inline(always)]
     fn exec_ldrsh_imm(&mut self, params: &Reg2FullParams) -> ExecuteResult {
         if self.condition_passed() {
-            let rn = self.get_r(params.rn);
+            let rn = self.load_base(params.rn);
             let offset_address = if params.add {
                 rn.wrapping_add(params.imm32)
             } else {
@@ -620,7 +625,7 @@ impl IsaLoadAndStore for Processor {
     fn exec_ldrd_imm(&mut self, params: &Reg2DoubleParams) -> ExecuteResult {
         if self.condition_passed() {
             let (address, offset_address) = resolve_addressing(
-                self.get_r(params.rn),
+                self.load_base(params.rn),
                 params.imm32,
                 params.add,
                 params.index,

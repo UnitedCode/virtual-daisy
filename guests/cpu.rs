@@ -6,6 +6,9 @@ use core::{
     ptr::{read_volatile, write_volatile},
 };
 const RESULTS: *mut u32 = 0x20018000 as *mut u32;
+const RESULT_WORDS: usize = 128;
+// Keep the configuration word at 0x20018200 outside the result capture.
+const _: () = assert!(RESULT_WORDS * 4 <= 0x200);
 unsafe fn read(address: u32) -> u32 {
     read_volatile(address as *const u32)
 }
@@ -83,6 +86,84 @@ probe_ccr_stack:
     mov r0, sp
     subs r0, r0, r4
     pop {{r4, pc}}
+    .balign 4
+.Lliteral_before:
+    .word 0x80ff7f01, 0x1234abcd
+    .balign 4
+    .global probe_literal_loads
+    .thumb_func
+probe_literal_loads:
+    push {{r4, lr}}
+    ldrd r0, r1, .Lliteral_before
+    ldr r4, =0x200181d0
+    str r0, [r4]
+    str r1, [r4, #4]
+    ldrb r0, .Lliteral_before
+    str r0, [r4, #8]
+    ldrh r0, .Lliteral_before
+    str r0, [r4, #12]
+    ldrsb r0, .Lliteral_before+3
+    str r0, [r4, #16]
+    ldrsh r0, .Lliteral_before+2
+    str r0, [r4, #20]
+    ldr.w r2, .Lliteral_before
+    movw r3, #0x7f01
+    movt r3, #0x80ff
+    cmp r2, r3
+    bne .Lliteral_failed
+    .balign 4
+    nop
+    ldrd r0, r1, .Lliteral_after
+    str r0, [r4, #24]
+    str r1, [r4, #28]
+    ldrb r0, .Lliteral_after
+    str r0, [r4, #32]
+    ldrh r0, .Lliteral_after
+    str r0, [r4, #36]
+    ldrsb r0, .Lliteral_after+3
+    str r0, [r4, #40]
+    ldrsh r0, .Lliteral_after+2
+    str r0, [r4, #44]
+    ldr.w r2, .Lliteral_after
+    movw r3, #0x80ff
+    movt r3, #0x7f01
+    cmp r2, r3
+    bne .Lliteral_failed
+    movs r0, #1
+    pop {{r4, pc}}
+.Lliteral_failed:
+    movs r0, #0
+    pop {{r4, pc}}
+    .balign 4
+.Lliteral_after:
+    .word 0x7f0180ff, 0xabcdef01
+    .ltorg
+    .balign 4
+    .global probe_table_wraps
+    .thumb_func
+probe_table_wraps:
+    push {{r4, lr}}
+    ldr r0, =0x20000000
+    movs r1, #2
+    str r1, [r0]
+    ldr r0, =0xfffffffc
+    ldr r1, =0x20000004
+    tbb [r0, r1]
+    b .Ltable_failed
+    nop
+    movs r4, #0x5a
+    ldr r0, =0xfffffffc
+    ldr r1, =0x10000002
+    tbh [r0, r1, lsl #1]
+    b .Ltable_failed
+    nop
+    movs r0, #0xa5
+    eors r0, r4
+    pop {{r4, pc}}
+.Ltable_failed:
+    movs r0, #0
+    pop {{r4, pc}}
+    .ltorg
     .section .flashprobe,"a",%progbits
     .balign 32
     .space 28
@@ -95,6 +176,8 @@ extern "C" {
     fn probe_xn_resume();
     fn probe_ldrd_alias() -> u32;
     fn probe_ccr_stack() -> u32;
+    fn probe_literal_loads() -> u32;
+    fn probe_table_wraps() -> u32;
 }
 
 #[no_mangle]
@@ -169,7 +252,7 @@ unsafe extern "C" fn probe_main() -> ! {
         phase(0xbad0f022);
         loop { asm!("wfi", options(nostack)); }
     }
-    for word in 0..116 {
+    for word in 0..RESULT_WORDS {
         record(word, 0);
     }
     // M7 read-only BP/STKALIGN and reserved fields, before later setup writes.
@@ -199,6 +282,10 @@ unsafe extern "C" fn probe_main() -> ! {
     record(113, hint_base);
     record(114, hint_offset);
     record(115, 0x48494e54);
+    if probe_literal_loads() != 1 || probe_table_wraps() != 0xff {
+        phase(0xbad0f033);
+        loop { asm!("wfi", options(nostack)); }
+    }
     record(2, read(0xe000ed90));
     for address in [0xe000ef40, 0xe000ef44, 0xe000ef48] {
         write(address, u32::MAX);

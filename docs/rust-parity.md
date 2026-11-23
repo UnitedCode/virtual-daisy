@@ -739,3 +739,31 @@ unchanged. The contracts follow the
 [Armv7-M architecture manual](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820),
 the load byte/halfword memory-hint tables, A7.6 and UDF in A7.7.191. Numerical
 coverage and physical timing are separate from the robustness input audit.
+
+### Literal addressing and table branches (v0.2.33)
+
+Five literal-load forms previously decoded as undefined. Negative word literals
+could also be mistaken for register-offset loads when their immediate bits
+matched a more specific mask. Literal decoding now takes precedence for Rn=PC,
+after memory-hint classification. Byte, halfword, signed and doubleword literals
+use the word-aligned PC base required by the architecture.
+
+Tests cover every immediate and offset sign at both PC alignments through the
+ordinary and compiled paths. Separate checks cover general-register destinations,
+distinct doubleword pairs, unchanged registers and flags, word loads to PC, and
+halfword alignment traps. TBB/TBH address and target arithmetic now wraps at
+32 bits; the old address addition panicked in a debug build.
+
+The architectural ARM guest checks positive and negative literal pools, including
+a doubleword instruction at a halfword-aligned PC, and table addresses that wrap
+into valid RAM. All 16 guests and reference comparisons pass. The architectural
+capture is now 128 words; the adjacent configuration word is protected by a
+compile-time size check. CPU 0.1.22 uses decoder revision 18. Native adapter 19
+and retirement costs are unchanged.
+
+The fixed 200 ms production captures retain their v0.2.32 hashes: Rust produces
+9,020 frames and the reference 9,023, with no CPU faults or FIFO errors. The
+67,331 ns startup gap and aligned RMS difference of 0.012813561881 remain.
+These fixes add instruction coverage without establishing audio equivalence.
+Literal addressing follows the load definitions in the
+[Armv7-M architecture manual](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820).

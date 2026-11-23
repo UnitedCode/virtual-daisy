@@ -90,9 +90,9 @@ impl IsaBranch for Processor {
             let rn = self.get_r(params.rn);
             let rm = self.get_r(params.rm);
             let pc = self.get_r(Reg::PC);
-            let halfwords = u32::from(self.read8(rn + rm)?);
+            let halfwords = u32::from(self.read8(rn.wrapping_add(rm))?);
 
-            self.branch_write_pc(pc + 2 * halfwords);
+            self.branch_write_pc(pc.wrapping_add(2 * halfwords));
 
             return Ok(ExecuteSuccess::Branched { cycles: 2 });
         }
@@ -104,9 +104,9 @@ impl IsaBranch for Processor {
             let rn = self.get_r(params.rn);
             let rm = self.get_r(params.rm);
             let pc = self.get_r(Reg::PC);
-            let halfwords = u32::from(self.read16(rn + (rm << 1))?);
+            let halfwords = u32::from(self.read16(rn.wrapping_add(rm << 1))?);
 
-            self.branch_write_pc(pc + 2 * halfwords);
+            self.branch_write_pc(pc.wrapping_add(2 * halfwords));
 
             return Ok(ExecuteSuccess::Branched { cycles: 1 });
         }
