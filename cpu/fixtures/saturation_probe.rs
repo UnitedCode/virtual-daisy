@@ -1,14 +1,22 @@
 //! Pinned QEMU results for the saturation ARM register guest.
 include!("saturation_probe_cases.rs");
+include!("qadd_probe_cases.rs");
 pub const REGISTERS: [u32; 14] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14];
 pub fn expected_matrix() -> (u32, u64) {
     let mut count = 0;
     let mut hash = 0xcbf29ce484222325u64;
-    for [_, input, _, result, status] in CASES {
+    for ([_, input, _, result, status], binary) in CASES
+        .into_iter()
+        .map(|row| (row, false))
+        .chain(WORD_CASES.into_iter().map(|row| (row, true)))
+    {
         for destination in 0..14 {
             for source in 0..14 {
                 let mut registers: [u32; 14] =
                     core::array::from_fn(|i| 0xdeadbeef ^ (REGISTERS[i] * 0x01010101));
+                if binary {
+                    registers[2] = input;
+                }
                 registers[source] = input;
                 registers[destination] = result;
                 for word in registers.into_iter().chain([status]) {

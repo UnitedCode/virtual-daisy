@@ -107,7 +107,7 @@ fn generate_decode(
         .collect();
 
     if bits == 32 {
-        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 10;")?;
+        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 11;")?;
         let profile = u8::from(cargo_feature_enabled("has-fp"))
             | (u8::from(cargo_feature_enabled("has-dsp-ext")) << 1)
             | (u8::from(cargo_feature_enabled("fpv5-d16")) << 2)
@@ -403,7 +403,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if cargo_feature_enabled("has-dsp-ext") {
         instructions_thumb32.extend([
             ("11110011.010....0000....0000....", "SAT16_t1"),
-            ("111110101000....1111....1000....", "DSP_t1"),
+            ("111110101000....1111....10......", "DSP_t1"),
             ("111110101000....1111....0101....", "DSP_t1"),
             ("111110101100....1111....0101....", "DSP_t1"),
             ("111110101001....1111....0101....", "DSP_t1"),

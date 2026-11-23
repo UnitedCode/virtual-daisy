@@ -149,6 +149,10 @@ fn guest(name: &str) -> (PathBuf, Vec<u8>) {
         &source,
         content
             .replace(
+                "// WORD_CASES",
+                include_str!("../cpu/fixtures/qadd_probe_cases.rs"),
+            )
+            .replace(
                 "// PSR_CASES",
                 include_str!("../cpu/fixtures/psr_probe_cases.rs"),
             )

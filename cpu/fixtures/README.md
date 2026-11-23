@@ -142,6 +142,16 @@ stack and loads/stores all general registers, including LR. This tests every
 legal register pair without using a tested operand as a branch-return address.
 CPU tests require all extracted guest cases to occur in the independent binary.
 
+`isa_oracle_qadd.bin` contains 8,192 seven-word records from `qadd_oracle.rs`:
+operation (QADD/QSUB/QDADD/QDSUB), first input, second input, initial APSR,
+result, final APSR and magic `0x44444151`. Each operation uses 256 boundary
+pairs and 256 seeded pairs under four NZCV/Q/GE states. QEMU executes literal
+assembler instructions, including the doubled operand's intermediate saturation.
+The generator writes `isa_oracle.qadd.bin`; `isa_oracle.qadd-probe.rs` extracts
+four cases for `qadd_probe_cases.rs`. Those extend the ARM guest to 3,136 register
+pairs. CPU checks cover every legal register triple and aliases on both paths.
+All thirteen earlier binary datasets regenerate unchanged.
+
 Regenerate from the repository root:
 
 ```sh

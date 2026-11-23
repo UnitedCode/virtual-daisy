@@ -172,7 +172,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.10. Generated tables check their revision and
+The vendored CPU is revision 0.1.11. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -318,7 +318,16 @@ USAT, SSAT16 and USAT16 now execute. The existing SSAT and these additions pass
 scalar shift, representative lane/boundary/seeded inputs, sticky Q, and unchanged
 NZCV/GE. Both execution paths pass. DSP-only halfword forms remain undefined in
 base Armv7-M; CI now checks that profile separately. A standalone ARM guest tests
-2,352 legal source/destination pairs, including LR and aliases.
+3,136 legal source/destination pairs, including LR and aliases.
+
+QSUB, QDADD and QDSUB now execute alongside QADD. Another 8,192 independent
+QEMU records cover all four word operations, signed boundaries, seeded operands
+and sticky Q with unchanged NZCV/GE. Doubled forms saturate the second operand
+before the final add/subtract; either saturation sets Q, even when the final
+result fits. Both execution paths check every legal register triple and aliases.
+The standalone saturation guest includes all four operations in its register
+matrix. SP/PC operands fault, skipped conditions preserve state, and base
+Armv7-M rejects these DSP-only encodings.
 
 That guest exposed three additional Rust bugs. A literal load into PC advanced
 another four bytes after branching, and MSR's field masks for GE or combined

@@ -1,4 +1,4 @@
-//! DSP instructions exercised by the unchanged Synthphone firmware.
+//! ARM DSP operations shared by the native and browser hosts.
 use crate::{
     Processor,
     core::{
@@ -22,10 +22,31 @@ impl Processor {
         let a = self.get_r(rn);
         let b = self.get_r(rm);
         let key = opcode & 0xfff0f0f0;
-        let result = if key == 0xfa80f080 {
-            let exact = i64::from(a as i32) + i64::from(b as i32);
-            let value = exact.clamp(i64::from(i32::MIN), i64::from(i32::MAX));
-            if value != exact {
+        let result = if opcode & 0xfff0f0c0 == 0xfa80f080 {
+            if [rd, rn, rm].iter().any(|r| matches!(r, Reg::SP | Reg::PC)) {
+                return Err(Fault::UndefInstr);
+            }
+            let operation = (opcode >> 4) & 3;
+            let mut clipped = false;
+            let mut saturate = |value: i64| {
+                let result = value.clamp(i64::from(i32::MIN), i64::from(i32::MAX));
+                clipped |= result != value;
+                result
+            };
+            // Rm is the first assembly operand, Rn the second. QDADD/QDSUB
+            // saturate the doubled second operand before the final operation.
+            let second = if operation & 1 != 0 {
+                saturate(2 * i64::from(a as i32))
+            } else {
+                i64::from(a as i32)
+            };
+            let first = i64::from(b as i32);
+            let value = saturate(if operation & 2 != 0 {
+                first - second
+            } else {
+                first + second
+            });
+            if clipped {
                 self.psr.value |= 1 << 27;
             }
             value as u32
@@ -75,5 +96,24 @@ impl Processor {
         };
         self.set_r(rd, result);
         Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
+}
+
+#[cfg(all(test, feature = "has-dsp-ext"))]
+mod word_register_tests {
+    use super::*;
+    #[test]
+    fn invalid_registers_raise_undefined_before_any_write() {
+        for base in [0xfa82f081, 0xfa82f0a1, 0xfa82f091, 0xfa82f0b1] {
+            for bad in [13u32, 15] {
+                for shift in [0, 8, 16] {
+                    let opcode = (base & !(15 << shift)) | (bad << shift);
+                    let mut cpu = Processor::new();
+                    let before = cpu.r0_12;
+                    assert_eq!(cpu.exec_browser_dsp(opcode), Err(Fault::UndefInstr));
+                    assert_eq!(cpu.r0_12, before);
+                }
+            }
+        }
     }
 }
