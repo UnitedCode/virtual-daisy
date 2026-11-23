@@ -9,7 +9,7 @@ use std::{
 use virtual_daisy::{board::Board, machine::Machine};
 
 fn help() -> &'static str {
-    "Usage: virtual-daisy demo --board rev5 --out results/demo\n       virtual-daisy emulate --elf firmware.elf --board rev4|rev5|rev7 --out results/capture\n         [--duration-ms 1000] [--max-steps 50000000] [--input audio.wav] [--qspi flash.bin]\n\nRust only. No Renode or .NET installation is needed. Captures get a new subdirectory; earlier runs are preserved."
+    "Usage: virtual-daisy demo --board rev5 --out results/demo\n       virtual-daisy emulate --elf firmware.elf --board rev4|rev5|rev7 --out results/capture\n         [--duration-ms 1000] [--max-steps 50000000] [--input audio.wav] [--resample-input] [--qspi flash.vdnor]\n\nRust only. No Renode or .NET installation is needed. Captures get a new subdirectory; earlier runs are preserved."
 }
 pub fn run(args: &[OsString]) -> Result<()> {
     if args.iter().any(|s| s == "--help" || s == "-h") {
@@ -23,11 +23,16 @@ pub fn run(args: &[OsString]) -> Result<()> {
     let mut duration = if demo { 10 } else { 1000 };
     let mut steps = 50_000_000;
     let mut input = None;
+    let mut resample_input = false;
     let mut qspi = None;
     let mut i = 1;
     while i < args.len() {
         let option = args[i].to_str().ok_or("option must be UTF-8")?;
         i += 1;
+        if option == "--resample-input" {
+            resample_input = true;
+            continue;
+        }
         let value = args
             .get(i)
             .ok_or_else(|| format!("missing value for {option}\n{}", help()))?;
@@ -71,6 +76,9 @@ pub fn run(args: &[OsString]) -> Result<()> {
     if demo && input.is_some() {
         return Err("demo checks memory only; use emulate for WAV input".into());
     }
+    if resample_input && input.is_none() {
+        return Err("--resample-input requires --input audio.wav".into());
+    }
     let image = if demo {
         demo_image()
     } else {
@@ -89,7 +97,11 @@ pub fn run(args: &[OsString]) -> Result<()> {
     let mut input_image = None;
     let input_rate = if let Some(path) = input {
         let (rate, samples, bytes) = read_input(&path)?;
-        machine.input(&samples)?;
+        if resample_input {
+            machine.input_at_rate(&samples, rate)?;
+        } else {
+            machine.input(&samples)?;
+        }
         input_image = Some(bytes);
         Some(rate)
     } else {
@@ -128,8 +140,8 @@ pub fn run(args: &[OsString]) -> Result<()> {
     }
     let rate = rate.or(machine.sample_rate());
     if let (Some(input), Some(output)) = (input_rate, rate) {
-        if (f64::from(input) - output.hz()).abs() > 1.0 {
-            failure = Some(format!("input is {input} Hz; firmware configured {:.6} Hz. Resample the input to the firmware rate",output.hz()));
+        if !resample_input && (f64::from(input) - output.hz()).abs() > 1.0 {
+            failure = Some(format!("input is {input} Hz; firmware configured {:.6} Hz. Use --resample-input or provide input at the firmware rate",output.hz()));
         }
     }
     fs::create_dir_all(&out)?;
@@ -154,13 +166,15 @@ pub fn run(args: &[OsString]) -> Result<()> {
     );
     let report=format!("backend=rust\nboard={}\ncodec={}\nfirmware_sha256={hash}\nelapsed_ns={}\nscheduler_steps={}\nfinal_pc=0x{:08x}\ncfsr=0x{:08x}\nhfsr=0x{:08x}\naudio_frames={}\nsample_rate={rate_text}\nserial_bytes={}\nhardware_equivalence=UNVERIFIED\n",board.id(),board.codec(),machine.time_ns(),machine.steps(),machine.registers()[15],machine.read32(0xe000ed28)?,machine.read32(0xe000ed2c)?,audio.len(),serial.len());
     let report = format!(
-        "sdk_version={}\nstatus={}\naudio_boundary=serial\nsystem_resets={}\nqueued_input_frames={}\n{report}error={}\n",
+        "sdk_version={}\nstatus={}\naudio_boundary=serial\ninput_mode={}\ninput_source_hz={}\nsystem_resets={}\nqueued_input_frames={}\n{report}error={}\n",
         env!("CARGO_PKG_VERSION"),
         if failure.is_none() {
             "completed"
         } else {
             "failed"
         },
+        if resample_input { "timestamped_linear" } else { "serial_frames" },
+        input_rate.map_or_else(|| "none".to_owned(), |r| r.to_string()),
         machine.resets(),machine.queued_input_frames(),
         failure.as_deref().unwrap_or("none")
     );

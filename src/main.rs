@@ -16,6 +16,7 @@ mod sai_probe;
 mod sdram_probe;
 mod settings_probe;
 mod storage_probe;
+mod systick_probe;
 mod transition_probe;
 mod vector_probe;
 use sha2::{Digest, Sha256};
@@ -142,6 +143,8 @@ impl Host<'_> {
         let capture = self.directory.join(label);
         // A reused output directory must not provide a result from an old run.
         for suffix in [
+            ".systick.bin",
+            ".systick.txt",
             ".architecture.bin",
             ".architecture.txt",
             ".architecture-negative.txt",
@@ -266,6 +269,8 @@ impl Host<'_> {
             "flash",
             "flash-wait-fault",
             "timing",
+            "systick",
+            "systick-core-control",
             "dsb-fault",
             "entry-fault",
             "wait-irq",
@@ -320,6 +325,29 @@ impl Host<'_> {
 }
 
 fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
+    guest::prepare(
+        host.directory,
+        "systick",
+        include_str!("../guests/systick.rs"),
+    )?;
+    let capture = host.boot("systick", tone, "systick")?;
+    grade::execution_evidence(&capture)?;
+    systick_probe::check(&fs::read(grade::artifact(&capture, ".systick.bin"))?)?;
+    fs::write(
+        grade::artifact(&capture, ".systick.txt"),
+        "core_and_divided_reference_clocks=passed\nratio_checked_against_dwt=passed\n",
+    )?;
+    let broken = host.boot("systick-core-control", tone, "systick-core-control")?;
+    let error = systick_probe::check(&fs::read(grade::artifact(&broken, ".systick.bin"))?)
+        .err()
+        .ok_or("Core-only SysTick escaped the clock-source gate")?;
+    if !error.contains("phase 0 CLKSOURCE") {
+        return Err(format!("Unexpected SysTick negative control: {error}").into());
+    }
+    fs::write(
+        grade::artifact(&broken, ".systick.txt"),
+        format!("core_only_systick=caught\n{error}\n"),
+    )?;
     guest::prepare(host.directory, "sai", include_str!("../guests/sai.rs"))?;
     let sai = host.boot("sai", tone, "sai")?;
     sai_probe::check(&sai, host.board.rx_channel())?;

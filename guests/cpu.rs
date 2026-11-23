@@ -141,7 +141,7 @@ unsafe extern "C" fn probe_svc(frame: *mut u32, return_code: u32) {
 }
 #[no_mangle]
 unsafe extern "C" fn probe_main() -> ! {
-    for word in 0..96 {
+    for word in 0..100 {
         record(word, 0);
     }
     record(2, read(0xe000ed90));
@@ -177,6 +177,17 @@ unsafe extern "C" fn probe_main() -> ! {
     write(0xe000ed88, 0xf << 20);
     barriers();
     phase(6);
+    let (first, second): (u32, u32);
+    asm!(".inst.w 0xec410a3e", ".inst.w 0xec532a3e",
+        in("r0") 0x7f800001_u32, in("r1") 0x80000000_u32,
+        lateout("r2") first, lateout("r3") second, out("s29") _, out("s30") _);
+    record(96, first); // Odd pair S29/S30, including a NaN payload and signed zero.
+    record(97, second);
+    let (scalar, neighbor): (u32, u32);
+    asm!(".inst.w 0xee2f0b10", ".inst.w 0xee3f1b10", "vmov r2, s30",
+        in("r0") 0xffc01234_u32, lateout("r1") scalar, lateout("r2") neighbor, out("s31") _);
+    record(98, scalar); // D15[1] / S31.
+    record(99, neighbor); // D15[0] / S30 must remain unchanged.
     record(58, read(0xe000ef44));
     record(59, read(0xe000ef48));
     record(52, 0);

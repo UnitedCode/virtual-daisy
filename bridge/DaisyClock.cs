@@ -65,10 +65,14 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             if(peripheral is IDaisyKernelClockSink sink) { clockSinks.Add(sink);sink.RefreshClock(); }
         }
         public void Unregister(IPeripheral peripheral) { original.Unregister(peripheral); timers.Remove(peripheral);if(peripheral is IDaisyKernelClockSink sink) clockSinks.Remove(sink); }
+        // Renode's instruction budget must follow the Rust RCC core clock too.
+        // This does not turn its one-instruction pacing into M7 cycle timing.
+        public void ConnectCpuClock(Action<ulong> sink) { lock(sync) { coreClock=sink;PropagateClocks(); } }
         private void PropagateClocks() {
             ulong core=domain(native.State,0);
             if(core==ulong.MaxValue) throw new InvalidOperationException("Invalid core clock");
             if(core!=0 && systick!=null) systick.Frequency=core;
+            if(core!=0) coreClock?.Invoke(core);
             foreach(var timer in timers) { ulong hz=domain(native.State,timer.Value); if(hz==ulong.MaxValue) throw new InvalidOperationException("Invalid timer clock"); if(hz!=0) ((IHasFrequency)timer.Key).Frequency=hz; }
             foreach(var sink in clockSinks) sink.RefreshClock();
         }
@@ -84,6 +88,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private readonly RateNative rate;
         private readonly DomainNative domain;
         private readonly IHasDivisibleFrequency systick;
+        private Action<ulong> coreClock;
         private readonly Dictionary<IPeripheral,uint> timers=new Dictionary<IPeripheral,uint>();
         private readonly HashSet<IDaisyKernelClockSink> clockSinks=new HashSet<IDaisyKernelClockSink>();
         private readonly DwtNative dwt;

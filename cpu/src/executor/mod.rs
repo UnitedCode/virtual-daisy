@@ -883,13 +883,13 @@ impl ExecutorHelper for Processor {
             #[cfg(feature = "has-fp")]
             Instruction::VMOV_reg_f64 { params } => self.exec_vmov_reg_f64(*params),
             #[cfg(feature = "has-fp")]
-            Instruction::VMOV_cr_scalar { .. } => unimplemented!(),
+            Instruction::VMOV_cr_scalar { params } => self.exec_vmov_scalar(params, false),
             #[cfg(feature = "has-fp")]
-            Instruction::VMOV_scalar_cr { .. } => unimplemented!(),
+            Instruction::VMOV_scalar_cr { params } => self.exec_vmov_scalar(params, true),
             #[cfg(feature = "has-fp")]
             Instruction::VMOV_cr_sp { params } => self.exec_vmov_cr_sp(params),
             #[cfg(feature = "has-fp")]
-            Instruction::VMOV_cr2_sp2 { .. } => unimplemented!(),
+            Instruction::VMOV_cr2_sp2 { params } => self.exec_vmov_cr2_sp2(params),
             #[cfg(feature = "has-fp")]
             Instruction::VMOV_cr2_dp { params } => self.exec_vmov_cr2_dp(params),
 

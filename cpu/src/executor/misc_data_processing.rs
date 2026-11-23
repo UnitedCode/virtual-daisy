@@ -1,3 +1,4 @@
+// Modified for Virtual Daisy's Rust hosts; see UPSTREAM.md.
 use crate::Processor;
 
 use crate::executor::{ExecuteSuccess, ExecutorHelper};
@@ -181,7 +182,7 @@ impl IsaMiscDataProcessing for Processor {
                 let data = self.get_r(params.rn).get_bits(params.lsb..upper);
                 self.set_r(params.rd, data);
             } else {
-                todo!();
+                return Err(crate::core::fault::Fault::UndefInstr);
             }
 
             return Ok(ExecuteSuccess::Taken { cycles: 1 });
@@ -195,10 +196,10 @@ impl IsaMiscDataProcessing for Processor {
             if msbit <= 31 {
                 let upper = msbit + 1;
                 let data = self.get_r(params.rn).get_bits(params.lsb..upper);
-                let data = sign_extend(data, msbit, 32) as i32;
+                let data = sign_extend(data, params.widthminus1, 32) as i32;
                 self.set_r(params.rd, data as u32);
             } else {
-                todo!();
+                return Err(crate::core::fault::Fault::UndefInstr);
             }
 
             return Ok(ExecuteSuccess::Taken { cycles: 1 });
@@ -211,6 +212,50 @@ impl IsaMiscDataProcessing for Processor {
 mod tests {
     use super::*;
     use crate::core::{instruction::Instruction, register::Reg};
+    #[test]
+    fn signed_bitfield_extraction_extends_the_selected_field_sign() {
+        let mut core = Processor::new();
+        for value in [0u32, 0x80000000, 0xdeadbeef, 0x7fffffff, u32::MAX] {
+            for lsb in 0..32 {
+                for width in 1..=32 - lsb {
+                    let params = BfxParams {
+                        rd: Reg::R0,
+                        rn: Reg::R1,
+                        lsb,
+                        widthminus1: width - 1,
+                    };
+                    core.set_r(Reg::R1, value);
+                    core.psr.value = 0xa8000000;
+                    core.exec_sbfx(&params).unwrap();
+                    let expected = ((value << (32 - lsb - width)) as i32 >> (32 - width)) as u32;
+                    assert_eq!(
+                        core.get_r(Reg::R0),
+                        expected,
+                        "{value:x}, lsb={lsb}, width={width}"
+                    );
+                    assert_eq!(core.psr.value, 0xa8000000);
+                }
+            }
+        }
+    }
+    #[test]
+    fn invalid_bitfield_widths_report_undefined_instead_of_panicking() {
+        let mut core = Processor::new();
+        let params = BfxParams {
+            rd: Reg::R0,
+            rn: Reg::R1,
+            lsb: 31,
+            widthminus1: 1,
+        };
+        assert_eq!(
+            core.exec_sbfx(&params),
+            Err(crate::core::fault::Fault::UndefInstr)
+        );
+        assert_eq!(
+            core.exec_ubfx(&params),
+            Err(crate::core::fault::Fault::UndefInstr)
+        );
+    }
     #[test]
     fn test_bfi() {
         // arrange

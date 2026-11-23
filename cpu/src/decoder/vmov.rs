@@ -1,8 +1,9 @@
+// Modified for Virtual Daisy's Rust hosts; see UPSTREAM.md.
 use crate::core::{
     bits::Bits,
     instruction::{
-        Instruction, VMovCr2DpParams, VMovCrSpParams, VMovImmParams32, VMovImmParams64,
-        VMovRegParamsf32, VMovRegParamsf64,
+        Instruction, VMovCr2DpParams, VMovCr2Sp2Params, VMovCrScalarParams, VMovCrSpParams,
+        VMovImmParams32, VMovImmParams64, VMovRegParamsf32, VMovRegParamsf64,
     },
     register::{DoubleReg, Reg, SingleReg},
 };
@@ -141,14 +142,38 @@ pub fn decode_VMOV_reg(opcode: u32) -> Instruction {
 
 #[allow(non_snake_case)]
 #[inline(always)]
-pub fn decode_VMOV_cr_scalar(_opcode: u32) -> Instruction {
-    unimplemented!()
+pub fn decode_VMOV_cr_scalar(opcode: u32) -> Instruction {
+    decode_scalar(opcode, false)
 }
 
 #[allow(non_snake_case)]
 #[inline(always)]
-pub fn decode_VMOV_scalar_cr(_opcode: u32) -> Instruction {
-    unimplemented!()
+pub fn decode_VMOV_scalar_cr(opcode: u32) -> Instruction {
+    decode_scalar(opcode, true)
+}
+fn undefined(opcode: u32) -> Instruction {
+    Instruction::UDF {
+        opcode: opcode.into(),
+        thumb32: true,
+        imm32: 0,
+    }
+}
+fn decode_scalar(opcode: u32, to_core: bool) -> Instruction {
+    let rt = Reg::from(opcode.get_bits(12..16) as u8);
+    let d = opcode.get_bits(16..20) as u8 | (u8::from(opcode.get_bit(7)) << 4);
+    if matches!(rt, Reg::SP | Reg::PC) || d >= 16 {
+        return undefined(opcode);
+    }
+    let params = VMovCrScalarParams {
+        rt,
+        dd: DoubleReg::from(d),
+        x: opcode.get_bit(21),
+    };
+    if to_core {
+        Instruction::VMOV_scalar_cr { params }
+    } else {
+        Instruction::VMOV_cr_scalar { params }
+    }
 }
 
 #[allow(non_snake_case)]
@@ -179,8 +204,27 @@ pub fn decode_VMOV_cr_sp(opcode: u32) -> Instruction {
 
 #[allow(non_snake_case)]
 #[inline(always)]
-pub fn decode_VMOV_cr2_sp2(_opcode: u32) -> Instruction {
-    unimplemented!()
+pub fn decode_VMOV_cr2_sp2(opcode: u32) -> Instruction {
+    let rt = Reg::from(opcode.get_bits(12..16) as u8);
+    let rt2 = Reg::from(opcode.get_bits(16..20) as u8);
+    let to_arm_registers = opcode.get_bit(20);
+    let m = (opcode.get_bits(0..4) as u8) << 1 | u8::from(opcode.get_bit(5));
+    if matches!(rt, Reg::SP | Reg::PC)
+        || matches!(rt2, Reg::SP | Reg::PC)
+        || m == 31
+        || (to_arm_registers && rt == rt2)
+    {
+        return undefined(opcode);
+    }
+    Instruction::VMOV_cr2_sp2 {
+        params: VMovCr2Sp2Params {
+            to_arm_registers,
+            rt,
+            rt2,
+            sm: SingleReg::from(m),
+            sm1: SingleReg::from(m + 1),
+        },
+    }
 }
 
 #[allow(non_snake_case)]

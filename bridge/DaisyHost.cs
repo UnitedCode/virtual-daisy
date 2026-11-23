@@ -125,8 +125,19 @@ public static class DaisyHost
         cpu.VectorTableOffset = 0x08000000;
         cpu.SP = bus.ReadDoubleWord(0x08000000);
         cpu.PC = bus.ReadDoubleWord(0x08000004);
-        cpu.PerformanceInMips = 480;
+        ((DaisyRcc)machine["sysbus.rcc"]).ConnectCpuClock(hz => {
+            cpu.PerformanceInMips=checked((uint)Math.Max(1UL,(hz+500000UL)/1000000UL));
+        });
         emulation.MasterTimeSource.Quantum = TimeInterval.FromMicroseconds(1);
+        if(args[5]=="systick" || args[5]=="systick-core-control") {
+            var nvic=(DaisyNvic)machine["sysbus.nvic"];
+            nvic.CoreOnlySysTick=args[5]=="systick-core-control";
+            bus.LoadELF(Path.Combine(Path.GetDirectoryName(args[3]),"systick-probe.elf"));
+            cpu.VectorTableOffset=0x6000;cpu.SP=bus.ReadDoubleWord(0x6000);cpu.PC=bus.ReadDoubleWord(0x6004);
+            emulation.RunFor(TimeInterval.FromMilliseconds(2));
+            File.WriteAllBytes(args[3]+".systick.bin",bus.ReadBytes(0x20019f00UL,128));
+            emulation.Dispose();return;
+        }
         if(args[5].StartsWith("keyboard")) { DaisyKeyboardHost.Run(emulation,machine,args[3],args[10],args[5]=="keyboard-instant");emulation.Dispose();return; }
         if(args[5]=="architecture" || args[5]=="runtime-fault") { ArchitectureProbes(emulation,machine,args[3],args[5]=="runtime-fault"); emulation.Dispose(); return; }
         if(args[5]=="flash" || args[5]=="flash-wait-fault") {FlashProbes(emulation,machine,args[3],args[5]=="flash-wait-fault");emulation.Dispose();return;}
@@ -483,7 +494,7 @@ public static class DaisyHost
         if(kind=="cpu-align-fault") cpu.DisableAlignment();
         bus.WriteDoubleWord(0x20018200,kind=="cpu-div-fault" ? 1U:kind=="cpu-lazy-fault" ? 2U:kind.StartsWith("cpu-eager") ? 4U:0U);
         emulation.RunFor(TimeInterval.FromMilliseconds(2));
-        File.WriteAllBytes(prefix+".cpu.bin",bus.ReadBytes(0x20018000UL,384));
+        File.WriteAllBytes(prefix+".cpu.bin",bus.ReadBytes(0x20018000UL,400));
         using(var output=new BinaryWriter(File.Create(prefix+".cpu-sites.bin")))
             foreach(uint word in new uint[]{7,11,15,23,27,31,35,39,67,71,75,79,83,87,91}) output.Write(bus.ReadDoubleWord(bus.ReadDoubleWord(0x20018000+4*word)));
         ((DaisyNvic)machine["sysbus.nvic"]).Architecture.Save(prefix+".memory.txt");

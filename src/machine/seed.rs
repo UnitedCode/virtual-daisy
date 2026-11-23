@@ -1,10 +1,6 @@
 use super::{serial::Serial, timer::Timer, wire::I2c, Error};
 use crate::{board::Board, clock::Rate, memory::SystemMemory, Peripheral};
-use std::{
-    cell::RefCell,
-    collections::{BTreeMap, VecDeque},
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 use zmu_cortex_m::{bus::Bus, core::fault::Fault};
 
 /// External devices attached to a Seed. Default methods leave them disconnected.
@@ -76,7 +72,7 @@ pub struct Seed {
     captured: Vec<[f32; 2]>,
     serial_output: Vec<(u64, u8)>,
     pub(super) reset_requested: bool,
-    pub(super) input: VecDeque<[f32; 2]>,
+    pub(super) input: super::input::Input,
     pub(super) error: Option<String>,
     pub(super) waiting: bool,
     pub(super) wait_ns: u64,
@@ -148,7 +144,7 @@ impl Seed {
             captured: Vec::new(),
             serial_output: Vec::new(),
             reset_requested: false,
-            input: VecDeque::new(),
+            input: super::input::Input::default(),
             error: None,
             waiting: false,
             wait_ns: 0,
@@ -364,7 +360,7 @@ impl Seed {
             self.sample_rate = Some(rate);
             self.codec.validate_codec_clocks(mclk, rate)?;
             for _ in 0..count {
-                let sample = self.input.pop_front().unwrap_or([0.; 2]);
+                let sample = self.input.next(rate);
                 self.peripherals
                     .get_mut(&0x40015800)
                     .unwrap()
@@ -416,13 +412,9 @@ impl Seed {
             .max(1);
         Ok(cycles.min(u128::from(u32::MAX)) as u32)
     }
-    pub(super) fn interrupts(&mut self) -> Vec<(usize, bool)> {
+    pub(super) fn interrupts(&mut self) -> [(usize, bool); 14] {
         let dma = self.peripherals[&0x40020000].1.dma_interrupts();
-        let mut result = Vec::with_capacity(13);
-        for (s, n) in [11, 12, 13, 14, 15, 16, 17, 47].into_iter().enumerate() {
-            result.push((n, dma & (1 << s) != 0));
-        }
-        result.extend([
+        let other = [
             (4, self.memory.flash_irq()),
             (
                 48,
@@ -433,8 +425,14 @@ impl Seed {
             (92, self.peripherals[&0x52005000].1.qspi_interrupt()),
             (37, self.serial.irq(self.now)),
             (28, self.timer.irq()),
-        ]);
-        result
+        ];
+        std::array::from_fn(|i| {
+            if i < 8 {
+                ([11, 12, 13, 14, 15, 16, 17, 47][i], dma & (1 << i) != 0)
+            } else {
+                other[i - 8]
+            }
+        })
     }
     fn outputs(&mut self) -> Result<[u16; 11], &'static str> {
         let mut r = [0; 11];

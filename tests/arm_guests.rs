@@ -2,6 +2,8 @@
 //! The same unmodified ARM guests run by the Renode reference harness.
 use std::{fs, path::PathBuf, process::Command};
 use virtual_daisy::{board::Board, machine::Machine};
+#[path = "../src/systick_probe.rs"]
+mod systick_probe;
 
 fn counter(machine: &Machine, key: &str) -> u64 {
     let report = machine.memory_report();
@@ -12,6 +14,22 @@ fn counter(machine: &Machine, key: &str) -> u64 {
         .unwrap()
         .parse()
         .unwrap()
+}
+#[test]
+#[ignore = "requires rustup target add thumbv7em-none-eabihf"]
+fn systick_guest_checks_both_sources_against_the_independent_dwt_clock() {
+    let (directory, image) = guest("systick");
+    let mut m = Machine::from_elf_at(Board::Rev5, &image, 0x6000).unwrap();
+    m.run_until(2_000_000, 1_000_000).unwrap();
+    let data: Vec<_> = (0..32)
+        .flat_map(|i| m.read32(0x20019f00 + i * 4).unwrap().to_le_bytes())
+        .collect();
+    systick_probe::check(&data).unwrap();
+    if let Some(path) = std::env::var_os("VIRTUAL_DAISY_REFERENCE") {
+        systick_probe::check(&fs::read(PathBuf::from(path).join("systick.systick.bin")).unwrap())
+            .unwrap();
+    }
+    fs::remove_dir_all(directory).unwrap();
 }
 
 fn guest(name: &str) -> (PathBuf, Vec<u8>) {
@@ -135,6 +153,7 @@ fn compare(machine: &mut Machine, address: u32, count: u32, filename: &str) {
     }
     if let Some(reference) = std::env::var_os("VIRTUAL_DAISY_REFERENCE") {
         let data = fs::read(PathBuf::from(reference).join(filename)).unwrap();
+        assert_eq!(data.len(), words.len() * 4, "{filename} reference length");
         for (i, b) in data.as_chunks::<4>().0.iter().enumerate() {
             // Renode omits ICSR pending fields in these fixtures. Verify the
             // common active/frame fields here; direct tests cover the ST fields.
@@ -402,7 +421,7 @@ fn architectural_guest_matches_reference_results() {
         machine
             .run_until(2_000_000, 1_000_000)
             .unwrap_or_else(|e| panic!("{label}: {e}"));
-        let words: Vec<_> = (0..96)
+        let words: Vec<_> = (0..100)
             .map(|i| machine.read32(0x20018000 + i * 4).unwrap())
             .collect();
         eprintln!(
@@ -410,6 +429,10 @@ fn architectural_guest_matches_reference_results() {
             machine.registers()
         );
         assert_eq!(words[0], 0xab, "guest completion");
+        assert_eq!(
+            &words[96..100],
+            &[0x7f800001, 0x80000000, 0xffc01234, 0x80000000]
+        );
         assert_eq!(words[1], 16, "fault count");
         for (phase, exception, status) in [
             (1, 6, 0x02000000),
@@ -497,6 +520,7 @@ fn architectural_guest_matches_reference_results() {
         }
         if let Some(reference) = std::env::var_os("VIRTUAL_DAISY_REFERENCE") {
             let data = fs::read(PathBuf::from(reference).join(format!("{label}.cpu.bin"))).unwrap();
+            assert_eq!(data.len(), words.len() * 4, "{label} reference length");
             for (i, b) in data.as_chunks::<4>().0.iter().enumerate() {
                 assert_eq!(
                     words[i],

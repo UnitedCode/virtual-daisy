@@ -1,5 +1,9 @@
 # Contributing
 
+For backend parity, run `cargo test --locked --test rust_probes` as well as the
+compiled ARM guests. See the [parity record](docs/rust-parity.md#reproduce) for
+fresh Renode comparisons and the optional real-firmware audio capture.
+
 Start with a small failing firmware or register-level example. Include the board
 revision, firmware SHA256, input/stimulus and the expected result. A manual section
 or physical capture makes a useful oracle; a second copy of the implementation

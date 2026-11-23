@@ -1,7 +1,7 @@
 // Modified for Virtual Daisy's browser backend; see UPSTREAM.md.
 use crate::core::instruction::{
-    VMRSTarget, VMovCr2DpParams, VMovCrSpParams, VMovImmParams32, VMovImmParams64,
-    VMovRegParamsf32, VMovRegParamsf64,
+    VMRSTarget, VMovCr2DpParams, VMovCr2Sp2Params, VMovCrScalarParams, VMovCrSpParams,
+    VMovImmParams32, VMovImmParams64, VMovRegParamsf32, VMovRegParamsf64,
 };
 
 use crate::Processor;
@@ -16,6 +16,8 @@ use crate::core::register::{Apsr, BaseReg, ExtensionRegOperations, Reg};
 pub trait IsaFloatingPointRegisterTransfer {
     fn exec_vmov_cr_sp(&mut self, params: &VMovCrSpParams) -> ExecuteResult;
     fn exec_vmov_cr2_dp(&mut self, params: &VMovCr2DpParams) -> ExecuteResult;
+    fn exec_vmov_cr2_sp2(&mut self, params: &VMovCr2Sp2Params) -> ExecuteResult;
+    fn exec_vmov_scalar(&mut self, params: &VMovCrScalarParams, to_core: bool) -> ExecuteResult;
 
     fn exec_vmov_reg_f32(&mut self, params: VMovRegParamsf32) -> ExecuteResult;
     fn exec_vmov_reg_f64(&mut self, params: VMovRegParamsf64) -> ExecuteResult;
@@ -28,6 +30,40 @@ pub trait IsaFloatingPointRegisterTransfer {
 }
 
 impl IsaFloatingPointRegisterTransfer for Processor {
+    fn exec_vmov_scalar(&mut self, params: &VMovCrScalarParams, to_core: bool) -> ExecuteResult {
+        if !self.condition_passed() {
+            return Ok(ExecuteSuccess::NotTaken);
+        }
+        self.execute_fp_check()?;
+        let (low, high) = self.get_dr(params.dd);
+        if to_core {
+            self.set_r(params.rt, if params.x { high } else { low });
+        } else {
+            let value = self.get_r(params.rt);
+            self.set_dr(
+                params.dd,
+                if params.x { low } else { value },
+                if params.x { value } else { high },
+            );
+        }
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
+    fn exec_vmov_cr2_sp2(&mut self, params: &VMovCr2Sp2Params) -> ExecuteResult {
+        if !self.condition_passed() {
+            return Ok(ExecuteSuccess::NotTaken);
+        }
+        self.execute_fp_check()?;
+        if params.to_arm_registers {
+            let first = self.get_sr(params.sm);
+            let second = self.get_sr(params.sm1);
+            self.set_r(params.rt, first);
+            self.set_r(params.rt2, second);
+        } else {
+            self.set_sr(params.sm, self.get_r(params.rt));
+            self.set_sr(params.sm1, self.get_r(params.rt2));
+        }
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
     fn exec_vmsr(&mut self, source: Reg) -> ExecuteResult {
         if !self.condition_passed() {
             return Ok(ExecuteSuccess::NotTaken);
