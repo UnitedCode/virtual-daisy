@@ -30,9 +30,17 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.3. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.4. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 
 Changes are checked against the upstream instruction suite, executed ARM guests,
 the pinned Renode reference backend and ST's PM0253 programming manual. See
 ../docs/rust-parity.md for the compared cases and remaining timing limits.
+
+Software binary arithmetic uses rustc_apfloat 0.2.3+llvm-462a31f5a5ab
+(https://github.com/rust-lang/rustc_apfloat), licensed under Apache-2.0 WITH
+LLVM-exception. ARM-specific NaN priority, input/output flush-to-zero, tininess
+before rounding and finite-overflow flags are applied around its IEEE arithmetic.
+Square root uses a restoring integer algorithm with exact remainder rounding.
+Guarded native arithmetic remains available. The independent arithmetic oracle
+checks all rounding modes on both execution paths with native arithmetic on/off.

@@ -171,6 +171,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustc_apfloat"
+version = "0.2.3+llvm-462a31f5a5ab"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "486c2179b4796f65bfe2ee33679acf0927ac83ecf583ad6c91c3b4570911b9ad"
+dependencies = [
+ "bitflags",
+ "smallvec",
+]
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -180,6 +190,12 @@ dependencies = [
  "cpufeatures",
  "digest",
 ]
+
+[[package]]
+name = "smallvec"
+version = "1.16.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 
 [[package]]
 name = "syn"
@@ -232,7 +248,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "virtual-daisy"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "hound",
  "sha2",
@@ -241,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "zmu_cortex_m"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "byteorder",
  "enum-set",
@@ -249,5 +265,6 @@ dependencies = [
  "gdbstub_arch",
  "log",
  "num-bigfloat",
+ "rustc_apfloat",
  "thiserror",
 ]

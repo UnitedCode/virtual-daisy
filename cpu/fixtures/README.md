@@ -39,11 +39,22 @@ initial FPSCR, result low/high, final FPSCR. Operations are VRINT A/N/P/M/Z/R/X
 have a zero high word. The fixture covers both precisions, all four FPSCR
 rounding modes where applicable, FZ/DN combinations and clear/preexisting flags.
 Each precision uses 32 boundary/special inputs and 128 deterministic random
-inputs. QEMU 11.1.3 and rustc 1.100.0 generated this companion; the four earlier
+inputs. QEMU 11.1.3 and rustc 1.97.1 reproduce this companion; the four earlier
 fixtures regenerate byte-for-byte unchanged. The generator writes
 `isa_oracle.rounding.bin`. Tests exercise both execution paths with native
 arithmetic on/off, check untouched registers and APSR, and separately vary all
 legal source/destination pairs, including aliases.
+
+`isa_oracle_arithmetic_rounding.bin` adds 61,440 eleven-word records:
+precision, A low/high, B low/high, operation (add/subtract/multiply/divide/sqrt),
+initial FPSCR, result low/high, final FPSCR, magic `0x48545241`.
+`arithmetic_rounding_oracle.rs` executes each operation under all four rounding
+modes and FZ/DN combinations, with clear/preexisting status flags. Each precision
+uses all pairs of 16 boundary/special values and 128 deterministic random pairs.
+The generator writes `isa_oracle.arithmetic.bin`; QEMU 11.1.3 and rustc 1.97.1
+reproduce it and all five earlier datasets unchanged. Both interpreter paths are
+checked with native arithmetic enabled and disabled. The binary64 cases include
+square root at tiny and very large magnitudes.
 
 Regenerate from the repository root:
 

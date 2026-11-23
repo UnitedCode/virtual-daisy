@@ -41,6 +41,8 @@ mod fp_data_processing;
 #[cfg(feature = "has-fp")]
 mod fp_generic;
 #[cfg(feature = "has-fp")]
+mod fp_ieee;
+#[cfg(feature = "has-fp")]
 mod fp_load_and_store;
 #[cfg(feature = "has-fp")]
 mod fp_register_transfer;

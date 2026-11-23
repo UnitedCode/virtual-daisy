@@ -153,7 +153,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.3. Generated tables check their revision and
+The vendored CPU is revision 0.1.4. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -220,12 +220,26 @@ arithmetic and immediate constants. The register-bank distinction follows
 [PM0253 section 4.7](https://www.st.com/resource/en/programming_manual/DM00237416.pdf)
 and [Arm's VMOV immediate encoding](https://support.arm.com/documentation/ddi0406/c/Application-Level-Architecture/Instruction-Details/Alphabetical-list-of-instructions/VMOV--immediate-).
 
+A further 61,440 independently executed QEMU records check binary32/binary64
+add, subtract, multiply, divide and square root under all four rounding modes,
+FZ/DN combinations, clear/sticky flags and boundary/random operands. Both
+execution paths pass with native arithmetic enabled and disabled. These caught
+incorrect inexact flags for exact results and extreme-operand stalls in the old
+generic numerical fallback.
+
+The fallback now uses the [pure Rust LLVM APFloat port](https://github.com/rust-lang/rustc_apfloat),
+with ARM NaN priority, FZ, before-rounding tininess and finite-overflow flags
+applied explicitly. Square root uses an integer restoring algorithm and exact
+remainder rounding. Guarded native arithmetic remains available. These are
+instruction-level checks; they do not establish complete FPU or waveform parity.
+
 ## Supported scope and remaining limits
 
 | Area | Current scope |
 | --- | --- |
 | Seed revisions | Rev4/AK4556, Rev5/WM8731 and Rev7/PCM3060. No Seed2 DFM or Seed3 profile. |
 | CPU timing | Interpreter cycle counts and coupled functional bus service. No calibrated M7 pipeline, dual issue, speculation, store-buffer overlap or exception-entry latency. Startup frame counts and arbitrary timed interrupt PCs can differ. |
+| CPU instruction coverage | Thumb interpreter with the tested DSP/FPv5 cases above. Half-precision and fixed-point VCVT instruction paths remain unimplemented; complete ISA coverage has not been established. |
 | SysTick silicon scope | Selectable core and core/8 clocks, matching revision V. Earlier revision-Y behavior without the /8 divider is not a selectable silicon profile; see [ES0392](https://www.st.com/resource/en/errata_sheet/es0392-stm32h747xibixg-device-errata-stmicroelectronics.pdf), SysTick external-clock erratum. Board codec revisions do not identify the die revision. |
 | Audio | Stereo serial PCM, codec routing/power/mute and validated clocks. Exact rational rate is recorded. Converter analog noise, clipping curves and complete filter coefficients/rounding are not modeled. |
 | Memory | Populated H750 memories, shared cache/fabric, FMC SDRAM, internal flash and external IS25LP064A controller/chip models. Retention, electrical signal integrity and physical contention timing are unverified. |
