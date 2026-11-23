@@ -662,3 +662,27 @@ the gap falls from 103,637 ns to 67,331 ns. Rust produces 9,020 frames versus
 faults or FIFO errors. This does not establish waveform agreement. The 4,000-frame
 comparison still finds a 48-frame offset and an aligned RMS difference of
 0.012813561881. Physical pipeline and converter timing remain unverified.
+
+### Cortex-M7 control register (v0.2.30)
+
+The Daisy host now gives CCR its M7 reset value, 0x40200. BP and STKALIGN stay
+set after writes; reserved fields ignore writes. Other CPU profiles retain
+their existing configurable stack alignment. The effective CCR value reaches
+the memory model, so reserved input bits cannot change its cache behavior.
+
+Two tests failed before the fix: reset/readback and an executed SVC after
+software wrote zero to CCR. The latter starts with SP offset by four bytes and
+checks an eight-byte-aligned exception frame, stacked xPSR bit 9, the restored
+SP and a clear fault status. Reset and all three board profiles are also checked.
+The architectural ARM guest appends four readbacks and the same alignment
+exercise, bringing its capture to 112 words. Its extra basic frame adds eight
+shared-stack writes: lazy/eager totals are now 144/360.
+
+The old reference returned zero on reset and also allowed STKALIGN to be
+cleared. Native adapter 18 now applies the M7 contract independently in reset
+and CCR access; its existing exception stacker performs the alignment. No
+Rust exception implementation is shared with it. CPU 0.1.19 keeps decoder 16
+and unchanged retirement costs. The contract follows the
+[Cortex-M7 guide, sections 2.3.7 and 4.3.7](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1).
+This checks register and exception behavior, not physical branch-predictor
+timing.

@@ -19,7 +19,7 @@ pub fn check(prefix: &Path, shared_stack: bool, eager: bool) -> Result<()> {
         fs::remove_file(&report)?;
     }
     let data = fs::read(grade::artifact(prefix, ".cpu.bin"))?;
-    if data.len() != 416 {
+    if data.len() != 448 {
         return Err("Truncated ARM CPU capture".into());
     }
     let words: Vec<u32> = data
@@ -50,6 +50,13 @@ pub fn check(prefix: &Path, shared_stack: bool, eager: bool) -> Result<()> {
             &format!("integer division case {i}"),
         )?;
     }
+    for (i, expected) in [0x40200, 0x40200, 0x7031b, 0x7031b].into_iter().enumerate() {
+        equal(words[104 + i], expected, &format!("M7 CCR case {i}"))?;
+    }
+    equal(words[108], 0, "M7 alignment probe returned")?;
+    equal(words[109] & 7, 0, "M7 basic frame alignment")?;
+    equal(words[110] & (1 << 9), 1 << 9, "M7 stacked alignment flag")?;
+    equal(words[111], 0, "M7 restored misaligned SP")?;
     equal(words[14], 0x24040000, "MPU fault address")?;
     equal(words[19], 0x24040000, "execute-never fault PC")?;
     for phase in 7..=10 {
@@ -130,7 +137,7 @@ pub fn check(prefix: &Path, shared_stack: bool, eager: bool) -> Result<()> {
     }
     if shared_stack {
         let stats = grade::artifact(prefix, ".memory.txt");
-        if grade::counter(&stats, "exception_stack_words")? != if eager { 352 } else { 136 }
+        if grade::counter(&stats, "exception_stack_words")? != if eager { 360 } else { 144 }
             || grade::counter(&stats, "exception_entry_wait_yields")? == 0
             || grade::counter(&stats, "exception_return_wait_yields")? == 0
         {

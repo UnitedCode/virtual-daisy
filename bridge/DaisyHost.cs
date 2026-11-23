@@ -140,7 +140,7 @@ public static class DaisyHost
         ((DaisyGpio)machine["sysbus.gpioPortD"]).ConfigureStraps(uint.Parse(args[7]));
         Console.WriteLine("Board: " + args[6]);
         var cpu = (CortexM)machine["sysbus.cpu"];
-        if(((DaisyCortexM)cpu).FetchTagVersion!=17) throw new InvalidOperationException("Missing native instruction-fetch/runtime adapter");
+        if(((DaisyCortexM)cpu).FetchTagVersion!=18) throw new InvalidOperationException("Missing native instruction-fetch/runtime adapter");
         Console.WriteLine("Native instruction-fetch tag verified");
         cpu.VectorTableOffset = 0x08000000;
         cpu.SP = bus.ReadDoubleWord(0x08000000);
@@ -589,7 +589,7 @@ public static class DaisyHost
         if(kind=="cpu-align-fault") cpu.DisableAlignment();
         bus.WriteDoubleWord(0x20018200,kind=="cpu-div-fault" ? 1U:kind=="cpu-lazy-fault" ? 2U:kind.StartsWith("cpu-eager") ? 4U:0U);
         emulation.RunFor(TimeInterval.FromMilliseconds(2));
-        File.WriteAllBytes(prefix+".cpu.bin",bus.ReadBytes(0x20018000UL,416));
+        File.WriteAllBytes(prefix+".cpu.bin",bus.ReadBytes(0x20018000UL,448));
         using(var output=new BinaryWriter(File.Create(prefix+".cpu-sites.bin")))
             foreach(uint word in new uint[]{7,11,15,23,27,31,35,39,67,71,75,79,83,87,91}) output.Write(bus.ReadDoubleWord(bus.ReadDoubleWord(0x20018000+4*word)));
         ((DaisyNvic)machine["sysbus.nvic"]).Architecture.Save(prefix+".memory.txt");

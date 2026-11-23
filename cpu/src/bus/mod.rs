@@ -354,9 +354,15 @@ impl Bus for Processor {
             }
             0xE000_ED10 => self.write_scr(value),
             0xE000_ED14 => {
-                self.ccr = value;
+                // Cortex-M7 CCR.BP and STKALIGN are read-only ones. Other
+                // Armv7-M profiles retain their existing writable STKALIGN.
+                self.ccr = if self.cpuid & 0xff00_fff0 == 0x4100_c270 {
+                    (value & 0x0003_011b) | 0x0004_0200
+                } else {
+                    value
+                };
                 if let Some(device) = self.device.as_mut() {
-                    device.core_config_changed(addr, value)?;
+                    device.core_config_changed(addr, self.ccr)?;
                 }
             }
             0xE000_ED24 => self.write_shcsr(value),
