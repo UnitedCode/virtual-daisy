@@ -53,11 +53,18 @@ register counters, runtime logs, and the copied ELF with its SHA256. A successfu
 capture means execution completed without an unexpected runtime warning; it does
 not grade the application's behavior or require Synthphone startup messages.
 
+Reference boots and probes also have a separate **host wall-time** watchdog:
+180 seconds normally, 600 for keyboard/settings captures. On a slower host, set
+`VIRTUAL_DAISY_WALL_SECONDS=300` to choose a finite bound of 1–86,400 seconds per
+process. This does not change virtual duration, CPU/clock settings or quality
+assertions. Inspect the saved `.host.log` and `.progress.txt` before increasing
+the bound: a progressing capture and a stuck guest need different fixes.
+
 For a Rust project, the library can also be used directly:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.2" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.3" }
 ```
 
 ## Checks
@@ -82,8 +89,8 @@ is corrected to expose channels 0–19, including PA5/channel 19.
 The polling UART supports PCLK2, oversampling 16, 8N1 and a 16-byte FIFO plus
 shifter. Unsupported configurations fail explicitly. Transmitted bytes are
 timestamped when the full frame completes. `VIRTUAL_DAISY_UART_INSTANT=1` selects
-an explicitly nonphysical negative control. `VIRTUAL_DAISY_WALL_SECONDS` sets the
-host time limit (600 seconds by default); long scenarios need a larger bound.
+an explicitly nonphysical negative control. Keyboard captures default to a
+600-second host time limit; use the wall-time setting above for longer scenarios.
 
 Artifacts include `.keyboard.txt` scan counts/gaps, `.midi.csv` completed bytes,
 RTT output, the unchanged ELF/hash, runtime logs and model provenance. Runtime

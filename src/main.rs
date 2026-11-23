@@ -55,7 +55,22 @@ fn checked(command: &mut Command) -> Result<()> {
 
 // A hung/crashed emulator cannot count as a successful negative control.
 fn bounded(command: &mut Command, log: &Path) -> Result<()> {
-    bounded_with_limit(command, log, Duration::from_secs(180))
+    bounded_with_limit(command, log, reference_wall_limit(180)?)
+}
+fn parse_wall_limit(value: Option<&str>, default: u64) -> Result<Duration> {
+    let seconds = value.map(str::parse::<u64>).transpose()?.unwrap_or(default);
+    if !(1..=86_400).contains(&seconds) {
+        return Err("VIRTUAL_DAISY_WALL_SECONDS must be in 1..=86400".into());
+    }
+    Ok(Duration::from_secs(seconds))
+}
+fn reference_wall_limit(default: u64) -> Result<Duration> {
+    let value = env::var("VIRTUAL_DAISY_WALL_SECONDS");
+    match value {
+        Ok(value) => parse_wall_limit(Some(&value), default),
+        Err(env::VarError::NotPresent) => parse_wall_limit(None, default),
+        Err(error) => Err(error.into()),
+    }
 }
 fn bounded_with_limit(command: &mut Command, log: &Path, limit: Duration) -> Result<()> {
     let output = File::create(log)?;
@@ -236,15 +251,11 @@ impl Host<'_> {
         bounded_with_limit(
             &mut command,
             &self.directory.join(format!("{label}.host.log")),
-            Duration::from_secs(if fault.starts_with("keyboard") {
-                env::var("VIRTUAL_DAISY_WALL_SECONDS")
-                    .unwrap_or_else(|_| "600".into())
-                    .parse()?
-            } else if fault == "settings" {
+            reference_wall_limit(if fault.starts_with("keyboard") || fault == "settings" {
                 600
             } else {
                 180
-            }),
+            })?,
         )?;
         grade::execution_evidence(&capture)?;
         if fault.starts_with("keyboard") {
@@ -1229,4 +1240,27 @@ fn cli_main() -> Result<()> {
         );
     }
     Err("Usage: virtual-daisy capture|run|probe|timing|startup|storage|cpu|settings RENODE_RUNTIME OUTPUT_DIRECTORY --elf FIRMWARE.elf --board rev4|rev5|rev7 [--codec NAME] [--audio-boundary serial|ideal-line] [INPUT.wav]\n       virtual-daisy levels RENODE_RUNTIME PREPARED_DIRECTORY BEFORE.elf AFTER.elf VOCAL_48014.wav OUTPUT_DIRECTORY\n       virtual-daisy levels-analyze OUTPUT_DIRECTORY\n       virtual-daisy autotune RENODE_RUNTIME PREPARED_DIRECTORY BEFORE.elf AFTER.elf VOCAL_48014.wav OUTPUT_DIRECTORY\n       virtual-daisy autotune-analyze OUTPUT_DIRECTORY\n       virtual-daisy profiles\n       virtual-daisy grade CAPTURE_PREFIX".into())
+}
+
+#[cfg(test)]
+mod wall_limit_tests {
+    use super::*;
+
+    #[test]
+    fn reference_wall_limits_preserve_defaults_and_require_finite_positive_bounds() {
+        for default in [180, 600] {
+            assert_eq!(parse_wall_limit(None, default).unwrap().as_secs(), default);
+        }
+        for value in [1, 300, 86_400] {
+            assert_eq!(
+                parse_wall_limit(Some(&value.to_string()), 180)
+                    .unwrap()
+                    .as_secs(),
+                value
+            );
+        }
+        for value in ["", "0", "-1", "1.5", "abc", "86401", "18446744073709551615"] {
+            assert!(parse_wall_limit(Some(value), 180).is_err(), "{value}");
+        }
+    }
 }
