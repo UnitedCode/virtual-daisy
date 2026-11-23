@@ -107,7 +107,7 @@ fn generate_decode(
         .collect();
 
     if bits == 32 {
-        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 12;")?;
+        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 13;")?;
         let profile = u8::from(cargo_feature_enabled("has-fp"))
             | (u8::from(cargo_feature_enabled("has-dsp-ext")) << 1)
             | (u8::from(cargo_feature_enabled("fpv5-d16")) << 2)
@@ -405,8 +405,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             ("11110011.010....0000....0000....", "SAT16_t1"),
             ("111110101000....1111....10......", "DSP_t1"),
             ("111010101100....0..........0....", "DSP_t1"),
-            ("111110110101....1111....000.....", "DSP_t1"),
             ("111110100001....1111....10......", "DSP_t1"),
+            ("111110110010............000.....", "DSP_t1"),
+            ("111110110011............000.....", "DSP_t1"),
+            ("111110110100............000.....", "DSP_t1"),
+            ("111110110101............000.....", "DSP_t1"),
+            ("111110110110............000.....", "DSP_t1"),
+            ("111110110111............0000....", "DSP_t1"),
             // Packed DSP arithmetic; keep UADD8's typed representation.
             ("111110101000....1111....0000....", "DSP_t1"),
             ("111110101000....1111....0001....", "DSP_t1"),

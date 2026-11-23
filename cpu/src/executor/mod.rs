@@ -1898,3 +1898,5 @@ mod native_float;
 mod browser_dsp;
 
 mod parallel_dsp;
+
+mod dsp_multiply;

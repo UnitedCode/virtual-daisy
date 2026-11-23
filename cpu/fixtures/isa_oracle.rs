@@ -32,6 +32,8 @@ mod saturate_oracle;
 mod psr_oracle;
 mod qadd_oracle;
 mod parallel_oracle;
+mod dsp_multiply_oracle;
+mod smull_oracle;
 #[unsafe(no_mangle)]
 extern "C" fn Reset()->!{
  unsafe{core::ptr::write_volatile(0xe000ed88 as *mut u32,0x00f00000);asm!("dsb","isb",options(nostack));}
@@ -109,6 +111,8 @@ extern "C" fn Reset()->!{
  psr_oracle::run();
  qadd_oracle::run();
  parallel_oracle::run();
+ dsp_multiply_oracle::run();
+ smull_oracle::run();
  exit(0)
 }
 

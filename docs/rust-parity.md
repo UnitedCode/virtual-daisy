@@ -172,7 +172,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.12. Generated tables check their revision and
+The vendored CPU is revision 0.1.13. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -318,7 +318,7 @@ USAT, SSAT16 and USAT16 now execute. The existing SSAT and these additions pass
 scalar shift, representative lane/boundary/seeded inputs, sticky Q, and unchanged
 NZCV/GE. Both execution paths pass. DSP-only halfword forms remain undefined in
 base Armv7-M; CI now checks that profile separately. A standalone ARM guest tests
-10,192 legal source/destination pairs, including LR and aliases.
+15,680 legal source/destination pairs, including LR and aliases.
 
 QSUB, QDADD and QDSUB now execute alongside QADD. Another 8,192 independent
 QEMU records cover all four word operations, signed boundaries, seeded operands
@@ -345,6 +345,24 @@ GE to the opposite lane pair. Native adapter revision 16 corrects the existing
 C operand representation and GE packing. The reference arithmetic remains
 independent of Rust's lane kernel. A saved capture from revision 15 must fail
 the register gate at UASX's APSR check.
+
+### DSP multiply and absolute differences
+
+The scalar multiply audit covers 28 forms with 229,376 independent QEMU
+records. Eighteen previously missing forms now execute: dual-halfword multiply,
+word-by-halfword multiply, their accumulates, high-word accumulates/subtracts,
+and byte absolute differences. Rounded high-word forms wrap their intermediate
+64-bit sum; Q changes only for the specified overflowing add/accumulate forms.
+Both interpreter paths check every legal register and accumulator alias. The
+ARM register matrix includes all 28 forms, raising its total to 15,680 cases.
+
+The audit also found that SMULL widened negative operands as unsigned values.
+It now sign-extends before multiplication. Another 2,048 QEMU records check
+negative/boundary/seeded inputs and preserved flags; register tests cover all
+legal output/source assignments and aliases. The architectural ARM guest checks
+the pinned negative product before its fault probes. Invalid SP/PC operands and
+equal output registers fault. Instruction semantics follow
+[Arm's multiply guide](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1), section 3.6.
 
 That guest exposed three additional Rust bugs. A literal load into PC advanced
 another four bytes after branching, and MSR's field masks for GE or combined
