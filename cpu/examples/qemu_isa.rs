@@ -1,4 +1,4 @@
-//! Generate an independent ARM QEMU oracle for the browser CPU's float path.
+//! Generate independent QEMU fixtures for ARM floating-point, DSP and PSR paths.
 use std::{
     fs,
     path::PathBuf,
@@ -73,14 +73,20 @@ fn main() {
     let mut accumulate = Vec::new();
     let mut half = Vec::new();
     let mut fixed = Vec::new();
+    let mut saturation = Vec::new();
+    let mut psr = Vec::new();
     for line in hex.lines() {
         assert!(matches!(line.len(), 40 | 48 | 56 | 64 | 72 | 80 | 88 | 104));
-        let destination = if line.len() == 72 && line.ends_with("48414c46") {
+        let destination = if line.len() == 48 && line.ends_with("53534154") {
+            &mut saturation
+        } else if line.len() == 72 && line.ends_with("48414c46") {
             &mut half
         } else if line.len() == 40 {
             &mut bytes
         } else if line.len() == 56 {
             &mut precision
+        } else if line.len() == 64 && line.ends_with("41505352") {
+            &mut psr
         } else if line.len() == 64 && line.ends_with("46495844") {
             &mut fixed
         } else if line.len() == 64 {
@@ -126,6 +132,63 @@ fn main() {
     fs::write(output.with_extension("half.bin"), &half).unwrap();
     assert_eq!(fixed.len(), 401_408 * 8 * 4);
     fs::write(output.with_extension("fixed.bin"), &fixed).unwrap();
+    assert_eq!(saturation.len(), 520_192 * 6 * 4);
+    fs::write(output.with_extension("saturate.bin"), &saturation).unwrap();
+    assert_eq!(psr.len(), 768 * 8 * 4);
+    fs::write(output.with_extension("psr.bin"), &psr).unwrap();
+    let mut psr_source = String::from(
+        "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const CASES: [[u32; 7]; 48] = [\n",
+    );
+    let mut psr_cases = 0;
+    for record in psr.as_chunks::<32>().0 {
+        let words: [u32; 8] = core::array::from_fn(|i| {
+            u32::from_le_bytes(record[4 * i..4 * i + 4].try_into().unwrap())
+        });
+        if words[2] != 0xa80a0000 || ![0x50050000, 0x01000000].contains(&words[1]) {
+            continue;
+        }
+        psr_source.push_str("    [");
+        for word in &words[..7] {
+            psr_source.push_str(&format!("0x{word:08x}, "));
+        }
+        psr_source.push_str("],\n");
+        psr_cases += 1;
+    }
+    assert_eq!(psr_cases, 48);
+    psr_source.push_str("];\n");
+    fs::write(output.with_extension("psr-probe.rs"), psr_source).unwrap();
+    let selected = [
+        0xf3010000, 0xf301001f, 0xf30170cf, 0xf32170cf, 0xf3810000, 0xf381001f, 0xf38170cf,
+        0xf3a170cf, 0xf3210000, 0xf321000f, 0xf3a10000, 0xf3a1000f,
+    ];
+    let mut saturation_source = String::from(
+        "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const CASES: [[u32; 5]; 12] = [\n",
+    );
+    for opcode in selected {
+        let block = saturation
+            .chunks_exact(128 * 24)
+            .find(|block| u32::from_le_bytes(block[..4].try_into().unwrap()) == opcode)
+            .unwrap();
+        let half = opcode & 0x002070c0 == 0x00200000;
+        let sample = if opcode & (1 << 23) != 0 && !half {
+            4
+        } else {
+            8
+        };
+        let sticky = usize::from(opcode == 0xf321000f);
+        let record = &block[(sample * 4 + sticky) * 24..(sample * 4 + sticky + 1) * 24];
+        saturation_source.push_str("    [");
+        for word in record[..20].as_chunks::<4>().0 {
+            saturation_source.push_str(&format!("0x{:08x}, ", u32::from_le_bytes(*word)));
+        }
+        saturation_source.push_str("],\n");
+    }
+    saturation_source.push_str("];\n");
+    fs::write(
+        output.with_extension("saturate-probe.rs"),
+        saturation_source,
+    )
+    .unwrap();
     let mut cases = Vec::new();
     for block in fixed.chunks_exact(1024 * 32) {
         let opcode = u32::from_le_bytes(block[..4].try_into().unwrap());
@@ -196,4 +259,6 @@ fn main() {
     );
     println!("331776 QEMU half conversion cases; {} bytes", half.len());
     println!("401408 QEMU fixed conversion cases; {} bytes", fixed.len());
+    println!("520192 QEMU saturation cases; {} bytes", saturation.len());
+    println!("768 QEMU PSR mask/alias cases; {} bytes", psr.len());
 }

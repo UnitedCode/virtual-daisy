@@ -23,6 +23,8 @@ mod dbg;
 mod fp_encoding;
 mod sbfx;
 mod ssat;
+#[cfg(feature = "has-dsp-ext")]
+use ssat::decode_SAT16_t1;
 mod ubfx;
 mod usat;
 mod wfe;
@@ -393,7 +395,7 @@ fn decode_32(opcode: u32) -> Instruction {
     instruction
 }
 // Reject a stale generated table instead of running firmware with old masks.
-const _: () = assert!(GENERATED_DECODER_REVISION == 9);
+const _: () = assert!(GENERATED_DECODER_REVISION == 10);
 const _: () = assert!(
     GENERATED_DECODER_PROFILE
         == (cfg!(feature = "has-fp") as u8)
@@ -406,6 +408,7 @@ const _: () = assert!(
 mod decoder_tests;
 
 #[allow(non_snake_case)]
+#[cfg(feature = "has-dsp-ext")]
 fn decode_DSP_t1(opcode: u32) -> Instruction {
     Instruction::DSP { opcode }
 }

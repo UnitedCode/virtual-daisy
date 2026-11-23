@@ -8,8 +8,51 @@ mod fixed_probe;
 mod half_probe;
 #[path = "../src/instruction_clock_probe.rs"]
 mod instruction_clock_probe;
+#[path = "../cpu/fixtures/psr_probe.rs"]
+mod psr_probe;
+#[path = "../cpu/fixtures/saturation_probe.rs"]
+mod saturation_probe;
 #[path = "../src/systick_probe.rs"]
 mod systick_probe;
+
+#[test]
+#[ignore = "requires rustup target add thumbv7em-none-eabihf"]
+fn psr_guest_checks_masked_alias_writes_and_unprivileged_exception_preservation() {
+    let (directory, image) = guest("psr");
+    let mut machine = Machine::from_elf_at(Board::Rev5, &image, 0x6000).unwrap();
+    machine.run_until(10_000_000, 2_000_000).unwrap();
+    let data: Vec<_> = (0..32)
+        .flat_map(|i| machine.read32(0x20018000 + i * 4).unwrap().to_le_bytes())
+        .collect();
+    psr_probe::check(&data).unwrap();
+    if let Some(path) = std::env::var_os("VIRTUAL_DAISY_REFERENCE") {
+        psr_probe::check(&fs::read(PathBuf::from(path).join("psr.psr.bin")).unwrap()).unwrap();
+    }
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+#[ignore = "requires rustup target add thumbv7em-none-eabihf"]
+fn saturation_guest_executes_all_register_pairs_including_lr() {
+    let (directory, image) = guest("saturation");
+    let mut machine = Machine::from_elf_at(Board::Rev5, &image, 0x6000).unwrap();
+    machine.run_until(100_000_000, 12_000_000).unwrap();
+    let data: Vec<_> = (0..32)
+        .flat_map(|i| machine.read32(0x20018400 + i * 4).unwrap().to_le_bytes())
+        .collect();
+    saturation_probe::check(&data).unwrap();
+    if let Some(path) = std::env::var_os("VIRTUAL_DAISY_REFERENCE") {
+        let path = PathBuf::from(path);
+        saturation_probe::check(&fs::read(path.join("saturation.saturation.bin")).unwrap())
+            .unwrap();
+        let error = saturation_probe::check(
+            &fs::read(path.join("saturation-psr-control.saturation.bin")).unwrap(),
+        )
+        .unwrap_err();
+        assert!(error.contains("register 14 actual 0xa8000000"));
+    }
+    fs::remove_dir_all(directory).unwrap();
+}
 
 #[test]
 #[ignore = "requires rustup target add thumbv7em-none-eabihf"]
@@ -104,10 +147,19 @@ fn guest(name: &str) -> (PathBuf, Vec<u8>) {
     let content = fs::read_to_string(root.join(format!("guests/{name}.rs"))).unwrap();
     fs::write(
         &source,
-        content.replace(
-            "// FIXED_CASES",
-            include_str!("../cpu/fixtures/fixed_probe_cases.rs"),
-        ),
+        content
+            .replace(
+                "// PSR_CASES",
+                include_str!("../cpu/fixtures/psr_probe_cases.rs"),
+            )
+            .replace(
+                "// SATURATION_CASES",
+                include_str!("../cpu/fixtures/saturation_probe_cases.rs"),
+            )
+            .replace(
+                "// FIXED_CASES",
+                include_str!("../cpu/fixtures/fixed_probe_cases.rs"),
+            ),
     )
     .unwrap();
     let elf = directory.join(format!("{name}.elf"));

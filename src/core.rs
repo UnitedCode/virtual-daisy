@@ -47,7 +47,7 @@ const PREFIX_RESTORE: &str = r#"
         cpu->instructions_count_value += to_charge;
         cpu->instructions_count_total_value += to_charge;
 "#;
-const MARKER:&str="\nuint32_t tlib_daisy_fetch_tag_version(void) { return 14; }\nEXC_INT_0(uint32_t, tlib_daisy_fetch_tag_version)\nvoid *daisy_fetch_state;\nuint32_t (*daisy_fetch_runtime)(void *, uint32_t, uint32_t);\nvoid tlib_daisy_set_runtime_fetch(void *state, void *callback) { daisy_fetch_state = state; daisy_fetch_runtime = callback; }\nEXC_VOID_2(tlib_daisy_set_runtime_fetch, void *, state, void *, callback)\nuint64_t tlib_daisy_memory_context(void) { target_ulong data[TARGET_INSN_START_WORDS]; if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_STACKING) { return UINT64_MAX-1; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_UNSTACKING) { return UINT64_MAX-2; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_VECTOR_READ) { return UINT64_MAX; } if(!cpu->current_tb || !cpu->mem_io_pc) { return 0; } if(cpu_get_data_for_pc(cpu, cpu->current_tb, cpu->mem_io_pc, true, data, false) < 0) { return 0; } return ((uint64_t)data[0] << 32) | cpu->regs[13]; }\nEXC_INT_0(uint64_t, tlib_daisy_memory_context)\n";
+const MARKER:&str="\nuint32_t tlib_daisy_fetch_tag_version(void) { return 15; }\nEXC_INT_0(uint32_t, tlib_daisy_fetch_tag_version)\nvoid *daisy_fetch_state;\nuint32_t (*daisy_fetch_runtime)(void *, uint32_t, uint32_t);\nvoid tlib_daisy_set_runtime_fetch(void *state, void *callback) { daisy_fetch_state = state; daisy_fetch_runtime = callback; }\nEXC_VOID_2(tlib_daisy_set_runtime_fetch, void *, state, void *, callback)\nuint64_t tlib_daisy_memory_context(void) { target_ulong data[TARGET_INSN_START_WORDS]; if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_STACKING) { return UINT64_MAX-1; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_UNSTACKING) { return UINT64_MAX-2; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_VECTOR_READ) { return UINT64_MAX; } if(!cpu->current_tb || !cpu->mem_io_pc) { return 0; } if(cpu_get_data_for_pc(cpu, cpu->current_tb, cpu->mem_io_pc, true, data, false) < 0) { return 0; } return ((uint64_t)data[0] << 32) | cpu->regs[13]; }\nEXC_INT_0(uint64_t, tlib_daisy_memory_context)\n";
 const RUNTIME: &str = r#"
     if(cpu->tb_restart_request == 0 && cpu->current_tb->size != 0 && daisy_fetch_runtime) {
         uint32_t result = daisy_fetch_runtime(daisy_fetch_state, cpu->current_tb->pc, cpu->current_tb->size);
@@ -98,6 +98,32 @@ EXC_VOID_1(tlib_daisy_set_half, void *, callback)
 uint32_t daisy_half_double_enabled=1;
 void tlib_daisy_half_double(uint32_t enabled) { daisy_half_double_enabled=enabled; }
 EXC_VOID_1(tlib_daisy_half_double, uint32_t, enabled)
+"#;
+const PSR_EXPORT: &str = r#"
+uint64_t (*daisy_psr_access)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t);
+void tlib_daisy_set_psr(void *callback) {daisy_psr_access=callback;}
+EXC_VOID_1(tlib_daisy_set_psr,void *,callback)
+uint32_t daisy_psr_enabled=1;
+void tlib_daisy_psr_enabled(uint32_t enabled) {daisy_psr_enabled=enabled;}
+EXC_VOID_1(tlib_daisy_psr_enabled,uint32_t,enabled)
+"#;
+const PSR_HELPERS: &str = r#"
+extern uint64_t (*daisy_psr_access)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t);
+extern uint32_t daisy_psr_enabled;
+static uint32_t daisy_psr_service(CPUState *env,uint32_t reg,uint32_t value,uint32_t mask,uint32_t write) {
+    if(!daisy_psr_access) {tlib_abort("Missing Rust PSR service");}
+    uint64_t result=daisy_psr_access(xpsr_read(env),value,reg,mask,write);
+    if(result>>32) {tlib_abort("Invalid Rust PSR request");}
+    return (uint32_t)result;
+}
+uint32_t HELPER(daisy_v7m_mrs)(CPUState *env,uint32_t reg) {
+    if(daisy_psr_enabled && reg<8 && reg!=4) {return daisy_psr_service(env,reg,0,0,0);}
+    return HELPER(v7m_mrs)(env,reg);
+}
+void HELPER(daisy_v7m_msr)(CPUState *env,uint32_t reg,uint32_t value,uint32_t mask) {
+    if(daisy_psr_enabled && reg<4) {xpsr_write(env,daisy_psr_service(env,reg,value,mask,1),0xf80f0000);}
+    else {HELPER(v7m_msr)(env,reg,value);}
+}
 "#;
 const HALF_HELPERS: &str = r#"
 extern uint32_t (*daisy_half_convert)(uint64_t, uint32_t, uint32_t, uint32_t, uint64_t *, uint32_t *);
@@ -362,6 +388,7 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
         code.push_str(EXCEPTION_EXPORT);
         code.push_str(ALIGNMENT_EXPORT);
         code.push_str(HALF_EXPORT);
+        code.push_str(PSR_EXPORT);
         let needle = "void tlib_reset()\n{";
         pinned_replace(
             &mut code,
@@ -428,10 +455,22 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
         )?;
         fs::write(
             arm_helper,
-            format!("{code}\n{BARRIER_HELPER}\n{ALIGNMENT_HELPER}\n{EXCEPTION_WRAPPERS}\n{HALF_HELPERS}"),
+            format!("{code}\n{BARRIER_HELPER}\n{ALIGNMENT_HELPER}\n{EXCEPTION_WRAPPERS}\n{HALF_HELPERS}\n{PSR_HELPERS}"),
         )?;
         let cpu_header = tlib_dir.join("arch/arm/cpu.h");
         let mut code = fs::read_to_string(&cpu_header)?;
+        pinned_replace(
+            &mut code,
+            "(env->QF << 27) |\n           (env->thumb << 24)",
+            "(env->QF << 27) | (env->GE << 16) |\n           (env->thumb << 24)",
+        )?;
+        let psr_write =
+            "static inline void xpsr_write(CPUState *env, uint32_t val, uint32_t mask)\n{";
+        pinned_replace(
+            &mut code,
+            psr_write,
+            &format!("{psr_write}\n    if(mask & CPSR_GE) {{env->GE=(val>>16)&15;}}"),
+        )?;
         pinned_replace(
             &mut code,
             "#define EXCP_DIV_0",
@@ -460,11 +499,18 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
             header,
             code.replace(
                 needle,
-                &format!("DEF_HELPER_4(daisy_alignment, void, env, i32, i32, i32)\nDEF_HELPER_2(daisy_barrier, void, env, i32)\nDEF_HELPER_2(daisy_half_to_f64, f64, i32, env)\nDEF_HELPER_2(daisy_f64_to_half, i32, f64, env)\nDEF_HELPER_2(daisy_half_to_f32, f32, i32, env)\nDEF_HELPER_2(daisy_f32_to_half, i32, f32, env)\n{needle}"),
+                &format!("DEF_HELPER_4(daisy_alignment, void, env, i32, i32, i32)\nDEF_HELPER_2(daisy_barrier, void, env, i32)\nDEF_HELPER_2(daisy_half_to_f64, f64, i32, env)\nDEF_HELPER_2(daisy_f64_to_half, i32, f64, env)\nDEF_HELPER_2(daisy_half_to_f32, f32, i32, env)\nDEF_HELPER_2(daisy_f32_to_half, i32, f32, env)\nDEF_HELPER_2(daisy_v7m_mrs, i32, env, i32)\nDEF_HELPER_4(daisy_v7m_msr, void, env, i32, i32, i32)\n{needle}"),
             ),
         )?;
         let translate = tlib_dir.join("arch/arm/translate.c");
         let mut code = fs::read_to_string(&translate)?;
+        pinned_replace(
+            &mut code,
+            "gen_helper_v7m_mrs(tmp, cpu_env, addr);",
+            "gen_helper_daisy_v7m_mrs(tmp, cpu_env, addr);",
+        )?;
+        let msr="                                tmp = load_reg(s, rn);\n                                addr = tcg_const_i32(insn & 0xff);\n                                gen_helper_v7m_msr(cpu_env, addr, tmp);";
+        pinned_replace(&mut code,msr,"                                tmp = load_reg(s, rn);\n                                addr = tcg_const_i32(insn & 0xff);\n                                TCGv_i32 daisy_mask=tcg_const_i32((insn>>10)&3);\n                                gen_helper_daisy_v7m_msr(cpu_env, addr, tmp, daisy_mask);\n                                tcg_temp_free_i32(daisy_mask);")?;
         pinned_replace(&mut code,"                             * UNPREDICTABLE if bit 8 is set (we choose to UNDEF)","                             * Scalar storage conversions use the verified Rust kernel.")?;
         let prepare="                            if(precision == DOUBLE_PRECISION ||\n                               !(arm_feature(env, ARM_FEATURE_VFP_FP16) || arm_feature(env, ARM_FEATURE_VFP4))) {\n                                return 1;\n                            }\n                            /* Otherwise fall through */";
         pinned_replace(&mut code, prepare, HALF_PREPARE)?;
@@ -550,6 +596,6 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
         rid,
         &core,
     )?;
-    fs::write(directory.join("cpu-core.txt"),format!("infrastructure_commit={INFRA}\ntlib_commit={TLIB}\nfetch_tag_version=14\ncore_sha256={:x}\nsdk_version={}\nhalf_kernel_source_sha256={:x}\n",Sha256::digest(fs::read(core)?),env!("CARGO_PKG_VERSION"),Sha256::digest(include_bytes!("../cpu/src/executor/fp_half.rs"))))?;
+    fs::write(directory.join("cpu-core.txt"),format!("infrastructure_commit={INFRA}\ntlib_commit={TLIB}\nfetch_tag_version=15\ncore_sha256={:x}\nsdk_version={}\nhalf_kernel_source_sha256={:x}\npsr_kernel_source_sha256={:x}\n",Sha256::digest(fs::read(core)?),env!("CARGO_PKG_VERSION"),Sha256::digest(include_bytes!("../cpu/src/executor/fp_half.rs")),Sha256::digest(include_bytes!("../cpu/src/core/status.rs"))))?;
     Ok(())
 }

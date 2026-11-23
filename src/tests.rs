@@ -2,6 +2,30 @@ use super::*;
 
 #[cfg(feature = "rust-host")]
 #[test]
+fn psr_adapter_service_matches_the_independent_arm_records_and_rejects_bad_requests() {
+    let data = include_bytes!("../cpu/fixtures/isa_oracle_psr.bin");
+    for record in data.as_chunks::<32>().0 {
+        let [opcode, input, control, _, apsr, xpsr, epsr, _]: [u32; 8] =
+            core::array::from_fn(|i| {
+                u32::from_le_bytes(record[4 * i..4 * i + 4].try_into().unwrap())
+            });
+        let current = control | (1 << 24);
+        let result = daisy_psr_bits(current, input, opcode & 255, (opcode >> 10) & 3, 1);
+        assert_eq!(result >> 32, 0);
+        for (sysm, expected) in [(0, apsr), (3, xpsr), (6, epsr)] {
+            assert_eq!(
+                daisy_psr_bits(result as u32, 0, sysm, 0, 0),
+                u64::from(expected)
+            );
+        }
+    }
+    for (sysm, mask, write) in [(4, 0, 0), (8, 0, 0), (0, 4, 0), (0, 0, 2), (6, 2, 1)] {
+        assert_eq!(daisy_psr_bits(0, 0, sysm, mask, write), 1u64 << 32);
+    }
+}
+
+#[cfg(feature = "rust-host")]
+#[test]
 fn half_conversion_abi_preserves_outputs_on_invalid_inputs() {
     unsafe {
         let (mut value, mut flags) = (0u64, 0u32);

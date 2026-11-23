@@ -172,7 +172,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.9. Generated tables check their revision and
+The vendored CPU is revision 0.1.10. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -310,6 +310,31 @@ invalid fraction fields and unpopulated double registers remain undefined.
 The legal 0–16/1–32 fraction ranges and extension behavior follow
 [Arm's fixed-point conversion guide](https://documentation-service.arm.com/static/5e7b6a6216d2907d594035c4), C4.8,
 and the [Cortex-M7 guide](https://support.arm.com/documentation/dui0646/c/The-Cortex-M7-Instruction-Set/Floating-point-instructions/VCVT-between-floating-point-and-fixed-point).
+
+## Saturation and PSR integration
+
+USAT, SSAT16 and USAT16 now execute. The existing SSAT and these additions pass
+520,192 independently executed QEMU records: every saturation width, legal
+scalar shift, representative lane/boundary/seeded inputs, sticky Q, and unchanged
+NZCV/GE. Both execution paths pass. DSP-only halfword forms remain undefined in
+base Armv7-M; CI now checks that profile separately. A standalone ARM guest tests
+2,352 legal source/destination pairs, including LR and aliases.
+
+That guest exposed three additional Rust bugs. A literal load into PC advanced
+another four bytes after branching, and MSR's field masks for GE or combined
+APSR fields fell through to branch decoding. EPSR MRS reads also leaked GE bits.
+These paths are corrected. Another 768 QEMU records check PSR field masks, aliases,
+privileged/unprivileged writes, and read-as-zero EPSR fields. A separate ARM guest
+checks 48 pinned cases and requires GE preservation through SVC and return.
+
+The pinned reference omitted GE from its xPSR state transfers and MRS results,
+ignored MSR field masks, and required privilege for APSR writes. Native adapter
+revision 15 repairs GE storage and uses the Rust PSR field kernel. This checks
+integration; QEMU provides independent status-register expectations. Restoring
+the old reference PSR behavior must fail the saturation guest's flag check.
+The rules follow [Arm's saturation instructions](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1),
+sections 3.7.1–2, and [ST PM0253](https://www.st.com/resource/en/programming_manual/DM00237416.pdf),
+the core-register summary and MRS/MSR descriptions.
 
 ## Startup clock observations
 

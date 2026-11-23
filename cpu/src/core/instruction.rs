@@ -1028,13 +1028,29 @@ pub enum Instruction {
         shift_t: SRType,
         shift_n: usize,
     },
-    //USAT
+    USAT {
+        rd: Reg,
+        rn: Reg,
+        saturate_to: u32,
+        shift_t: SRType,
+        shift_n: usize,
+    },
 
     //
     // Subgroup: Halfword saturating instructions, (ARMv7-M DSP extensions)
     //
-    //USAT16
-    //SSAT16
+    #[cfg(feature = "has-dsp-ext")]
+    USAT16 {
+        rd: Reg,
+        rn: Reg,
+        saturate_to: u32,
+    },
+    #[cfg(feature = "has-dsp-ext")]
+    SSAT16 {
+        rd: Reg,
+        rn: Reg,
+        saturate_to: u32,
+    },
 
     //
     // Subgroup: Saturating addition and subtraction instructions, Armv7-M DSP extension
@@ -2731,6 +2747,25 @@ impl fmt::Display for Instruction {
                 shift_t,
                 shift_n,
             } => write!(f, "ssat {rd}, #{saturate_to}, {rn}, {shift_t:?} #{shift_n}"),
+            Self::USAT {
+                rd,
+                rn,
+                saturate_to,
+                shift_t,
+                shift_n,
+            } => write!(f, "usat {rd}, #{saturate_to}, {rn}, {shift_t:?} #{shift_n}"),
+            #[cfg(feature = "has-dsp-ext")]
+            Self::SSAT16 {
+                rd,
+                rn,
+                saturate_to,
+            } => write!(f, "ssat16 {rd}, #{saturate_to}, {rn}"),
+            #[cfg(feature = "has-dsp-ext")]
+            Self::USAT16 {
+                rd,
+                rn,
+                saturate_to,
+            } => write!(f, "usat16 {rd}, #{saturate_to}, {rn}"),
             Self::UBFX { params } => write!(
                 f,
                 "ubfx {}, {}, #{}, #{}",
@@ -3320,7 +3355,9 @@ pub fn instruction_size(instruction: &Instruction) -> usize {
         //SASX
         Instruction::SBC_imm { .. } => 4,
         Instruction::SBC_reg { thumb32, .. } => isize_t(*thumb32),
-        Instruction::SSAT { .. } => 4,
+        Instruction::SSAT { .. } | Instruction::USAT { .. } => 4,
+        #[cfg(feature = "has-dsp-ext")]
+        Instruction::SSAT16 { .. } | Instruction::USAT16 { .. } => 4,
         Instruction::SBFX { .. } => 4,
         Instruction::SDIV { .. } => 4,
         Instruction::SEL { .. } => 4,
@@ -3347,8 +3384,6 @@ pub fn instruction_size(instruction: &Instruction) -> usize {
         Instruction::SMULL { .. } => 4,
         //SMULW
         //SMUSD
-        //SSAT
-        //SSAT16
         //SSAX
         //SSUB16
         //SSUB8
@@ -3408,8 +3443,6 @@ pub fn instruction_size(instruction: &Instruction) -> usize {
         //UQSUB8
         //USAD8
         //USADA8
-        //USAT
-        //USAT16
         //USAX
         //USUB16
         //USUB8

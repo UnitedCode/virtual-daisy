@@ -30,11 +30,13 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.9. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.10. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
 CI runs the full CPU suite for FPv4-SP, FPv5-SP, FPv5-D16 and no-FPU builds.
+It also checks base Armv7-M separately, so DSP-only encodings remain undefined
+when the extension is absent.
 
 VCVTB/VCVTT half-storage conversions use an integer kernel for IEEE and ARM
 alternative-half formats, direct binary64 narrowing, FPSCR controls and flags.
@@ -43,6 +45,20 @@ an ARM guest checks every legal register pairing and preserved packed halves.
 The public raw-bit conversion API lets the optional Renode adapter use the same
 kernel, correcting its unsupported double-half and incorrect inexact flag paths.
 That adapter comparison checks integration; QEMU supplies independent math.
+
+USAT, SSAT16 and USAT16 now execute, alongside the existing SSAT. A 520,192-record
+QEMU oracle checks every saturation width and legal scalar shift, both lanes,
+sticky Q and preserved NZCV/GE. A separate ARM guest checks 2,352 register pairs,
+including LR and aliased operands. An integration failure also exposed the
+MSR decoder's missing field-mask forms and LDR-literal-to-PC advancing four bytes
+past its branch target. EPSR MRS reads no longer leak GE bits.
+
+A further 768 independent QEMU records cover PSR masks/aliases, unprivileged
+APSR writes and read-as-zero EPSR fields. Both execution paths pass. The optional
+reference adapter uses the same Rust field kernel and repairs its raw GE state
+storage for exception frames. Its status-register comparison checks integration;
+QEMU supplies independent expectations. A standalone ARM guest also checks GE
+preservation through SVC while restoring thread privilege.
 
 Fixed-point VCVT now has its own decoder rather than falling through to integer
 conversion and reading an immediate field as a register number. Every legal

@@ -17,7 +17,11 @@ mod instruction_clock_probe;
 mod level_check;
 mod platform;
 mod probe;
+#[path = "../cpu/fixtures/psr_probe.rs"]
+mod psr_probe;
 mod sai_probe;
+#[path = "../cpu/fixtures/saturation_probe.rs"]
+mod saturation_probe;
 mod sdram_probe;
 mod settings_probe;
 mod source_archive;
@@ -173,6 +177,10 @@ impl Host<'_> {
             ".half.txt",
             ".fixed.bin",
             ".fixed.txt",
+            ".saturation.bin",
+            ".saturation.txt",
+            ".psr.bin",
+            ".psr.txt",
             ".architecture.bin",
             ".architecture.txt",
             ".architecture-negative.txt",
@@ -301,6 +309,9 @@ impl Host<'_> {
             "half",
             "half-double-control",
             "fixed",
+            "saturation",
+            "saturation-psr-control",
+            "psr",
             "dsb-fault",
             "entry-fault",
             "wait-irq",
@@ -355,6 +366,42 @@ impl Host<'_> {
 }
 
 fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
+    guest::prepare(
+        host.directory,
+        "psr",
+        &include_str!("../guests/psr.rs").replace(
+            "// PSR_CASES",
+            include_str!("../cpu/fixtures/psr_probe_cases.rs"),
+        ),
+    )?;
+    let psr = host.boot("psr", tone, "psr")?;
+    psr_probe::check(&fs::read(grade::artifact(&psr, ".psr.bin"))?)?;
+    fs::write(grade::artifact(&psr,".psr.txt"),"psr_masks_and_aliases=passed\nunprivileged_apsr_writes=passed\nexception_ge_preservation=passed\n")?;
+    guest::prepare(
+        host.directory,
+        "saturation",
+        &include_str!("../guests/saturation.rs").replace(
+            "// SATURATION_CASES",
+            include_str!("../cpu/fixtures/saturation_probe_cases.rs"),
+        ),
+    )?;
+    let saturation = host.boot("saturation", tone, "saturation")?;
+    saturation_probe::check(&fs::read(grade::artifact(&saturation, ".saturation.bin"))?)?;
+    fs::write(
+        grade::artifact(&saturation, ".saturation.txt"),
+        "saturation_register_pairs=2352\nindependent_numerical_expectations=QEMU\n",
+    )?;
+    let old_psr = host.boot("saturation-psr-control", tone, "saturation-psr-control")?;
+    let error = saturation_probe::check(&fs::read(grade::artifact(&old_psr, ".saturation.bin"))?)
+        .err()
+        .ok_or("Old reference PSR behavior escaped the saturation gate")?;
+    if !error.contains("register 14 actual 0xa8000000") {
+        return Err(format!("Unexpected PSR negative control: {error}").into());
+    }
+    fs::write(
+        grade::artifact(&old_psr, ".saturation.txt"),
+        format!("legacy_psr_ge_loss=caught\n{error}\n"),
+    )?;
     guest::prepare(
         host.directory,
         "fixed",
@@ -879,7 +926,16 @@ fn run(
         if fs::read(elf)? != firmware || fs::read(directory.join("firmware.elf"))? != firmware {
             return Err("Firmware changed during CPU check".into());
         }
-        let summary="ARM fixed conversions across 960 register cases, half storage conversions across 6,144 register pairs, SAI FIFO/mute IRQ87, SDRAM rows/read-ahead/refresh IRQ48, CPU faults/FPU, QSPI/FLASH bus errors, DMA QSPI completion/error, precise mapped-fetch and exception frame-transition probes passed, including all negative controls; production startup/audio and other ARM probes NOT RUN\n";
+        let summary = concat!(
+            "ARM PSR masks/aliases, unprivileged writes and SVC GE restoration: passed\n",
+            "ARM saturation across 2,352 register pairs: passed\n",
+            "ARM fixed conversions across 960 register cases: passed\n",
+            "ARM half conversions across 6,144 register pairs: passed\n",
+            "ARM SAI FIFO/mute IRQ87 and SDRAM rows/read-ahead/refresh IRQ48: passed\n",
+            "CPU faults/FPU, QSPI/FLASH errors, DMA, mapped fetch and exception frames: passed\n",
+            "All required negative controls: caught\n",
+            "Production startup/audio and other ARM probes: NOT RUN\n"
+        );
         fs::write(directory.join("cpu-summary.txt"), summary)?;
         print!("{summary}");
         return Ok(());

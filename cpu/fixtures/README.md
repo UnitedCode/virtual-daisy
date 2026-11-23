@@ -1,4 +1,4 @@
-# Independent ARM floating-point fixture
+# Independent ARM instruction fixtures
 
 `isa_oracle.bin` contains 1,050 records of five little-endian `u32` values:
 operand A, operand B, operation (add/subtract/multiply/divide/square root), result, FPSCR.
@@ -118,6 +118,29 @@ The same generator extracts 40 boundary records as `isa_oracle.fixed-probe.rs`;
 `fixed_probe_cases.rs` keeps those values for the standalone ARM guest. Its 960
 executions cover all populated registers for selected endpoint/interior scales.
 CPU tests require every selected row to exist in the full independent fixture.
+
+`isa_oracle_saturate.bin` contains 520,192 six-word records from
+`saturate_oracle.rs`: opcode, input, initial APSR, result, final APSR, magic
+`0x54415353`. SSAT/USAT cover all 32 widths, 63 legal scalar shifts and 32
+boundary/seeded values under four NZCV/Q/GE starting states. SSAT16/USAT16 cover
+all 16 widths with the same inputs and flags. QEMU 11.1.3 and rustc 1.97.1
+reproduce this fixture and all eleven earlier datasets unchanged. The generator
+writes `isa_oracle.saturate.bin` and extracts 12 cases as
+`isa_oracle.saturate-probe.rs` for `saturation_probe_cases.rs`.
+
+`isa_oracle_psr.bin` adds 768 eight-word records from `psr_oracle.rs`: opcode,
+input, initial APSR, unprivileged flag, final APSR, MRS XPSR, MRS EPSR and magic
+`0x52535041`. Each APSR-bearing alias, field mask and privilege level uses eight
+operands and four initial flag states. Unprivileged cases return through an SVC
+handler before semihosting output. All twelve earlier datasets remain unchanged.
+The generator writes `isa_oracle.psr.bin` and extracts 48 cases as
+`isa_oracle.psr-probe.rs` for the separate ARM guest. That guest also requires
+APSR/GE preservation across exception entry and return.
+
+The native saturation guest's dynamic instruction wrapper preserves its caller's
+stack and loads/stores all general registers, including LR. This tests every
+legal register pair without using a tested operand as a branch-return address.
+CPU tests require all extracted guest cases to occur in the independent binary.
 
 Regenerate from the repository root:
 

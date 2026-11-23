@@ -40,6 +40,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             BarrierPointer=NativeLibrary.GetExport(library,"daisy_barrier");
             ExceptionPointer=NativeLibrary.GetExport(library,"daisy_exception");
             HalfConversionPointer=NativeLibrary.GetExport(library,"daisy_fp_half");
+            PsrAccessPointer=NativeLibrary.GetExport(library,"daisy_psr_bits");
             synchronize=Marshal.GetDelegateForFunctionPointer<SyncNative>(NativeLibrary.GetExport(library,"daisy_bus_sync"));
             access=Marshal.GetDelegateForFunctionPointer<AccessNative>(NativeLibrary.GetExport(library,"daisy_cpu_access"));
             debt=Marshal.GetDelegateForFunctionPointer<DebtNative>(NativeLibrary.GetExport(library,"daisy_cpu_debt"));
@@ -84,6 +85,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public IntPtr BarrierPointer {get;}
         public IntPtr ExceptionPointer {get;}
         public IntPtr HalfConversionPointer {get;}
+        public IntPtr PsrAccessPointer {get;}
         public bool ImageLoading { get; set; }
         public bool CpuWaitBypass { get; set; }
         public bool SuppressBusErrors {get;set;}

@@ -32,26 +32,8 @@ impl IsaStatusRegister for Processor {
             let mut value: u32 = 0;
             match params.sysm.get_bits(3..8) {
                 0b00000 => {
-                    //PSR
-                    if params.sysm.get_bit(0) {
-                        value.set_bits(0..9, self.psr.value.get_bits(0..9));
-                    }
-                    if params.sysm.get_bit(1) {
-                        value.set_bits(24..27, 0);
-                        value.set_bits(10..16, 0);
-                    }
-                    if !params.sysm.get_bit(2) {
-                        // NZCVQ flags; with DSP extension also include GE[3:0].
-                        value.set_bits(27..32, self.psr.value.get_bits(27..32));
-                        #[cfg(feature = "has-dsp-ext")]
-                        value.set_bits(16..20, self.psr.value.get_bits(16..20));
-                    } else {
-                        // GE-only reads (e.g. APSR_g, SYSm bit 2 = 1).
-                        // Meaningful only with the DSP extension; without DSP
-                        // the GE field does not exist and reads as zero (default).
-                        #[cfg(feature = "has-dsp-ext")]
-                        value.set_bits(16..20, self.psr.value.get_bits(16..20));
-                    }
+                    value = crate::core::status::read_psr_bits(self.psr.value, params.sysm)
+                        .unwrap_or(0);
                 }
                 0b00001 => {
                     if self.current_mode_is_privileged() {
@@ -120,16 +102,9 @@ impl IsaStatusRegister for Processor {
                 0b00000 => {
                     //PSR
                     if !params.sysm.get_bit(2) {
-                        if params.mask.get_bit(0) {
-                            // GE extensions — only present with DSP extension.
-                            // Without DSP, writes to GE bits are silently ignored.
-                            #[cfg(feature = "has-dsp-ext")]
-                            self.psr.value.set_bits(16..20, r_n.get_bits(16..20));
-                        }
-                        if params.mask.get_bit(1) {
-                            // N, Z, C, V, Q
-                            self.psr.value.set_bits(27..32, r_n.get_bits(27..32));
-                        }
+                        self.psr.value =
+                            crate::core::status::write_apsr_bits(self.psr.value, r_n, params.mask)
+                                .unwrap_or(self.psr.value);
                     }
                 }
                 0b00001 => {

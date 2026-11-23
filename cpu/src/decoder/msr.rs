@@ -5,6 +5,13 @@ use crate::core::{bits::Bits, register::Reg};
 #[inline(always)]
 pub fn decode_MSR_reg_t1(opcode: u32) -> Instruction {
     let reg_rn: u8 = opcode.get_bits(16..20) as u8;
+    if reg_rn == 13 || reg_rn == 15 {
+        return Instruction::UDF {
+            imm32: 0,
+            opcode: opcode.into(),
+            thumb32: true,
+        };
+    }
     Instruction::MSR_reg {
         params: MsrParams {
             rn: Reg::from(reg_rn),

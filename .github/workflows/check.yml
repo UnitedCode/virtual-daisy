@@ -42,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        features: ["armv7em", "armv7em,fpv4-sp-d16", "armv7em,fpv5-sp-d16"]
+        features: ["armv7m", "armv7em", "armv7em,fpv4-sp-d16", "armv7em,fpv5-sp-d16"]
     env:
       CARGO_INCREMENTAL: "0"
     steps:
