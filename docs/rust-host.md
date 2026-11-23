@@ -106,6 +106,25 @@ hardware bus/MPU faults go to firmware handlers. Cortex-M lockup stops the host.
 A finite run that ends in an application's fault handler is not a successful
 application test: check its completion markers, output and reported fault state.
 
+## Functional browser execution
+
+`Machine::from_elf_functional(board, elf)` is an explicit fast mode for immutable
+on-chip flash and DTCM-based interrupt firmware. It executes the original ARM
+instructions with cached decoding, direct flash/DTCM storage, and the same
+codec, GPIO, clock and timer models. Board service occurs at MMIO, carrier and
+peripheral deadlines rather than on every ordinary instruction.
+
+Use this mode for responsive virtual instruments. It is not a substitute for
+the default timed runtime's memory-bus, flash/cache, MPU or DMA checks. Flash
+programming and DMA requests are rejected; instruction/exception bus delays are
+omitted. Audio FIFO batches, codec routing, GPIO contacts, interrupt semantics,
+finite step budgets and keyed reset remain real firmware behavior. Functional
+reset retains DTCM and time. `from_elf` retains its existing detailed behavior.
+
+The separate Virtual AnsaLoop consumer compares this mode with the timed runtime
+and runs the unchanged tape firmware for live recording, playback and cassette
+exchange. Synthetic passes remain distinct from hardware validation.
+
 ## Troubleshooting
 
 | Message or symptom | Check |

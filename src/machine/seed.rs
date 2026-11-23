@@ -47,6 +47,7 @@ type FetchAccess = (u32, Result<u16, Fault>);
 type Replay = (Vec<Access>, Vec<FetchAccess>);
 /// Physical Seed board state used by the Rust execution host.
 pub struct Seed {
+    pub(super) functional: bool,
     profile: Board,
     clock: Box<Peripheral>,
     fmc: Box<Peripheral>,
@@ -55,7 +56,7 @@ pub struct Seed {
     gpio: Vec<Peripheral>,
     memory: Box<SystemMemory>,
     itcm: Vec<u8>,
-    dtcm: Vec<u8>,
+    pub(super) dtcm: Vec<u8>,
     mux: [u32; 16],
     serial: Serial,
     timer: Timer,
@@ -116,6 +117,7 @@ impl Seed {
         let mut gpio: Vec<_> = (0..11).map(|n| Peripheral::new(100 + n)).collect();
         gpio[3].configure_revision_straps(profile.grounded_straps())?;
         let mut seed = Self {
+            functional: false,
             profile,
             clock: Box::new(Peripheral::new(13)),
             fmc: Box::new(Peripheral::new(1)),
@@ -324,6 +326,9 @@ impl Seed {
         }
     }
     pub(super) fn synchronize(&mut self, cycles: u64) -> Result<(), Error> {
+        if self.functional && cycles == self.cycles {
+            return Ok(());
+        }
         let delta = cycles
             .checked_sub(self.cycles)
             .ok_or("CPU clock moved backwards")?;
@@ -335,7 +340,9 @@ impl Seed {
             .now
             .checked_add(ns as u64)
             .ok_or("board time overflow")?;
-        self.sync_memory()?;
+        if !self.functional {
+            self.sync_memory()?;
+        }
         self.serial.advance(self.now);
         self.timer.advance(
             ns as u64,
@@ -370,7 +377,15 @@ impl Seed {
             }
         }
         self.pump_dma()?;
-        self.update_carrier()?;
+        if !self.functional
+            || self
+                .carrier
+                .as_ref()
+                .and_then(|c| c.next_event())
+                .is_some_and(|t| t <= self.now)
+        {
+            self.update_carrier()?;
+        }
         Ok(())
     }
     fn audio_clock_registers(&mut self) -> Result<(u32, u32), &'static str> {
@@ -548,6 +563,13 @@ impl Seed {
             self.update_carrier()?;
             return self.gpio[p].read(u64::from((a - 0x58020000) % 0x400));
         }
+        // The HAL reads RDR as u8/u16. Each access consumes exactly one received character.
+        if (w == 1 || w == 2) && a == 0x40011024 {
+            return self
+                .serial
+                .read(0x24, self.now)
+                .map(|value| value & if w == 1 { 0xff } else { 0xffff });
+        }
         if w != 4 && !(0x52005000..0x52005034).contains(&a) {
             return Err("unsupported peripheral access width");
         }
@@ -581,6 +603,14 @@ impl Seed {
         }
     }
     fn write(&mut self, a: u32, w: usize, v: u32, cpu: bool) -> Result<(), &'static str> {
+        if self.functional
+            && ((0x52002000..0x52002200).contains(&a)
+                || (0x40020010..0x400200d0).contains(&a)
+                    && (a - 0x40020010).is_multiple_of(0x18)
+                    && v & 1 != 0)
+        {
+            return Err("flash programming and DMA require the timed runtime");
+        }
         if let Some((data, o)) = Self::tcm(a, w) {
             let memory = if data { &mut self.dtcm } else { &mut self.itcm };
             memory[o..o + w].copy_from_slice(&v.to_le_bytes()[..w]);
@@ -604,7 +634,19 @@ impl Seed {
                 let high = self.gpio[1].read(0x10)? & (1 << 11) != 0;
                 self.codec.codec_control(high)?;
             }
+            if self.functional {
+                self.update_carrier()?;
+            }
             return Ok(());
+        }
+        // TDR accepts the same byte/halfword accesses used by embedded-hal's serial Tx.
+        if (w == 1 || w == 2) && a == 0x40011028 {
+            return self.serial.write(
+                0x28,
+                v & if w == 1 { 0xff } else { 0xffff },
+                self.now,
+                self.clock.domain_hz(3)? as u64,
+            );
         }
         if w != 4 && !(0x52005000..0x52005034).contains(&a) {
             return Err("unsupported peripheral access width");
@@ -867,6 +909,9 @@ impl Seed {
         self.pump_dma()
     }
     fn pump_dma(&mut self) -> Result<(), &'static str> {
+        if self.functional {
+            return Ok(());
+        }
         for _ in 0..64 {
             let mut progressed = false;
             for stream in 0..8 {
@@ -1085,6 +1130,9 @@ impl Bus for Device {
         bypass: bool,
     ) -> Result<(), Fault> {
         let mut s = self.0.borrow_mut();
+        if s.functional {
+            return Ok(());
+        }
         if s.phase == 2 {
             return Ok(());
         } // Vector reads bypass MPU permissions.
@@ -1116,7 +1164,7 @@ impl Bus for Device {
         Ok(())
     }
     fn transactional(&self) -> bool {
-        true
+        !self.0.borrow().functional
     }
     fn observes_core_cycles(&self) -> bool {
         true
@@ -1163,6 +1211,9 @@ impl Bus for Device {
     }
     fn memory_barrier(&self, kind: u32) -> Result<(), Fault> {
         let mut s = self.0.borrow_mut();
+        if s.functional {
+            return Ok(());
+        }
         if kind == 2 {
             return Ok(());
         }
@@ -1174,6 +1225,9 @@ impl Bus for Device {
     }
     fn exception_phase(&self, phase: u8, address: u32, bytes: u32) -> Result<(), Fault> {
         let mut s = self.0.borrow_mut();
+        if s.functional {
+            return Ok(());
+        }
         let result = match phase {
             0 => {
                 s.phase = 1;
@@ -1243,6 +1297,12 @@ impl Bus for Device {
         let mut s = self.0.borrow_mut();
         s.synchronize(cycles)
             .map_err(|e| s.failure(a, 4, false, &e.to_string()))?;
+        if s.functional {
+            return s
+                .read(a, 4, true)
+                .map(|v| (v, true))
+                .map_err(|e| s.failure(a, 4, false, e));
+        }
         s.cpu_transfer(a, 4, false, 0)
             .map(|v| (v, !Seed::loadable(a, 4)))
     }
@@ -1250,6 +1310,12 @@ impl Bus for Device {
         let mut s = self.0.borrow_mut();
         s.synchronize(cycles)
             .map_err(|e| s.failure(a, 2, false, &e.to_string()))?;
+        if s.functional {
+            return s
+                .read(a, 2, true)
+                .map(|v| (v as u16, true))
+                .map_err(|e| s.failure(a, 2, false, e));
+        }
         s.cpu_transfer(a, 2, false, 0)
             .map(|v| (v as u16, !Seed::loadable(a, 2)))
     }
@@ -1257,6 +1323,12 @@ impl Bus for Device {
         let mut s = self.0.borrow_mut();
         s.synchronize(cycles)
             .map_err(|e| s.failure(a, 1, false, &e.to_string()))?;
+        if s.functional {
+            return s
+                .read(a, 1, true)
+                .map(|v| (v as u8, true))
+                .map_err(|e| s.failure(a, 1, false, e));
+        }
         s.cpu_transfer(a, 1, false, 0)
             .map(|v| (v as u8, !Seed::loadable(a, 1)))
     }
@@ -1264,12 +1336,24 @@ impl Bus for Device {
         let mut s = self.0.borrow_mut();
         s.synchronize(cycles)
             .map_err(|e| s.failure(a, 4, true, &e.to_string()))?;
+        if s.functional {
+            return s
+                .write(a, 4, v, true)
+                .map(|()| true)
+                .map_err(|e| s.failure(a, 4, true, e));
+        }
         s.cpu_transfer(a, 4, true, v).map(|_| !Seed::loadable(a, 4))
     }
     fn write16_at(&mut self, a: u32, v: u16, cycles: u64) -> Result<bool, Fault> {
         let mut s = self.0.borrow_mut();
         s.synchronize(cycles)
             .map_err(|e| s.failure(a, 2, true, &e.to_string()))?;
+        if s.functional {
+            return s
+                .write(a, 2, u32::from(v), true)
+                .map(|()| true)
+                .map_err(|e| s.failure(a, 2, true, e));
+        }
         s.cpu_transfer(a, 2, true, u32::from(v))
             .map(|_| !Seed::loadable(a, 2))
     }
@@ -1277,6 +1361,12 @@ impl Bus for Device {
         let mut s = self.0.borrow_mut();
         s.synchronize(cycles)
             .map_err(|e| s.failure(a, 1, true, &e.to_string()))?;
+        if s.functional {
+            return s
+                .write(a, 1, u32::from(v), true)
+                .map(|()| true)
+                .map_err(|e| s.failure(a, 1, true, e));
+        }
         s.cpu_transfer(a, 1, true, u32::from(v))
             .map(|_| !Seed::loadable(a, 1))
     }
@@ -1311,6 +1401,11 @@ impl Bus for Device {
             .map(|_| ())
     }
     fn in_range(&self, a: u32) -> bool {
+        if self.0.borrow().functional
+            && ((0x08000000..0x08020000).contains(&a) || (0x20000000..0x20020000).contains(&a))
+        {
+            return false;
+        }
         self.0.borrow().contains(a)
     }
 }

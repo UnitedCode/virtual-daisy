@@ -86,6 +86,49 @@ fn serial_frames_are_baud_paced_and_rx_overrun_does_not_invent_bytes() {
 }
 
 #[test]
+fn actual_arm_byte_and_halfword_uart_accesses_consume_and_transmit_one_character() {
+    let mut code = vec![0; 0xac];
+    code[..4].copy_from_slice(&0x20010000_u32.to_le_bytes());
+    code[4..8].copy_from_slice(&0x08000081_u32.to_le_bytes());
+    // Wait for the test's ready flag, then LDRB/LDRH RDR and STRB/STRH TDR.
+    for (i, instruction) in [
+        0x4d08_u16, 0x68ee, 0x2e00, 0xd0fc, 0x4805, 0x7801, 0x6029, 0x8802, 0x606a, 0x4b05, 0x7019,
+        0x801a, 0x245a, 0x60ac, 0xe7fe,
+    ]
+    .iter()
+    .enumerate()
+    {
+        code[0x80 + i * 2..0x82 + i * 2].copy_from_slice(&instruction.to_le_bytes());
+    }
+    for (at, value) in [
+        (0xa0, 0x40011024_u32),
+        (0xa4, 0x20000000),
+        (0xa8, 0x40011028),
+    ] {
+        code[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    let mut m = Machine::from_binary(Board::Rev5, &code).unwrap();
+    m.write32(0x580244f0, 1 << 4).unwrap();
+    m.write32(0x4001100c, 2048).unwrap();
+    m.write32(0x40011000, 13 | (1 << 29)).unwrap();
+    m.receive_serial(&[0x90, 0x45]).unwrap();
+    m.run_until(641_000, 200_000).unwrap();
+    m.write32(0x2000000c, 1).unwrap();
+    m.run_until(1_300_000, 200_000).unwrap();
+    assert_eq!(m.read32(0x20000000).unwrap(), 0x90);
+    assert_eq!(m.read32(0x20000004).unwrap(), 0x45);
+    assert_eq!(m.read32(0x20000008).unwrap(), 0x5a);
+    let serial = m.take_serial();
+    assert_eq!(
+        serial.iter().map(|(_, b)| *b).collect::<Vec<_>>(),
+        [0x90, 0x45]
+    );
+    assert_eq!(serial[1].0 - serial[0].0, 320_000);
+    assert_eq!(m.read32(0x4001101c).unwrap() & 0x28, 0);
+    assert_eq!(m.read32(0xe000ed28).unwrap(), 0);
+}
+
+#[test]
 fn systick_uses_the_selected_reference_clock_and_clear_on_read_flag() {
     for (source, flag) in [(0, 0), (4, 1 << 16)] {
         let mut m = Machine::from_binary(Board::Rev5, &firmware()).unwrap();
