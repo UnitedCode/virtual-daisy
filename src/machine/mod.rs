@@ -121,7 +121,7 @@ impl Machine {
         if seed.borrow().functional {
             let mut s = seed.borrow_mut();
             let mut flash = vec![0xff; 128 * 1024];
-            for (offset, chunk) in flash.chunks_exact_mut(4).enumerate() {
+            for (offset, chunk) in flash.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 chunk.copy_from_slice(
                     &s.host_read(0x08000000 + offset as u32 * 4, 4)?
                         .to_le_bytes(),
@@ -130,12 +130,9 @@ impl Machine {
             cpu.flash_memory(flash.len(), &flash);
             cpu.memory_map(Some(MemoryMapConfig::new(0x08000000, 0, 128 * 1024)));
             cpu.sram = RAM::new(0x20000000, 128 * 1024);
-            for (offset, chunk) in s.dtcm.chunks_exact(4).enumerate() {
+            for (offset, chunk) in s.dtcm.as_chunks::<4>().0.iter().enumerate() {
                 cpu.sram
-                    .write32(
-                        0x20000000 + offset as u32 * 4,
-                        u32::from_le_bytes(chunk.try_into().unwrap()),
-                    )
+                    .write32(0x20000000 + offset as u32 * 4, u32::from_le_bytes(*chunk))
                     .map_err(|e| Error::new(e.to_string()))?;
             }
             cpu.cache_instructions();
