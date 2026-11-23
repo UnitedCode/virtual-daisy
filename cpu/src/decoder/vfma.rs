@@ -5,6 +5,15 @@ use crate::core::{
 };
 
 #[allow(non_snake_case)]
+pub fn decode_VFNMA_t1(opcode: u32) -> Instruction {
+    match decode_VFNMS_t1(opcode) {
+        Instruction::VFNMS_f32 { params } => Instruction::VFNMA_f32 { params },
+        Instruction::VFNMS_f64 { params } => Instruction::VFNMA_f64 { params },
+        other => other,
+    }
+}
+
+#[allow(non_snake_case)]
 #[inline(always)]
 pub fn decode_VFMA_t1(opcode: u32) -> Instruction {
     let d = u8::from(opcode.get_bit(22));

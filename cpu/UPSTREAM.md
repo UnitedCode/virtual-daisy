@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.4. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.5. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 
 Changes are checked against the upstream instruction suite, executed ARM guests,
@@ -44,3 +44,10 @@ before rounding and finite-overflow flags are applied around its IEEE arithmetic
 Square root uses a restoring integer algorithm with exact remainder rounding.
 Guarded native arithmetic remains available. The independent arithmetic oracle
 checks all rounding modes on both execution paths with native arithmetic on/off.
+
+VFMA/VFMS/VFNMS/VFNMA also use single-rounding APFloat arithmetic. VFNMA now
+decodes for both precisions; VFMS negates the specified first multiplicand so
+NaN payload signs agree with the executed ARM oracle. Its 49,152 clear-status
+records cover all rounding/FZ/DN modes, seeded/special triples and cancellation
+at the normal/subnormal boundary. Tests replay sticky flags and check high
+registers, source/destination aliases, instruction size and D16-bank rejection.

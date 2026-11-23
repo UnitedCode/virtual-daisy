@@ -959,6 +959,10 @@ impl ExecutorHelper for Processor {
             #[cfg(feature = "has-fp")]
             Instruction::VFNMS_f64 { params } => self.exec_vfnms_f64(params),
             #[cfg(feature = "has-fp")]
+            Instruction::VFNMA_f32 { params } => self.exec_vfnma_f32(params),
+            #[cfg(feature = "has-fp")]
+            Instruction::VFNMA_f64 { params } => self.exec_vfnma_f64(params),
+            #[cfg(feature = "has-fp")]
             Instruction::VDIV_f32 { params } => self.exec_vdiv_f32(params),
             #[cfg(feature = "has-fp")]
             Instruction::VDIV_f64 { params } => self.exec_vdiv_f64(params),

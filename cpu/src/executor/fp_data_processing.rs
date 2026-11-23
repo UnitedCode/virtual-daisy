@@ -69,6 +69,8 @@ pub trait IsaFloatingPointDataProcessing {
     fn exec_vfms_f64(&mut self, params: &VAddSubParamsf64) -> ExecuteResult;
     fn exec_vfnms_f32(&mut self, params: &VAddSubParamsf32) -> ExecuteResult;
     fn exec_vfnms_f64(&mut self, params: &VAddSubParamsf64) -> ExecuteResult;
+    fn exec_vfnma_f32(&mut self, params: &VAddSubParamsf32) -> ExecuteResult;
+    fn exec_vfnma_f64(&mut self, params: &VAddSubParamsf64) -> ExecuteResult;
     fn exec_vmul_f32(&mut self, params: &VAddSubParamsf32) -> ExecuteResult;
     fn exec_vmul_f64(&mut self, params: &VAddSubParamsf64) -> ExecuteResult;
     fn exec_vnmul_f32(&mut self, params: &VAddSubParamsf32) -> ExecuteResult;
@@ -85,6 +87,31 @@ pub trait IsaFloatingPointDataProcessing {
 }
 
 impl IsaFloatingPointDataProcessing for Processor {
+    fn exec_vfnma_f32(&mut self, p: &VAddSubParamsf32) -> ExecuteResult {
+        if !self.condition_passed() {
+            return Ok(ExecuteSuccess::NotTaken);
+        }
+        self.execute_fp_check()?;
+        let addend = self.get_sr(p.sd) ^ 0x8000_0000;
+        let a = self.get_sr(p.sn) ^ 0x8000_0000;
+        let b = self.get_sr(p.sm);
+        let result = self.fp_mul_add::<u32>(addend, a, b, true);
+        self.set_sr(p.sd, result);
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
+    fn exec_vfnma_f64(&mut self, p: &VAddSubParamsf64) -> ExecuteResult {
+        if !self.condition_passed() {
+            return Ok(ExecuteSuccess::NotTaken);
+        }
+        self.execute_fp_check()?;
+        let pair = |(lo, hi)| u64::from(lo) | (u64::from(hi) << 32);
+        let addend = pair(self.get_dr(p.dd)) ^ 0x8000_0000_0000_0000;
+        let a = pair(self.get_dr(p.dn)) ^ 0x8000_0000_0000_0000;
+        let b = pair(self.get_dr(p.dm));
+        let result = self.fp_mul_add::<u64>(addend, a, b, true);
+        self.set_dr(p.dd, result as u32, (result >> 32) as u32);
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
     fn exec_vminmaxnm_f32(&mut self, params: VAddSubParamsf32, maximum: bool) -> ExecuteResult {
         self.execute_fp_check()?;
         let a = self.get_sr(params.sn);
@@ -457,8 +484,8 @@ impl IsaFloatingPointDataProcessing for Processor {
         if self.condition_passed() {
             self.execute_fp_check()?;
             let addend = self.get_sr(params.sd);
-            let op1 = self.get_sr(params.sn);
-            let op2 = self.get_sr(params.sm) ^ 0x8000_0000;
+            let op1 = self.get_sr(params.sn) ^ 0x8000_0000;
+            let op2 = self.get_sr(params.sm);
             let result = self.fp_mul_add::<u32>(addend, op1, op2, true);
             self.set_sr(params.sd, result);
             return Ok(ExecuteSuccess::Taken { cycles: 1 });
@@ -474,8 +501,8 @@ impl IsaFloatingPointDataProcessing for Processor {
             let (op1_low, op1_high) = self.get_dr(params.dn);
             let (op2_low, op2_high) = self.get_dr(params.dm);
             let addend = (u64::from(dest_high) << 32) | u64::from(dest_low);
-            let op1 = (u64::from(op1_high) << 32) | u64::from(op1_low);
-            let op2 = ((u64::from(op2_high) << 32) | u64::from(op2_low)) ^ 0x8000_0000_0000_0000;
+            let op1 = ((u64::from(op1_high) << 32) | u64::from(op1_low)) ^ 0x8000_0000_0000_0000;
+            let op2 = (u64::from(op2_high) << 32) | u64::from(op2_low);
             let result = self.fp_mul_add::<u64>(addend, op1, op2, true);
             self.set_dr(params.dd, result as u32, (result >> 32) as u32);
             return Ok(ExecuteSuccess::Taken { cycles: 1 });

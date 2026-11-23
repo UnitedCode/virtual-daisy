@@ -131,6 +131,7 @@ fn double_arithmetic_and_transfers_reject_unpopulated_registers() {
         (0xee210b02, 0x0040_00a0), // VMUL
         (0xee810b02, 0x0040_00a0), // VDIV
         (0xeea10b02, 0x0040_00a0), // VFMA
+        (0xee910b42, 0x0040_00a0), // VFNMA
         (0xeeb00b41, 0x0040_0020), // VMOV
         (0xeeb00bc1, 0x0040_0020), // VABS
         (0xeeb10b41, 0x0040_0020), // VNEG

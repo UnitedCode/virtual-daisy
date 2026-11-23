@@ -15,6 +15,7 @@ pub(super) fn valid(opcode: u32, instruction: &Instruction) -> bool {
         | VFMA_f64 { .. }
         | VFMS_f64 { .. }
         | VFNMS_f64 { .. }
+        | VFNMA_f64 { .. }
         | VMLA_f64 { .. }
         | VMINMAXNM_f64 { .. }
         | VSEL_f64 { .. } => (0x0040_00a0, true),

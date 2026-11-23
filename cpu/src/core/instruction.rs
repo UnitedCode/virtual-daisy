@@ -1590,6 +1590,14 @@ pub enum Instruction {
         params: VAddSubParamsf64,
     },
     #[cfg(feature = "has-fp")]
+    VFNMA_f32 {
+        params: VAddSubParamsf32,
+    },
+    #[cfg(feature = "has-fp")]
+    VFNMA_f64 {
+        params: VAddSubParamsf64,
+    },
+    #[cfg(feature = "has-fp")]
     VCMP_f32 {
         params: VCmpParamsf32,
     },
@@ -2930,6 +2938,14 @@ impl fmt::Display for Instruction {
                 write!(f, "vfnms.f32 {}, {}, {}", params.sd, params.sn, params.sm,)
             }
             #[cfg(feature = "has-fp")]
+            Self::VFNMA_f32 { params } => {
+                write!(f, "vfnma.f32 {}, {}, {}", params.sd, params.sn, params.sm)
+            }
+            #[cfg(feature = "has-fp")]
+            Self::VFNMA_f64 { params } => {
+                write!(f, "vfnma.f64 {}, {}, {}", params.dd, params.dn, params.dm)
+            }
+            #[cfg(feature = "has-fp")]
             Self::VFNMS_f64 { params } => {
                 write!(f, "vfnms.f64 {}, {}, {}", params.dd, params.dn, params.dm,)
             }
@@ -3372,6 +3388,10 @@ pub fn instruction_size(instruction: &Instruction) -> usize {
         Instruction::VFNMS_f32 { .. } => 4,
         #[cfg(feature = "has-fp")]
         Instruction::VFNMS_f64 { .. } => 4,
+        #[cfg(feature = "has-fp")]
+        Instruction::VFNMA_f32 { .. } => 4,
+        #[cfg(feature = "has-fp")]
+        Instruction::VFNMA_f64 { .. } => 4,
         #[cfg(feature = "has-fp")]
         Instruction::VLDM_T1 { .. } => 4,
         #[cfg(feature = "has-fp")]
