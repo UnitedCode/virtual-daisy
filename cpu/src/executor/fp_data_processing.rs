@@ -2,8 +2,9 @@
 use crate::Processor;
 use crate::core::fpregister::{Fpscr, IntegralRounding};
 use crate::core::instruction::{
-    VAddSubParamsf32, VAddSubParamsf64, VCVTParams, VCVTParamsF32F64, VCVTParamsF64F32,
-    VCmpParamsf32, VCmpParamsf64, VMovRegParamsf32, VMovRegParamsf64, VSelParamsf32, VSelParamsf64,
+    VAddSubParamsf32, VAddSubParamsf64, VCVTHalfParams, VCVTParams, VCVTParamsF32F64,
+    VCVTParamsF64F32, VCmpParamsf32, VCmpParamsf64, VMovRegParamsf32, VMovRegParamsf64,
+    VSelParamsf32, VSelParamsf64,
 };
 
 use crate::executor::ExecuteSuccess;
@@ -82,6 +83,7 @@ pub trait IsaFloatingPointDataProcessing {
     fn exec_vcvt(&mut self, params: &VCVTParams) -> ExecuteResult;
     fn exec_vcvt_f64_f32(&mut self, params: VCVTParamsF64F32) -> ExecuteResult;
     fn exec_vcvt_f32_f64(&mut self, params: VCVTParamsF32F64) -> ExecuteResult;
+    fn exec_vcvt_half(&mut self, params: VCVTHalfParams) -> ExecuteResult;
     fn exec_vsel_f32(&mut self, params: VSelParamsf32) -> ExecuteResult;
     fn exec_vsel_f64(&mut self, params: VSelParamsf64) -> ExecuteResult;
 }
@@ -744,6 +746,48 @@ impl IsaFloatingPointDataProcessing for Processor {
     }
 
     #[inline(always)]
+    fn exec_vcvt_half(&mut self, p: VCVTHalfParams) -> ExecuteResult {
+        use crate::core::register::ExtensionReg;
+        if !self.condition_passed() {
+            return Ok(ExecuteSuccess::NotTaken);
+        }
+        self.execute_fp_check()?;
+        let size = if matches!(p.full, ExtensionReg::Double { .. }) {
+            64
+        } else {
+            32
+        };
+        let shift = if p.top { 16 } else { 0 };
+        let (result, flags) = if p.to_half {
+            let bits = match p.full {
+                ExtensionReg::Single { reg } => u64::from(self.get_sr(reg)),
+                ExtensionReg::Double { reg } => {
+                    let (lo, hi) = self.get_dr(reg);
+                    u64::from(lo) | u64::from(hi) << 32
+                }
+            };
+            super::fp_half::to_half(bits, size, self.fpscr)
+        } else {
+            super::fp_half::from_half((self.get_sr(p.half) >> shift) as u16, size, self.fpscr)
+        };
+        self.fpscr |= flags;
+        if p.to_half {
+            let previous = self.get_sr(p.half);
+            self.set_sr(
+                p.half,
+                (previous & !(0xffff << shift)) | ((result as u32) << shift),
+            );
+        } else {
+            match p.full {
+                ExtensionReg::Single { reg } => self.set_sr(reg, result as u32),
+                ExtensionReg::Double { reg } => {
+                    self.set_dr(reg, result as u32, (result >> 32) as u32)
+                }
+            }
+        }
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
+
     fn exec_vsel_f32(&mut self, params: VSelParamsf32) -> ExecuteResult {
         self.execute_fp_check()?;
         let result = if self.condition_passed_b(params.cond) {

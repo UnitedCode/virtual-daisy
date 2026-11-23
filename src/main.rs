@@ -9,6 +9,8 @@ mod emulate;
 mod fetch_probe;
 mod grade;
 mod guest;
+#[path = "../cpu/fixtures/half_probe.rs"]
+mod half_probe;
 mod instruction_clock_probe;
 mod level_check;
 mod platform;
@@ -164,6 +166,9 @@ impl Host<'_> {
             ".systick.txt",
             ".instruction-clock.bin",
             ".instruction-clock.txt",
+            ".half.bin",
+            ".half-site.bin",
+            ".half.txt",
             ".architecture.bin",
             ".architecture.txt",
             ".architecture-negative.txt",
@@ -289,6 +294,8 @@ impl Host<'_> {
             "instruction-clock",
             "instruction-clock-control",
             "instruction-clock-coarse-control",
+            "half",
+            "half-double-control",
             "dsb-fault",
             "entry-fault",
             "wait-irq",
@@ -343,6 +350,19 @@ impl Host<'_> {
 }
 
 fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
+    guest::prepare(host.directory, "half", include_str!("../guests/half.rs"))?;
+    let half = host.boot("half", tone, "half")?;
+    half_probe::check(&fs::read(grade::artifact(&half, ".half.bin"))?)?;
+    fs::write(grade::artifact(&half,".half.txt"),"half_storage_formats=passed\nscalar_and_double_conversion=passed\ndirect_rounding_and_preserved_half=passed\n")?;
+    let broken = host.boot("half-double-control", tone, "half-double-control")?;
+    half_probe::check_legacy_double(
+        &fs::read(grade::artifact(&broken, ".half.bin"))?,
+        &fs::read(grade::artifact(&broken, ".half-site.bin"))?,
+    )?;
+    fs::write(
+        grade::artifact(&broken, ".half.txt"),
+        "legacy_double_undefined_decode=caught\n",
+    )?;
     guest::prepare(
         host.directory,
         "instruction_clock",
@@ -840,7 +860,7 @@ fn run(
         if fs::read(elf)? != firmware || fs::read(directory.join("firmware.elf"))? != firmware {
             return Err("Firmware changed during CPU check".into());
         }
-        let summary="ARM SAI FIFO/mute IRQ87, SDRAM rows/read-ahead/refresh IRQ48, CPU faults/FPU, QSPI/FLASH bus errors, DMA QSPI completion/error, precise mapped-fetch and exception frame-transition probes passed, including all negative controls; production startup/audio and other ARM probes NOT RUN\n";
+        let summary="ARM half storage conversions and 6,144 register pairs, SAI FIFO/mute IRQ87, SDRAM rows/read-ahead/refresh IRQ48, CPU faults/FPU, QSPI/FLASH bus errors, DMA QSPI completion/error, precise mapped-fetch and exception frame-transition probes passed, including all negative controls; production startup/audio and other ARM probes NOT RUN\n";
         fs::write(directory.join("cpu-summary.txt"), summary)?;
         print!("{summary}");
         return Ok(());

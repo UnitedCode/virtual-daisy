@@ -128,7 +128,7 @@ public static class DaisyHost
         ((DaisyGpio)machine["sysbus.gpioPortD"]).ConfigureStraps(uint.Parse(args[7]));
         Console.WriteLine("Board: " + args[6]);
         var cpu = (CortexM)machine["sysbus.cpu"];
-        if(((DaisyCortexM)cpu).FetchTagVersion!=13) throw new InvalidOperationException("Missing native instruction-fetch/runtime adapter");
+        if(((DaisyCortexM)cpu).FetchTagVersion!=14) throw new InvalidOperationException("Missing native instruction-fetch/runtime adapter");
         Console.WriteLine("Native instruction-fetch tag verified");
         cpu.VectorTableOffset = 0x08000000;
         cpu.SP = bus.ReadDoubleWord(0x08000000);
@@ -137,6 +137,21 @@ public static class DaisyHost
             cpu.PerformanceInMips=checked((uint)Math.Max(1UL,(hz+500000UL)/1000000UL));
         });
         emulation.MasterTimeSource.Quantum = TimeInterval.FromMicroseconds(1);
+        if(args[5]=="half" || args[5]=="half-double-control") {
+            if(args[5]=="half-double-control") ((DaisyCortexM)cpu).DisableHalfDouble();
+            bus.LoadELF(Path.Combine(Path.GetDirectoryName(args[3]),"half-probe.elf"));
+            cpu.VectorTableOffset=0x6000;cpu.SP=bus.ReadDoubleWord(0x6000);cpu.PC=bus.ReadDoubleWord(0x6004);
+            emulation.RunFor(TimeInterval.FromMilliseconds(500));
+            byte[] results=bus.ReadBytes(0x20018c00UL,128);
+            File.WriteAllBytes(args[3]+".half.bin",results);
+            uint faultPc=BitConverter.ToUInt32(results,29*4),site=0;
+            if(BitConverter.ToUInt32(results,31*4)!=0 && faultPc>=0xa000 && faultPc<0x10000) {
+                byte[] instruction=bus.ReadBytes(faultPc,4);
+                site=((uint)BitConverter.ToUInt16(instruction,0)<<16)|BitConverter.ToUInt16(instruction,2);
+            }
+            File.WriteAllBytes(args[3]+".half-site.bin",BitConverter.GetBytes(site));
+            emulation.Dispose();return;
+        }
         if(args[5]=="instruction-clock" || args[5]=="instruction-clock-control" || args[5]=="instruction-clock-coarse-control") {
             if(args[5]=="instruction-clock-control") ((DaisyCortexM)cpu).DisablePrefixTime();
             if(args[5]=="instruction-clock-coarse-control") ((DaisyCortexM)cpu).CoarseProgress=true;

@@ -1,5 +1,32 @@
 use super::*;
 
+#[cfg(feature = "rust-host")]
+#[test]
+fn half_conversion_abi_preserves_outputs_on_invalid_inputs() {
+    unsafe {
+        let (mut value, mut flags) = (0u64, 0u32);
+        assert_eq!(daisy_fp_half(0x3c00, 32, 0, 0, &mut value, &mut flags), 0);
+        assert_eq!((value, flags), (0x3f800000, 0));
+        assert_eq!(
+            daisy_fp_half(0x3ff0020000000001, 64, 1, 0, &mut value, &mut flags),
+            0
+        );
+        assert_eq!((value, flags), (0x3c01, 16));
+        for (bits, precision, to_half) in [
+            (0x10000, 32, 0),
+            (1u64 << 32, 32, 1),
+            (0, 16, 0),
+            (0, 32, 2),
+        ] {
+            assert_eq!(
+                daisy_fp_half(bits, precision, to_half, 0, &mut value, &mut flags),
+                1
+            );
+            assert_eq!((value, flags), (0x3c01, 16));
+        }
+    }
+}
+
 #[test]
 fn fmc_capture_reports_unused_hardware_and_preserves_invalid_configuration_errors() {
     let directory = std::env::temp_dir().join(format!("daisy-fmc-snapshot-{}", std::process::id()));

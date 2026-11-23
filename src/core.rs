@@ -47,7 +47,7 @@ const PREFIX_RESTORE: &str = r#"
         cpu->instructions_count_value += to_charge;
         cpu->instructions_count_total_value += to_charge;
 "#;
-const MARKER:&str="\nuint32_t tlib_daisy_fetch_tag_version(void) { return 13; }\nEXC_INT_0(uint32_t, tlib_daisy_fetch_tag_version)\nvoid *daisy_fetch_state;\nuint32_t (*daisy_fetch_runtime)(void *, uint32_t, uint32_t);\nvoid tlib_daisy_set_runtime_fetch(void *state, void *callback) { daisy_fetch_state = state; daisy_fetch_runtime = callback; }\nEXC_VOID_2(tlib_daisy_set_runtime_fetch, void *, state, void *, callback)\nuint64_t tlib_daisy_memory_context(void) { target_ulong data[TARGET_INSN_START_WORDS]; if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_STACKING) { return UINT64_MAX-1; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_UNSTACKING) { return UINT64_MAX-2; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_VECTOR_READ) { return UINT64_MAX; } if(!cpu->current_tb || !cpu->mem_io_pc) { return 0; } if(cpu_get_data_for_pc(cpu, cpu->current_tb, cpu->mem_io_pc, true, data, false) < 0) { return 0; } return ((uint64_t)data[0] << 32) | cpu->regs[13]; }\nEXC_INT_0(uint64_t, tlib_daisy_memory_context)\n";
+const MARKER:&str="\nuint32_t tlib_daisy_fetch_tag_version(void) { return 14; }\nEXC_INT_0(uint32_t, tlib_daisy_fetch_tag_version)\nvoid *daisy_fetch_state;\nuint32_t (*daisy_fetch_runtime)(void *, uint32_t, uint32_t);\nvoid tlib_daisy_set_runtime_fetch(void *state, void *callback) { daisy_fetch_state = state; daisy_fetch_runtime = callback; }\nEXC_VOID_2(tlib_daisy_set_runtime_fetch, void *, state, void *, callback)\nuint64_t tlib_daisy_memory_context(void) { target_ulong data[TARGET_INSN_START_WORDS]; if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_STACKING) { return UINT64_MAX-1; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_UNSTACKING) { return UINT64_MAX-2; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_VECTOR_READ) { return UINT64_MAX; } if(!cpu->current_tb || !cpu->mem_io_pc) { return 0; } if(cpu_get_data_for_pc(cpu, cpu->current_tb, cpu->mem_io_pc, true, data, false) < 0) { return 0; } return ((uint64_t)data[0] << 32) | cpu->regs[13]; }\nEXC_INT_0(uint64_t, tlib_daisy_memory_context)\n";
 const RUNTIME: &str = r#"
     if(cpu->tb_restart_request == 0 && cpu->current_tb->size != 0 && daisy_fetch_runtime) {
         uint32_t result = daisy_fetch_runtime(daisy_fetch_state, cpu->current_tb->pc, cpu->current_tb->size);
@@ -90,6 +90,53 @@ void daisy_check_alignment(CPUState *env, uint32_t address, uint32_t alignment, 
 void HELPER(daisy_alignment)(CPUState *env, uint32_t address, uint32_t alignment, uint32_t forced) {
     daisy_check_alignment(env,address,alignment,forced,GETPC());
 }
+"#;
+const HALF_EXPORT: &str = r#"
+uint32_t (*daisy_half_convert)(uint64_t, uint32_t, uint32_t, uint32_t, uint64_t *, uint32_t *);
+void tlib_daisy_set_half(void *callback) { daisy_half_convert=callback; }
+EXC_VOID_1(tlib_daisy_set_half, void *, callback)
+uint32_t daisy_half_double_enabled=1;
+void tlib_daisy_half_double(uint32_t enabled) { daisy_half_double_enabled=enabled; }
+EXC_VOID_1(tlib_daisy_half_double, uint32_t, enabled)
+"#;
+const HALF_HELPERS: &str = r#"
+extern uint32_t (*daisy_half_convert)(uint64_t, uint32_t, uint32_t, uint32_t, uint64_t *, uint32_t *);
+static uint64_t daisy_half_scalar(CPUState *env, uint64_t bits, uint32_t precision, uint32_t to_half) {
+    uint32_t control=HELPER(vfp_get_fpscr)(env), flags=0;
+    uint64_t result=0;
+    if(!daisy_half_convert || daisy_half_convert(bits,precision,to_half,control,&result,&flags)!=0) {
+        tlib_abort("Missing Rust half conversion kernel");
+    }
+    HELPER(vfp_set_fpscr)(env,control|flags);
+    return result;
+}
+float64 HELPER(daisy_half_to_f64)(uint32_t bits, CPUState *env) {
+    return make_float64(daisy_half_scalar(env,bits,64,0));
+}
+uint32_t HELPER(daisy_f64_to_half)(float64 bits, CPUState *env) {
+    return (uint32_t)daisy_half_scalar(env,float64_val(bits),64,1);
+}
+float32 HELPER(daisy_half_to_f32)(uint32_t bits, CPUState *env) {
+    return make_float32((uint32_t)daisy_half_scalar(env,bits,32,0));
+}
+uint32_t HELPER(daisy_f32_to_half)(float32 bits, CPUState *env) {
+    return (uint32_t)daisy_half_scalar(env,float32_val(bits),32,1);
+}
+"#;
+const HALF_PREPARE: &str = r#"
+                            if(!(arm_feature(env,ARM_FEATURE_VFP_FP16) || arm_feature(env,ARM_FEATURE_VFP4))) { return 1; }
+                            if(precision==DOUBLE_PRECISION) {
+                                if(!arm_feature(env,ARM_FEATURE_VFP5) || !daisy_half_convert || !daisy_half_double_enabled || veclen!=0) { return 1; }
+                                if(rn<6) {
+                                    if(rd>=16) { return 1; }
+                                    rm=((rm&15)<<1)|(rm>>4);
+                                    gen_mov_F0_vreg(SINGLE_PRECISION,rm);
+                                    break;
+                                }
+                                if(rm>=16) { return 1; }
+                                rd=((rd&15)<<1)|(rd>>4);
+                            }
+                            /* Otherwise fall through */
 "#;
 const BARRIER_HELPER: &str = r#"
 extern void *daisy_barrier_state;
@@ -314,6 +361,7 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
         code.push_str(BARRIER_EXPORT);
         code.push_str(EXCEPTION_EXPORT);
         code.push_str(ALIGNMENT_EXPORT);
+        code.push_str(HALF_EXPORT);
         let needle = "void tlib_reset()\n{";
         pinned_replace(
             &mut code,
@@ -380,7 +428,7 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
         )?;
         fs::write(
             arm_helper,
-            format!("{code}\n{BARRIER_HELPER}\n{ALIGNMENT_HELPER}\n{EXCEPTION_WRAPPERS}"),
+            format!("{code}\n{BARRIER_HELPER}\n{ALIGNMENT_HELPER}\n{EXCEPTION_WRAPPERS}\n{HALF_HELPERS}"),
         )?;
         let cpu_header = tlib_dir.join("arch/arm/cpu.h");
         let mut code = fs::read_to_string(&cpu_header)?;
@@ -412,13 +460,26 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
             header,
             code.replace(
                 needle,
-                &format!("DEF_HELPER_4(daisy_alignment, void, env, i32, i32, i32)\nDEF_HELPER_2(daisy_barrier, void, env, i32)\n{needle}"),
+                &format!("DEF_HELPER_4(daisy_alignment, void, env, i32, i32, i32)\nDEF_HELPER_2(daisy_barrier, void, env, i32)\nDEF_HELPER_2(daisy_half_to_f64, f64, i32, env)\nDEF_HELPER_2(daisy_f64_to_half, i32, f64, env)\nDEF_HELPER_2(daisy_half_to_f32, f32, i32, env)\nDEF_HELPER_2(daisy_f32_to_half, i32, f32, env)\n{needle}"),
             ),
         )?;
         let translate = tlib_dir.join("arch/arm/translate.c");
         let mut code = fs::read_to_string(&translate)?;
+        pinned_replace(&mut code,"                             * UNPREDICTABLE if bit 8 is set (we choose to UNDEF)","                             * Scalar storage conversions use the verified Rust kernel.")?;
+        let prepare="                            if(precision == DOUBLE_PRECISION ||\n                               !(arm_feature(env, ARM_FEATURE_VFP_FP16) || arm_feature(env, ARM_FEATURE_VFP4))) {\n                                return 1;\n                            }\n                            /* Otherwise fall through */";
+        pinned_replace(&mut code, prepare, HALF_PREPARE)?;
+        let from="                                    gen_helper_vfp_fcvt_f16_to_f32(cpu_F0s, tmp, cpu_env);";
+        if code.matches(from).count() != 2 {
+            return Err("Pinned half source conversions changed".into());
+        }
+        code=code.replace(from,"                                    if(precision==DOUBLE_PRECISION) { gen_helper_daisy_half_to_f64(cpu_F0d,tmp,cpu_env); }\n                                    else { gen_helper_daisy_half_to_f32(cpu_F0s,tmp,cpu_env); }");
+        let to="                                    gen_helper_vfp_fcvt_f32_to_f16(tmp, cpu_F0s, cpu_env);";
+        if code.matches(to).count() != 2 {
+            return Err("Pinned half destination conversions changed".into());
+        }
+        code=code.replace(to,"                                    if(precision==DOUBLE_PRECISION) { gen_helper_daisy_f64_to_half(tmp,cpu_F0d,cpu_env); precision=SINGLE_PRECISION; }\n                                    else { gen_helper_daisy_f32_to_half(tmp,cpu_F0s,cpu_env); }");
         let include = "#include \"cpu.h\"";
-        pinned_replace(&mut code,include,&format!("{include}\nextern void *daisy_fetch_state;\nextern uint32_t (*daisy_fetch_runtime)(void *, uint32_t, uint32_t);"))?;
+        pinned_replace(&mut code,include,&format!("{include}\nextern uint32_t (*daisy_half_convert)(uint64_t,uint32_t,uint32_t,uint32_t,uint64_t *,uint32_t *);\nextern uint32_t daisy_half_double_enabled;\nextern void *daisy_fetch_state;\nextern uint32_t (*daisy_fetch_runtime)(void *, uint32_t, uint32_t);"))?;
         let page_check =
             "    if((base->pc - (base->tb->pc & TARGET_PAGE_MASK)) >= TARGET_PAGE_SIZE) {";
         pinned_replace(&mut code,page_check,&format!("    if(base->tb->icount==1 && daisy_fetch_runtime) {{\n        uint32_t policy=daisy_fetch_runtime(daisy_fetch_state,base->tb->pc,0);\n        if(policy!=0 && policy!=5) {{ tlib_abort(\"Invalid Daisy translation policy\"); }}\n        if(policy==5) {{ return 0; }}\n    }}\n{page_check}"))?;
@@ -489,6 +550,6 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
         rid,
         &core,
     )?;
-    fs::write(directory.join("cpu-core.txt"),format!("infrastructure_commit={INFRA}\ntlib_commit={TLIB}\nfetch_tag_version=13\ncore_sha256={:x}\n",Sha256::digest(fs::read(core)?)))?;
+    fs::write(directory.join("cpu-core.txt"),format!("infrastructure_commit={INFRA}\ntlib_commit={TLIB}\nfetch_tag_version=14\ncore_sha256={:x}\nsdk_version={}\nhalf_kernel_source_sha256={:x}\n",Sha256::digest(fs::read(core)?),env!("CARGO_PKG_VERSION"),Sha256::digest(include_bytes!("../cpu/src/executor/fp_half.rs"))))?;
     Ok(())
 }

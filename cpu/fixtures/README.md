@@ -85,6 +85,25 @@ execution paths, native arithmetic on/off and clear/sticky flags. All eight
 earlier datasets regenerate byte-for-byte unchanged. The generator writes
 `isa_oracle.accumulate.bin`.
 
+`isa_oracle_half.bin` contains 331,776 nine-word records from `half_oracle.rs`:
+operation, input low/high, destination canary, initial FPSCR, result low/high,
+final FPSCR, magic `0x464c4148`. Operations 0/1 widen bottom/top FP16 to binary32;
+2/3 narrow binary32 to bottom/top FP16; 4/5 widen to binary64; 6/7 narrow binary64.
+It exhausts all 65,536 half encodings in both IEEE and alternative formats for
+both destination precisions, then checks control combinations and 512 narrowing
+inputs per full precision. QEMU 11.1.3 and rustc 1.97.1 reproduce this companion
+and all nine earlier datasets unchanged. The generator writes
+`isa_oracle.half.bin`. Tests replay clear/sticky status through both execution
+paths with native arithmetic on/off, and check every legal register pairing.
+
+`half_probe.rs` checks the separate ARM guest's eight numerical boundary cases
+and 6,144 register-pair results. `half_legacy_reference.bin` is a 128-byte result
+capture plus the four-byte fault instruction from the pinned Renode backend
+with its old double-half rejection restored. It must fail the positive gate and
+pass the negative gate, with an undefined-instruction fault at `0xeeb20b41`.
+The repaired reference uses the Rust numerical kernel; only QEMU is independent
+for half-conversion arithmetic.
+
 Regenerate from the repository root:
 
 ```sh

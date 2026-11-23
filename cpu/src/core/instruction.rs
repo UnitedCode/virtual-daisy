@@ -421,6 +421,15 @@ pub struct VCVTParams {
 
 #[allow(missing_docs)]
 #[derive(PartialEq, Debug, Copy, Clone)]
+pub struct VCVTHalfParams {
+    pub half: SingleReg,
+    pub full: ExtensionReg,
+    pub to_half: bool,
+    pub top: bool,
+}
+
+#[allow(missing_docs)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub struct VCVTParamsF64F32 {
     pub dd: DoubleReg,
     pub sm: SingleReg,
@@ -1621,6 +1630,10 @@ pub enum Instruction {
     #[cfg(feature = "has-fp")]
     VCVT_f32_f64 {
         params: VCVTParamsF32F64,
+    },
+    #[cfg(feature = "has-fp")]
+    VCVT_half {
+        params: VCVTHalfParams,
     },
     #[cfg(feature = "has-fp")]
     VSEL_f32 {
@@ -3006,6 +3019,28 @@ impl fmt::Display for Instruction {
             #[cfg(feature = "has-fp")]
             Self::VCVT_f32_f64 { params } => write!(f, "vcvt.f32.f64 {}, {}", params.sd, params.dm),
             #[cfg(feature = "has-fp")]
+            Self::VCVT_half { params } => {
+                let selector = if params.top { "t" } else { "b" };
+                let size = if matches!(params.full, ExtensionReg::Double { .. }) {
+                    64
+                } else {
+                    32
+                };
+                if params.to_half {
+                    write!(
+                        f,
+                        "vcvt{selector}.f16.f{size} {}, {}",
+                        params.half, params.full
+                    )
+                } else {
+                    write!(
+                        f,
+                        "vcvt{selector}.f{size}.f16 {}, {}",
+                        params.full, params.half
+                    )
+                }
+            }
+            #[cfg(feature = "has-fp")]
             Self::VSEL_f32 { params } => {
                 write!(
                     f,
@@ -3455,6 +3490,8 @@ pub fn instruction_size(instruction: &Instruction) -> usize {
         Instruction::VCVT_f64_f32 { .. } => 4,
         #[cfg(feature = "has-fp")]
         Instruction::VCVT_f32_f64 { .. } => 4,
+        #[cfg(feature = "has-fp")]
+        Instruction::VCVT_half { .. } => 4,
         #[cfg(feature = "has-fp")]
         Instruction::VSEL_f32 { .. } => 4,
         #[cfg(feature = "has-fp")]

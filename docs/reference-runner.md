@@ -70,7 +70,7 @@ For a Rust project, the library can also be used directly:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.15" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.16" }
 ```
 
 ## Checks
@@ -169,3 +169,10 @@ Run the CPU checks separately:
 ```sh
 cargo test --manifest-path cpu/Cargo.toml --no-default-features --features armv7em,fpv5-d16
 ```
+
+The reference adapter requires the default `rust-host` feature. Its native core
+revision 14 routes scalar half conversions through the Rust kernel, whose source
+hash is recorded in `cpu-core.txt`. QEMU supplies the independent conversion
+oracle; Renode checks instruction integration and the old double-half rejection
+as a negative control. A `--no-default-features` library is peripherals-only and
+does not provide this conversion service.
