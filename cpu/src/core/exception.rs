@@ -52,6 +52,24 @@ impl ExceptionState {
 }
 
 impl Processor {
+    /// Latch an external/local event. Events wake WFE, never WFI.
+    pub fn signal_event(&mut self) {
+        self.event_register = true;
+        if self.sleeping && self.waiting_for_event {
+            self.sleeping = false;
+            self.waiting_for_event = false;
+        }
+    }
+
+    /// Test the wake condition for the instruction that put this core to sleep.
+    pub fn sleep_wakeup_pending(&self) -> bool {
+        if self.waiting_for_event {
+            self.event_register || self.get_pending_exception().is_some()
+        } else {
+            self.has_wakeup_condition()
+        }
+    }
+
     pub(crate) fn icsr_state(&self) -> u32 {
         let mut value = self.psr.get_isr_number() as u32;
         if self.exceptions.values().filter(|e| e.active).count() <= 1 {
@@ -715,6 +733,16 @@ impl ExceptionHandling for Processor {
             self.pending_exception_count += 1;
             self.pending_exceptions.push(exception.into());
             self.refresh_pending_choice();
+            // NVIC tracks disabled pending bits separately. Its ISPR path
+            // already signals their physical pending edge, before promotion.
+            let number = usize::from(exception);
+            let new_edge = number < 16
+                || self.nvic_interrupt_pending[(number - 16) / 32] & (1 << ((number - 16) % 32))
+                    == 0;
+            let preempts = self.exceptions[&number].priority < self.get_execution_priority();
+            if (self.scr.get_bit(4) && new_edge) || preempts {
+                self.signal_event();
+            }
         }
     }
 
@@ -823,11 +851,13 @@ impl ExceptionHandling for Processor {
             self.device_exception_phase(3, frameptr, if exc_return & 16 == 0 { 104 } else { 32 })?;
             self.pop_stack(frameptr, exc_return)?;
             self.device_exception_phase(4, frameptr, 0)?;
+            self.signal_event();
 
             if self.mode == ProcessorMode::ThreadMode
                 && nested_activation == 1 // deactivate() reduced one
                 && self.scr.get_bit(1)
             {
+                self.waiting_for_event = false;
                 self.sleeping = true;
             }
 
@@ -841,6 +871,7 @@ impl ExceptionHandling for Processor {
     fn check_exceptions(&mut self) {
         if let Some(exception) = self.get_pending_exception() {
             self.sleeping = false;
+            self.waiting_for_event = false;
             self.clear_pending_exception(exception);
             let pc = self.get_pc();
             if let Err(fault) = self.exception_entry(exception, pc) {
@@ -870,8 +901,9 @@ impl ExceptionHandling for Processor {
                     active_exception,
                 });
             }
-        } else if self.sleeping && self.has_wakeup_condition() {
+        } else if self.sleeping && self.sleep_wakeup_pending() {
             self.sleeping = false;
+            self.waiting_for_event = false;
         }
     }
 }

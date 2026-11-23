@@ -172,7 +172,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.15. Generated tables check their revision and
+The vendored CPU is revision 0.1.16. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -559,3 +559,36 @@ it does not calibrate CPU timing. These instructions preserve Q and GE.
 Instruction semantics follow the [Cortex-M7 instruction guide](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1),
 section 3.8. This closes the audited extension gaps; it does not establish full
 instruction, peripheral, audio-waveform or hardware timing parity.
+
+
+### Event waits (v0.2.26)
+
+WFE and SEV previously acted as no-ops. The Rust CPU now keeps the single event
+latch: SEV coalesces events, WFE consumes a latched event or sleeps, and external
+events wake WFE without waking WFI. Reset clears the latch and sleep state.
+Exception return and preemptible asynchronous exceptions set the latch.
+SEVONPEND signals new pending transitions, including disabled interrupts;
+reasserting an already pending bit or enabling SEVONPEND after the transition
+does not create another event. A PRIMASK-masked enabled interrupt wakes WFI;
+without SEVONPEND it does not wake WFE. Both widths and execution paths are
+checked, including skipped conditional instructions and preserved APSR.
+
+A host-driven ARM guest stops at nine checkpoints. It distinguishes disabled
+pending edges, repeated pending writes, SCR changes, explicit events, masked
+interrupts, event retention through WFI and the exception-return event. Both
+backends execute the same guest and stimuli. The reference's WFE/SEV-as-no-ops
+option is a required failing control. This brings the executed ARM suite to
+15 guests. CPU 0.1.16 adds event state to transactional rollback; decoder 15 and
+native adapter 16 are unchanged.
+
+The contract follows [Arm's event-register explanation](https://support.arm.com/documentation/ka001269/latest/)
+and the [Cortex-M7 guide, power management and WFE/WFI](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1).
+This models digital sleep/wakeup behavior. WIC power states, electrical event
+inputs, debug halt and physical wake latency remain outside the verified model.
+
+The new event guest also exposed a reference defect. Its pending callback passed
+`IsInterruptTargetNonSecure` directly to `SecurityBanked.Get(secure)`. On M7 this
+selected the unused SCR bank, suppressing disabled-interrupt events. The managed
+adapter now inverts that boolean and verifies the exact pinned patch site at
+startup. `tests/fixtures/events_legacy_reference.bin` retains the failed capture.
+The Rust event implementation is independent of this reference correction.
