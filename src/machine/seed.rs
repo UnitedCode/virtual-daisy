@@ -903,6 +903,18 @@ impl Seed {
             .read_instruction(a, 2)
             .map(|v| v as u16)
             .map_err(|e| self.failure(a, 2, false, e))?;
+        // The modeled instruction service already transferred this line. Hold
+        // both halves of a Thumb-32 word together instead of requesting it twice.
+        // A word crossing the service-line boundary needs its second transaction.
+        if value >> 11 >= 0b11101 {
+            if let Some(next) = a.checked_add(2).filter(|&next| next & !31 == a & !31) {
+                if self.memory.decode_instruction(next, 2).is_ok() {
+                    if let Ok(second) = self.memory.read_instruction(next, 2) {
+                        self.fetch_log.push((next, Ok(second as u16)));
+                    }
+                }
+            }
+        }
         Ok(value)
     }
     pub(super) fn request_dma(&mut self, stream: usize) -> Result<(), &'static str> {
@@ -1435,4 +1447,91 @@ fn rcc_ready(offset: u32, mut value: u32) -> u32 {
         value = (value & !0x38) | ((value & 7) << 3);
     }
     value
+}
+
+#[cfg(test)]
+mod fetch_word_tests {
+    use super::*;
+    fn device(pc: u32) -> Device {
+        let mut seed = Seed::new(Board::Rev5).unwrap();
+        seed.load_bytes(pc, &[0xaf, 0xf3, 0x00, 0x80]).unwrap();
+        seed.synchronize(0).unwrap();
+        Device(Rc::new(RefCell::new(seed)))
+    }
+    fn fetch(device: &Device, pc: u32, address: u32, cycles: &mut u64) -> u16 {
+        for _ in 0..128 {
+            match device.fetch16_at(address, *cycles) {
+                Ok((value, _)) => return value,
+                Err(_) => {
+                    assert!(
+                        device.instruction_stalled(),
+                        "unexpected instruction-fetch fault"
+                    );
+                    *cycles += 16;
+                    device.begin_instruction(pc, 0x2001f000, false);
+                }
+            }
+        }
+        panic!("instruction fetch never completed")
+    }
+    fn completed(device: &Device) -> u64 {
+        device
+            .0
+            .borrow()
+            .memory
+            .stats()
+            .lines()
+            .find_map(|line| line.strip_prefix("fabric_completed="))
+            .unwrap()
+            .parse()
+            .unwrap()
+    }
+    #[test]
+    fn thumb32_halves_share_one_service_request_and_hold_the_fetched_word() {
+        let pc = 0x08000000;
+        let device = device(pc);
+        let mut cycles = 0;
+        device.begin_instruction(pc, 0x2001f000, false);
+        assert_eq!(fetch(&device, pc, pc, &mut cycles), 0xf3af);
+        let first = completed(&device);
+        assert!(first > 0);
+        device
+            .0
+            .borrow_mut()
+            .memory
+            .load_flash(pc + 2, 2, 0x1234)
+            .unwrap();
+        assert_eq!(fetch(&device, pc, pc + 2, &mut cycles), 0x8000);
+        assert_eq!(
+            completed(&device),
+            first,
+            "second half requested the same instruction service twice"
+        );
+        device.finish_instruction();
+        device.begin_instruction(pc, 0x2001f000, false);
+        assert_eq!(fetch(&device, pc, pc, &mut cycles), 0xf3af);
+        assert_eq!(
+            fetch(&device, pc, pc + 2, &mut cycles),
+            0x1234,
+            "a new uncached instruction must see new physical bytes"
+        );
+        assert_eq!(completed(&device), first + 1);
+    }
+    #[test]
+    fn thumb32_crossing_a_service_line_keeps_the_second_transaction() {
+        let pc = 0x0800001e;
+        let device = device(pc);
+        let mut cycles = 0;
+        device.begin_instruction(pc, 0x2001f000, false);
+        assert_eq!(fetch(&device, pc, pc, &mut cycles), 0xf3af);
+        let first = completed(&device);
+        device
+            .0
+            .borrow_mut()
+            .memory
+            .load_flash(pc + 2, 2, 0x1234)
+            .unwrap();
+        assert_eq!(fetch(&device, pc, pc + 2, &mut cycles), 0x1234);
+        assert_eq!(completed(&device), first + 1);
+    }
 }

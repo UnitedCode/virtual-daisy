@@ -127,6 +127,9 @@ fn qspi_translation_asks_for_single_instruction_blocks_without_executing_fetches
     let mut architecture = Peripheral::new(12);
     unsafe {
         assert_eq!(daisy_runtime_fetch(&mut architecture, 0x90000000, 0), 5);
+        assert_eq!(daisy_runtime_fetch(&mut architecture, 0x08000000, 0), 5);
+        architecture.write(0xd14, 3 << 16).unwrap();
         assert_eq!(daisy_runtime_fetch(&mut architecture, 0x08000000, 0), 0);
+        assert_eq!(daisy_runtime_fetch(&mut architecture, 0x90000000, 0), 5);
     }
 }

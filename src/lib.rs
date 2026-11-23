@@ -794,7 +794,12 @@ pub unsafe extern "C" fn daisy_runtime_fetch(
     count: u32,
 ) -> u32 {
     if count == 0 {
-        return if memory::SystemMemory::is_qspi(address, 2) {
+        return if (*state)
+            .memory
+            .lock()
+            .unwrap()
+            .single_instruction_translation(address)
+        {
             5
         } else {
             0

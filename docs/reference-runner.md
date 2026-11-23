@@ -70,7 +70,7 @@ For a Rust project, the library can also be used directly:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.23" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.24" }
 ```
 
 ## Checks
@@ -182,3 +182,8 @@ Revision 16 also repairs unsigned halfword operand representation and exchanged
 halfword GE packing in the pinned core. Packed arithmetic still executes its
 independent native implementation. The ARM register matrix and a saved failing
 revision-15 UASX capture check the positive and negative flag gates.
+
+Uncached executable memory uses one-instruction translations so instruction
+service does not depend on block length. Cached code keeps normal blocks.
+The shared clock probe compares narrow/wide encodings in AXI SRAM; its counts
+describe a functional service scenario and are not calibrated M7 cycle timings.

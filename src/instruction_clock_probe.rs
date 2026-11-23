@@ -26,5 +26,12 @@ pub fn check(bytes: &[u8]) -> Result<(), String> {
             ));
         }
     }
+    let narrow = words[23].wrapping_sub(words[22]);
+    let wide = words[24].wrapping_sub(words[22]);
+    // Equal instruction/service counts, allowing fractional-clock rounding.
+    // The unit-level fabric counter separately checks one transaction per word.
+    if narrow < 128 || wide.abs_diff(narrow) > 8 {
+        return Err(format!("ARM instruction fetch: 128 uncached NOPs advanced Thumb-16={narrow}, Thumb-32={wide} cycles"));
+    }
     Ok(())
 }

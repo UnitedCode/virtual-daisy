@@ -117,6 +117,26 @@ str r1, [r3], #4
 .endr
 bx lr
 .ltorg
+.pushsection .axiprobe.fetchwidth,"ax",%progbits
+.balign 4
+BEGIN bench_uncached_empty
+END
+.ltorg
+.balign 4
+BEGIN bench_uncached_nop16
+.rept 128
+nop.n
+.endr
+END
+.ltorg
+.balign 4
+BEGIN bench_uncached_nop32
+.rept 128
+nop.w
+.endr
+END
+.ltorg
+.popsection
 "#
 );
 unsafe extern "C" {
@@ -133,6 +153,9 @@ unsafe extern "C" {
     fn bench_tcm_multiple128() -> u32;
     fn bench_svc8() -> u32;
     fn bench_short_intervals();
+    fn bench_uncached_empty() -> u32;
+    fn bench_uncached_nop16() -> u32;
+    fn bench_uncached_nop32() -> u32;
 }
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn probe_main() -> ! {
@@ -164,6 +187,11 @@ pub unsafe extern "C" fn probe_main() -> ! {
         write_volatile(RESULTS.add(i + 1), function());
     }
     bench_short_intervals();
+    // Same instruction count, different encodings. Each aligned instruction
+    // uses one declared AXI SRAM service; this is not a pipeline calibration.
+    write_volatile(RESULTS.add(22), bench_uncached_empty());
+    write_volatile(RESULTS.add(23), bench_uncached_nop16());
+    write_volatile(RESULTS.add(24), bench_uncached_nop32());
     write_volatile(RESULTS.add(20), read_volatile(0xe000ed28 as *const u32));
     write_volatile(RESULTS.add(21), read_volatile(0xe000ed2c as *const u32));
     write_volatile(RESULTS, 0xab00_c10c);
