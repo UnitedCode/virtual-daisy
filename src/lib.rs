@@ -1,4 +1,4 @@
-//! Rust register models hosted by Renode through a small native bridge.
+//! Daisy Seed board models and Rust firmware host, with an optional Renode bridge.
 use std::collections::BTreeMap;
 pub mod audio;
 pub mod board;

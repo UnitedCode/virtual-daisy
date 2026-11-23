@@ -52,12 +52,12 @@ type Replay = (Vec<Access>, Vec<FetchAccess>);
 /// Physical Seed board state used by the Rust execution host.
 pub struct Seed {
     profile: Board,
-    clock: Peripheral,
-    fmc: Peripheral,
-    codec: Peripheral,
+    clock: Box<Peripheral>,
+    fmc: Box<Peripheral>,
+    codec: Box<Peripheral>,
     peripherals: BTreeMap<u32, (u32, Peripheral)>,
-    gpio: [Peripheral; 11],
-    memory: SystemMemory,
+    gpio: Vec<Peripheral>,
+    memory: Box<SystemMemory>,
     itcm: Vec<u8>,
     dtcm: Vec<u8>,
     mux: [u32; 16],
@@ -106,7 +106,7 @@ impl Seed {
         ] {
             peripherals.insert(base, (size, Peripheral::new(kind)));
         }
-        let mut memory = SystemMemory::default();
+        let mut memory = Box::new(SystemMemory::default());
         peripherals
             .get_mut(&0x52005000)
             .unwrap()
@@ -117,13 +117,13 @@ impl Seed {
             .unwrap()
             .1
             .configure_audio(profile.rx_channel())?;
-        let mut gpio = core::array::from_fn(|n| Peripheral::new(100 + n as u32));
+        let mut gpio: Vec<_> = (0..11).map(|n| Peripheral::new(100 + n)).collect();
         gpio[3].configure_revision_straps(profile.grounded_straps())?;
         let mut seed = Self {
             profile,
-            clock: Peripheral::new(13),
-            fmc: Peripheral::new(1),
-            codec: Peripheral::new(profile.codec_kind()),
+            clock: Box::new(Peripheral::new(13)),
+            fmc: Box::new(Peripheral::new(1)),
+            codec: Box::new(Peripheral::new(profile.codec_kind())),
             peripherals,
             gpio,
             memory,
