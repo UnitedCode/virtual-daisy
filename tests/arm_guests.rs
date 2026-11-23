@@ -725,7 +725,7 @@ fn architectural_guest_matches_reference_results() {
         machine
             .run_until(2_000_000, 1_000_000)
             .unwrap_or_else(|e| panic!("{label}: {e}"));
-        let words: Vec<_> = (0..116)
+        let words: Vec<_> = (0..128)
             .map(|i| machine.read32(0x20018000 + i * 4).unwrap())
             .collect();
         eprintln!(
@@ -739,6 +739,13 @@ fn architectural_guest_matches_reference_results() {
         assert_ne!(words[110] & (1 << 9), 0);
         assert_eq!(words[111], 0);
         assert_eq!(&words[112..116], &[0xa80a0000, 0xfffffff0, 4, 0x48494e54]);
+        assert_eq!(
+            &words[116..128],
+            &[
+                0x80ff7f01, 0x1234abcd, 1, 0x7f01, 0xffffff80, 0xffff80ff, 0x7f0180ff, 0xabcdef01,
+                0xff, 0x80ff, 0x7f, 0x7f01
+            ]
+        );
         assert_eq!(
             &words[96..100],
             &[0x7f800001, 0x80000000, 0xffc01234, 0x80000000]

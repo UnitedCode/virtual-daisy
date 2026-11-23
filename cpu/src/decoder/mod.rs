@@ -392,7 +392,13 @@ fn decode_32(opcode: u32) -> Instruction {
     if hint == Some(false) {
         return decode_UDF_t2(opcode);
     }
-    let instruction = decode_32_raw(opcode);
+    // Rn=PC selects a literal load before the generic register-offset masks.
+    // Their extra fixed offset bits do not make them valid literal aliases.
+    let instruction = if hint.is_none() {
+        ldr::decode_literal(opcode).unwrap_or_else(|| decode_32_raw(opcode))
+    } else {
+        decode_32_raw(opcode)
+    };
     if hint == Some(true)
         && !matches!(
             instruction,
@@ -413,7 +419,7 @@ fn decode_32(opcode: u32) -> Instruction {
 // Reject a stale generated table instead of running firmware with old masks.
 #[cfg(feature = "has-dsp-ext")]
 use self::{uxt::decode_UXTB16_t1, uxtab::decode_UXTAB_t1};
-const _: () = assert!(GENERATED_DECODER_REVISION == 17);
+const _: () = assert!(GENERATED_DECODER_REVISION == 18);
 const _: () = assert!(
     GENERATED_DECODER_PROFILE
         == (cfg!(feature = "has-fp") as u8)

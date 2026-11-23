@@ -87,9 +87,11 @@ pub fn decode_LDRB_imm_t3(opcode: u32) -> Instruction {
 
 #[allow(non_snake_case)]
 pub fn decode_LDRB_lit_t1(opcode: u32) -> Instruction {
-    Instruction::UDF {
-        imm32: 0,
-        opcode: opcode.into(),
-        thumb32: true,
+    match super::ldr::narrow_literal_params(opcode) {
+        Some(params) => Instruction::LDRB_imm {
+            params,
+            thumb32: true,
+        },
+        None => super::decode_UDF_t2(opcode),
     }
 }

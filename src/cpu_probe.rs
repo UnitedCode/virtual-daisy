@@ -19,7 +19,7 @@ pub fn check(prefix: &Path, shared_stack: bool, eager: bool) -> Result<()> {
         fs::remove_file(&report)?;
     }
     let data = fs::read(grade::artifact(prefix, ".cpu.bin"))?;
-    if data.len() != 464 {
+    if data.len() != 512 {
         return Err("Truncated ARM CPU capture".into());
     }
     let words: Vec<u32> = data
@@ -62,6 +62,15 @@ pub fn check(prefix: &Path, shared_stack: bool, eager: bool) -> Result<()> {
         .enumerate()
     {
         equal(words[112 + i], expected, &format!("memory hint case {i}"))?;
+    }
+    for (i, expected) in [
+        0x80ff7f01, 0x1234abcd, 1, 0x7f01, 0xffffff80, 0xffff80ff, 0x7f0180ff, 0xabcdef01, 0xff,
+        0x80ff, 0x7f, 0x7f01,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        equal(words[116 + i], expected, &format!("literal load case {i}"))?;
     }
     equal(words[14], 0x24040000, "MPU fault address")?;
     equal(words[19], 0x24040000, "execute-never fault PC")?;
