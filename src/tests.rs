@@ -1,5 +1,52 @@
 use super::*;
 
+#[test]
+fn fmc_capture_reports_unused_hardware_and_preserves_invalid_configuration_errors() {
+    let directory = std::env::temp_dir().join(format!("daisy-fmc-snapshot-{}", std::process::id()));
+    std::fs::create_dir(&directory).unwrap();
+    let file = directory.join("fmc.txt");
+    let path = std::ffi::CString::new(file.to_str().unwrap()).unwrap();
+    let mut fmc = Peripheral::new(1);
+    let mut clock = Peripheral::new(13);
+    let save = |fmc: &mut Peripheral, clock: &mut Peripheral| unsafe {
+        daisy_fmc_save(fmc, clock, path.as_ptr())
+    };
+    assert_eq!(save(&mut fmc, &mut clock), 0);
+    assert!(std::fs::read_to_string(&file)
+        .unwrap()
+        .contains("fmc_state=CLOCK_DISABLED"));
+    clock.clock.write(0xd4, 1 << 12);
+    assert_eq!(save(&mut fmc, &mut clock), 0);
+    assert!(std::fs::read_to_string(&file)
+        .unwrap()
+        .contains("fmc_state=UNCONFIGURED"));
+    clock.clock.write(0x4c, 1); // PLL1Q has not been started.
+    assert_eq!(save(&mut fmc, &mut clock), 0);
+    let stopped = std::fs::read_to_string(&file).unwrap();
+    assert!(stopped.contains("fmc_state=CLOCK_STOPPED"));
+    clock.clock.write(0x4c, 0);
+    fmc.registers.insert(0x140, 1);
+    assert_eq!(
+        save(&mut fmc, &mut clock),
+        1,
+        "active unsupported timing still fails"
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), stopped);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn captured_audio_rate_is_retained_when_serial_output_is_disabled() {
+    let mut sai = Peripheral::new(7);
+    assert_eq!(unsafe { daisy_sai_capture_rate(&mut sai) }, 0.0);
+    assert_eq!(unsafe { daisy_sai_rate(&mut sai, 48_187.487_053_149) }, 0);
+    sai.sai.write(4, 0).unwrap();
+    assert_eq!(
+        unsafe { daisy_sai_capture_rate(&mut sai) },
+        48_187.487_053_149
+    );
+}
+
 fn stream(dma: &mut dma::Dma, index: u64, extra: u32) {
     let base = 0x10 + index * 0x18;
     dma.write(base + 4, 4).unwrap();

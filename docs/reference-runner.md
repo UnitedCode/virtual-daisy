@@ -53,6 +53,12 @@ register counters, runtime logs, and the copied ELF with its SHA256. A successfu
 capture means execution completed without an unexpected runtime warning; it does
 not grade the application's behavior or require Synthphone startup messages.
 
+Firmware that never starts audio completes without a WAV; `.wav.stats` reports
+`capture_state=NO_AUDIO_FRAMES`. Unused SDRAM reports `CLOCK_DISABLED`,
+`CLOCK_STOPPED` or `UNCONFIGURED` with its raw registers. Active unsupported
+configurations still fail. Recorded audio retains the rate it used even if the
+firmware disables its serial clock before capture ends.
+
 Reference boots and probes also have a separate **host wall-time** watchdog:
 180 seconds normally, 600 for keyboard/settings captures. On a slower host, set
 `VIRTUAL_DAISY_WALL_SECONDS=300` to choose a finite bound of 1–86,400 seconds per
@@ -64,7 +70,7 @@ For a Rust project, the library can also be used directly:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.4" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.9" }
 ```
 
 ## Checks
