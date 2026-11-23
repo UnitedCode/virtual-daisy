@@ -11,7 +11,7 @@ use crate::core::fetch::Fetch;
 use crate::core::instruction::{Imm32Carry, Instruction, SetFlags, instruction_size};
 
 use crate::core::operation::condition_test;
-use crate::core::register::{Apsr, BaseReg, Ipsr, Reg};
+use crate::core::register::{Apsr, BaseReg, Epsr, Ipsr, Reg};
 use crate::decoder::Decoder;
 use crate::memory::map::MapMemory;
 use crate::peripheral::{dwt::Dwt, systick::SysTick};
@@ -92,7 +92,8 @@ pub trait Executor {
     fn step_sleep(&mut self);
 
     ///
-    /// Execute given instruction. Returns number of clock cycles burn.
+    /// Execute an already-decoded instruction and return its cycle cost.
+    /// The caller supplies valid execution state; use `step` for state/fetch checks.
     ///
     fn execute(&mut self, instruction: &Instruction, instruction_size: usize) -> u32;
 }
@@ -1126,34 +1127,40 @@ impl Executor for Processor {
         } else {
             (pc >> 1) as usize
         };
-        let count = match self.instruction_cache.get(mapped_pc).copied() {
-            Some(CachedInstruction::Decoded {
-                instruction,
-                instruction_size,
-            }) => {
-                #[cfg(feature = "has-fp")]
-                if let Some(cycles) = self.fast_fp(&instruction, instruction_size) {
-                    cycles
-                } else {
+        let count = if !self.psr.get_t() {
+            // Interworking updates T at the branch; INVSTATE belongs to the
+            // following instruction, before a cached or fetched opcode runs.
+            self.handle_fault(Fault::Invstate, pc)
+        } else {
+            match self.instruction_cache.get(mapped_pc).copied() {
+                Some(CachedInstruction::Decoded {
+                    instruction,
+                    instruction_size,
+                }) => {
+                    #[cfg(feature = "has-fp")]
+                    if let Some(cycles) = self.fast_fp(&instruction, instruction_size) {
+                        cycles
+                    } else {
+                        self.execute(&instruction, instruction_size)
+                    }
+                    #[cfg(not(feature = "has-fp"))]
                     self.execute(&instruction, instruction_size)
                 }
-                #[cfg(not(feature = "has-fp"))]
-                self.execute(&instruction, instruction_size)
-            }
-            Some(CachedInstruction::Empty) | None => match self.fetch(pc) {
-                Ok(thumb) => {
-                    let instruction = self.decode(thumb);
-                    let size = instruction_size(&instruction);
-                    if let Some(slot) = self.instruction_cache.get_mut(mapped_pc) {
-                        *slot = CachedInstruction::Decoded {
-                            instruction,
-                            instruction_size: size,
-                        };
+                Some(CachedInstruction::Empty) | None => match self.fetch(pc) {
+                    Ok(thumb) => {
+                        let instruction = self.decode(thumb);
+                        let size = instruction_size(&instruction);
+                        if let Some(slot) = self.instruction_cache.get_mut(mapped_pc) {
+                            *slot = CachedInstruction::Decoded {
+                                instruction,
+                                instruction_size: size,
+                            };
+                        }
+                        self.execute(&instruction, size)
                     }
-                    self.execute(&instruction, size)
-                }
-                Err(fault) => self.handle_fault(fault, pc),
-            },
+                    Err(fault) => self.handle_fault(fault, pc),
+                },
+            }
         };
         self.retire_decoded(count);
         if let Some(saved) = saved {
@@ -1711,6 +1718,7 @@ mod tests {
     #[cfg(not(feature = "armv6m"))]
     fn test_instruction_access_violation_does_not_latch_mmfar() {
         let mut core = Processor::new();
+        core.psr.set_t(true);
         core.fault_trap_mode(FaultTrapMode::none());
         core.set_msp(0x2000_0100);
         core.write32(0xE000_ED24, SHCSR_MEMFAULTENA).unwrap();

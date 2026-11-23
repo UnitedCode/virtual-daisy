@@ -194,7 +194,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.28. Generated tables check their revision and
+The vendored CPU is revision 0.1.29. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -914,3 +914,19 @@ every CBZ/CBNZ immediate and taken/skipped states, link values, flags and faults
 These are instruction-level checks, not evidence that the Daisy maps executable
 memory at every tested origin. CPU 0.1.28 keeps decoder 22, native adapter 19 and
 the existing retirement costs.
+
+### Invalid Thumb execution state (v0.2.40)
+
+Interworking branches update EPSR.T from the target's low bit. An even target
+now raises INVSTATE on the following instruction, before a cached or fetched
+target opcode executes. UsageFault delivery, HardFault escalation and the
+stacked target PC/xPSR use the existing exception machinery. The branch itself
+still completes without a synchronous fault, as specified by
+[Armv7-M A2.3.1 and B1.3.3](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820).
+
+CPU checks cover BX, BLX, LDR-to-PC, POP and LDM, both fault-enable states,
+cached/uncached execution, unchanged target registers and odd-target controls.
+A small ARM image checks the same fault timing, escalation and frame through
+both timed and functional board runtimes on Rev4/5/7. CPU 0.1.29 keeps decoder
+22, native adapter 19 and instruction retirement costs. These tests use manual
+expectations; they are not an independent Renode or physical-device comparison.

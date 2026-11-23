@@ -993,7 +993,7 @@ mod tests {
     use crate::{Processor, ProcessorMode};
 
     #[test]
-    fn test_bx_write_pc_even_address_remains_out_of_scope_for_invstate_todo() {
+    fn test_bx_write_pc_even_address_updates_t_before_the_next_instruction_fault() {
         let mut processor = Processor::new();
         processor.mode = ProcessorMode::ThreadMode;
         processor.psr.set_t(true);
@@ -1006,7 +1006,7 @@ mod tests {
     }
 
     #[test]
-    fn test_load_write_pc_even_address_remains_out_of_scope_for_invstate_todo() {
+    fn test_load_write_pc_even_address_updates_t_before_the_next_instruction_fault() {
         let mut processor = Processor::new();
         processor.mode = ProcessorMode::ThreadMode;
         processor.psr.set_t(true);

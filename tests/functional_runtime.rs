@@ -51,6 +51,87 @@ fn functional_and_timed_execute_the_same_arm_load_store_bytes() {
         "finite instruction budget must remain effective"
     );
 }
+
+#[test]
+fn both_runtimes_deliver_invalid_thumb_state_before_target_side_effects() {
+    for board in Board::ALL {
+        for functional in [false, true] {
+            for enabled in [false, true] {
+                for odd in [false, true] {
+                    let mut code = vec![0u8; 0x144];
+                    for (at, value) in [
+                        (0, 0x20010000u32),
+                        (4, 0x08000081),
+                        (12, 0x08000101),
+                        (24, 0x08000101),
+                        (0xa0, 0x080000c0 | u32::from(odd)),
+                        (0xf0, 0x20000100),
+                        (0x140, 0x20000100),
+                    ] {
+                        code[at..at + 4].copy_from_slice(&value.to_le_bytes());
+                    }
+                    // LDR R0,target; BX R0. Target writes 0x55 if it executes.
+                    for (at, instruction) in [
+                        (0x80, 0x4807u16),
+                        (0x82, 0x4700),
+                        (0x84, 0xe7fe),
+                        (0xc0, 0x480b),
+                        (0xc2, 0x2155),
+                        (0xc4, 0x6001),
+                        (0xc6, 0xe7fe),
+                        // The fault handler writes 0x66, IPSR, stacked PC/xPSR.
+                        (0x100, 0x480f),
+                        (0x102, 0x2166),
+                        (0x104, 0x6001),
+                        (0x106, 0xf3ef),
+                        (0x108, 0x8105),
+                        (0x10a, 0x6041),
+                        (0x10c, 0xf3ef),
+                        (0x10e, 0x8208),
+                        (0x110, 0x6991),
+                        (0x112, 0x6081),
+                        (0x114, 0x69d1),
+                        (0x116, 0x60c1),
+                        (0x118, 0xe7fe),
+                    ] {
+                        code[at..at + 2].copy_from_slice(&instruction.to_le_bytes());
+                    }
+                    let image = elf(&code);
+                    let mut machine = if functional {
+                        Machine::from_elf_functional(board, &image)
+                    } else {
+                        Machine::from_elf(board, &image)
+                    }
+                    .unwrap();
+                    if enabled {
+                        machine.write32(0xe000ed24, 1 << 18).unwrap();
+                    }
+                    machine.run_until(10_000, 5000).unwrap();
+                    assert_eq!(
+                        machine.read32(0x20000100).unwrap(),
+                        if odd { 0x55 } else { 0x66 }
+                    );
+                    assert_eq!(
+                        machine.read32(0xe000ed28).unwrap(),
+                        if odd { 0 } else { 1 << 17 }
+                    );
+                    assert_eq!(
+                        machine.read32(0xe000ed2c).unwrap(),
+                        if odd || enabled { 0 } else { 1 << 30 }
+                    );
+                    if !odd {
+                        assert_eq!(
+                            machine.read32(0x20000104).unwrap(),
+                            if enabled { 6 } else { 3 }
+                        );
+                        assert_eq!(machine.read32(0x20000108).unwrap(), 0x080000c0);
+                        assert_eq!(machine.read32(0x2000010c).unwrap() & (1 << 24), 0);
+                    }
+                }
+            }
+        }
+    }
+}
 #[test]
 fn functional_wfi_and_nvic_deliver_a_real_arm_interrupt() {
     let mut code = program();
