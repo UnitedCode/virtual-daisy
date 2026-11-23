@@ -16,6 +16,36 @@ fn actual_arm_loads_and_stores_complete_through_the_shared_memory_path() {
     m.run_until(10_000, 2000).unwrap();
     assert_eq!(m.read32(0x20000000).unwrap(), 0x12345678);
 }
+
+#[test]
+fn floating_transfers_wrap_into_itcm_without_faults_or_data_changes() {
+    let mut code = vec![0; 0xa8];
+    code[..4].copy_from_slice(&0x20010000u32.to_le_bytes());
+    code[4..8].copy_from_slice(&0x08000081u32.to_le_bytes());
+    // R1=0xfffffffc. VLDR/VSTR D7 and S18 wrap their positive offsets into
+    // ITCM at 0x40, 0x48 and 0x50; the final store marks completion.
+    for (i, instruction) in [
+        0x4907u16, 0xed91, 0x7b11, 0xed81, 0x7b15, 0xed91, 0x9a11, 0xed81, 0x9a13, 0x225a, 0x4803,
+        0x6002, 0xe7fe,
+    ]
+    .iter()
+    .enumerate()
+    {
+        code[0x80 + i * 2..0x82 + i * 2].copy_from_slice(&instruction.to_le_bytes());
+    }
+    code[0xa0..0xa4].copy_from_slice(&0xfffffffcu32.to_le_bytes());
+    code[0xa4..0xa8].copy_from_slice(&0x20000100u32.to_le_bytes());
+    let mut machine = Machine::from_binary(Board::Rev5, &code).unwrap();
+    machine.write32(0xe000ed88, 0x00f00000).unwrap();
+    machine.write32(0x40, 0x11223344).unwrap();
+    machine.write32(0x44, 0x55667788).unwrap();
+    machine.run_until(10_000, 2000).unwrap();
+    assert_eq!(machine.read32(0x20000100).unwrap(), 0x5a);
+    assert_eq!(machine.read32(0x48).unwrap(), 0x11223344);
+    assert_eq!(machine.read32(0x50).unwrap(), 0x11223344);
+    assert_eq!(machine.read32(0x54).unwrap(), 0x55667788);
+    assert_eq!(machine.read32(0xe000ed28).unwrap(), 0);
+}
 #[test]
 fn board_profiles_present_the_physical_revision_straps() {
     for board in Board::ALL {

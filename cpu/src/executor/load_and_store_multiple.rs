@@ -3,12 +3,9 @@ use super::ExecuteResult;
 use crate::Processor;
 use crate::executor::{ExecuteSuccess, ExecutorHelper};
 
-use crate::{
-    bus::Bus,
-    core::{
-        instruction::LoadAndStoreMultipleParams,
-        register::{BaseReg, Reg},
-    },
+use crate::core::{
+    instruction::LoadAndStoreMultipleParams,
+    register::{BaseReg, Reg},
 };
 use enum_set::EnumSet;
 
@@ -32,8 +29,8 @@ impl IsaLoadAndStoreMultiple for Processor {
 
             for reg in &params.registers {
                 let r = self.get_r(reg);
-                self.write32(address, r)?;
-                address += 4;
+                self.write32_data(address, r)?;
+                address = address.wrapping_add(4);
             }
 
             if params.wback {
@@ -50,13 +47,13 @@ impl IsaLoadAndStoreMultiple for Processor {
         if self.condition_passed() {
             let regs_size = 4 * (params.registers.len() as u32);
 
-            let mut address = self.get_r(params.rn) - regs_size;
+            let mut address = self.get_r(params.rn).wrapping_sub(regs_size);
             self.require_alignment(address, 4)?;
 
             for reg in &params.registers {
                 let r = self.get_r(reg);
-                self.write32(address, r)?;
-                address += 4;
+                self.write32_data(address, r)?;
+                address = address.wrapping_add(4);
             }
 
             if params.wback {
@@ -81,16 +78,16 @@ impl IsaLoadAndStoreMultiple for Processor {
         if self.condition_passed() {
             let regs_size = 4 * (registers.len() as u32);
             let sp = self.get_r(Reg::SP);
-            let mut address = sp - regs_size;
+            let mut address = sp.wrapping_sub(regs_size);
             self.require_alignment(address, 4)?;
 
             for reg in &registers {
                 let value = self.get_r(reg);
-                self.write32(address, value)?;
-                address += 4;
+                self.write32_data(address, value)?;
+                address = address.wrapping_add(4);
             }
 
-            self.set_r(Reg::SP, sp - regs_size);
+            self.set_r(Reg::SP, sp.wrapping_sub(regs_size));
             return Ok(ExecuteSuccess::Taken {
                 cycles: 1 + registers.len() as u32,
             });
@@ -105,16 +102,16 @@ impl IsaLoadAndStoreMultiple for Processor {
             let mut address = sp;
             self.require_alignment(address, 4)?;
 
-            self.set_r(Reg::SP, sp + regs_size);
+            self.set_r(Reg::SP, sp.wrapping_add(regs_size));
 
             for reg in &registers {
-                let val = self.read32(address)?;
+                let val = self.read32_data(address)?;
                 if reg == Reg::PC {
                     self.bx_write_pc(val)?;
                 } else {
                     self.set_r(reg, val);
                 }
-                address += 4;
+                address = address.wrapping_add(4);
             }
 
             if registers.contains(&Reg::PC) {
@@ -149,7 +146,7 @@ impl Processor {
             self.require_alignment(address, 4)?;
             let mut loaded_pc = None;
             for reg in &params.registers {
-                let value = self.read32(address)?;
+                let value = self.read32_data(address)?;
                 if reg == Reg::PC {
                     loaded_pc = Some(value);
                 } else {

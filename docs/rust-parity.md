@@ -832,3 +832,27 @@ transfer-count cost formula are unchanged. The contracts follow the
 [Armv7-M architecture manual](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820),
 sections A7.7.41 and A7.7.31. These tests do not establish physical bus or debug
 trace timing.
+
+### Wrapping addresses and data-fault reports (v0.2.37)
+
+A debug-build input audit exposed arithmetic-overflow panics in negative literal
+loads, floating-point loads and descending stores. Those address calculations,
+stack/multiple-transfer offsets and register/PC increment helpers now explicitly
+wrap at 32 bits. Valid wrapped addresses are accessed; invalid ones reach the
+guest fault machinery instead of panicking the host.
+
+The fault regressions also exposed missing address reporting for explicit FP
+and multiple-register accesses. They now use the same fault-address helpers as
+integer loads/stores. MMARVALID and MMFAR identify the attempted address for
+data access violations. Automatic exception stacking keeps its separate fault
+rules. The reporting contract follows the
+[Cortex-M7 guide, MMFSR and fault address registers](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1),
+sections 4.3.9 and 4.3.12–13.
+
+Eight regressions cover 24,480 FP loads that wrap into populated memory across
+every single/double register and immediate, both executor paths, fault addresses,
+preserved operands, invalid integer/FP stack extents and 32-bit register/PC
+boundaries. A board-level ARM program loads/stores both FP widths through wrapped
+ITCM addresses and writes a completion marker. CPU 0.1.26 keeps decoder 21,
+native adapter 19 and unchanged retirement costs. This validates functional
+addressing and diagnostics; physical memory latency remains uncalibrated.
