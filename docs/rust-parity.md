@@ -790,3 +790,23 @@ The instruction contracts follow ADR and REV/REV16/REVSH in the
 [Armv7-M architecture manual](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820),
 sections A7.7.7 and A7.7.111–113. These are functional checks, not calibrated
 instruction timing.
+
+### R7 in narrow store-multiple lists (v0.2.35)
+
+The 16-bit STM decoder used a seven-bit register mask, silently omitting R7.
+A list containing only R7 performed no store; mixed lists also wrote back the
+wrong address. The decoder now retains all eight bits. Empty lists use the
+existing deterministic undefined-encoding policy for unpredictable software.
+
+The regression matrix executes 2,542 defined list/base combinations across
+ordinary and compiled execution. It checks every transferred word, untouched
+memory guards, base writeback, other registers, flags and PC. When a list
+contains its base register, the matrix includes the defined lowest-register
+case; combinations with an architecturally UNKNOWN stored base value are
+excluded from numerical assertions. Both regressions failed before the fix.
+
+The contract follows STM T1 in the
+[Armv7-M architecture manual](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820),
+section A7.7.156. CPU 0.1.24 uses decoder revision 20 and native adapter 19.
+The transfer-count cost formula is unchanged; including the missing register
+corrects the transfer count as well as data and writeback.
