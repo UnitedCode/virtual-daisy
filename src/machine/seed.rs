@@ -298,9 +298,9 @@ impl Seed {
             self.fmc.reset();
         }
         if offset == 0x88 {
-            for port in 0..11 {
+            for (port, gpio) in self.gpio.iter_mut().enumerate() {
                 if value & (1 << port) != 0 {
-                    self.gpio[port].reset();
+                    gpio.reset();
                 }
             }
         }
@@ -317,9 +317,9 @@ impl Seed {
             if value & 1 != 0 {
                 self.timer = Timer::default();
             }
-            for bus in 0..2 {
+            for (bus, i2c) in self.i2c.iter_mut().enumerate() {
                 if value & (1 << (21 + bus)) != 0 {
-                    self.i2c[bus] = I2c::default();
+                    *i2c = I2c::default();
                 }
             }
         }

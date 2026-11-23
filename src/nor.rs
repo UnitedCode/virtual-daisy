@@ -87,15 +87,15 @@ impl NorFlash {
             return Err("invalid NOR image length");
         }
         let mut pages = BTreeMap::new();
-        for record in bytes[14..].chunks_exact(292) {
+        for record in bytes[14..].as_chunks::<292>().0 {
             let address = u32::from_le_bytes(record[..4].try_into().unwrap());
             if address >= CAPACITY / 256 || pages.contains_key(&address) {
                 return Err("invalid or duplicate NOR page");
             }
             let data = record[4..260].try_into().unwrap();
             let mut programmed = [0; 4];
-            for (word, value) in record[260..].chunks_exact(8).zip(&mut programmed) {
-                *value = u64::from_le_bytes(word.try_into().unwrap());
+            for (word, value) in record[260..].as_chunks::<8>().0.iter().zip(&mut programmed) {
+                *value = u64::from_le_bytes(*word);
             }
             pages.insert(address, Box::new(Page { data, programmed }));
         }
