@@ -12,6 +12,7 @@ const REGISTERS: [u32; 14] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14];
 // WORD_CASES
 // PARALLEL_CASES
 // DSP_MULTIPLY_CASES
+// EXTEND_PACK_CASES
 global_asm!(
     r#"
 .syntax unified
@@ -91,6 +92,7 @@ unsafe fn matrix() -> bool {
         .chain(WORD_CASES.into_iter().map(|row| (row, 1u8)))
         .chain(PARALLEL_CASES.into_iter().map(|row| (row, 1u8)))
         .chain(DSP_MULTIPLY_CASES.into_iter().map(|row| (row, 2u8)))
+        .chain(EXTEND_PACK_CASES.into_iter().map(|row| (row, if row[0] >> 24 == 0xfa && (row[0] >> 16) & 15 == 15 { 3u8 } else { 1u8 })))
         .enumerate()
     {
         for destination in 0..14 {
@@ -102,7 +104,7 @@ unsafe fn matrix() -> bool {
                 };
                 let mut expected: [u32; 14] =
                     core::array::from_fn(|i| 0xdeadbeef ^ (REGISTERS[i] * 0x01010101));
-                if binary != 0 {
+                if matches!(binary, 1 | 2) {
                     expected[2] = input;
                 }
                 if binary == 2 { expected[3] = input; }

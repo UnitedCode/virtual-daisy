@@ -4,8 +4,8 @@ use crate::core::instruction::{
     Reg2RdRmParams, Reg2RnRmParams, Reg2RtRnImm32Params, Reg2ShiftNParams,
     Reg2ShiftNoSetFlagsParams, Reg2ShiftParams, Reg2UsizeParams, Reg3FullParams,
     Reg3NoSetFlagsParams, Reg3Params, Reg3RdRtRnImm32Params, Reg3RdRtRnParams, Reg3ShiftParams,
-    Reg3UsizeParams, Reg4NoSetFlagsParams, Reg643232Params, RegImm32AddParams,
-    RegImmCarryNoSetFlagsParams, RegImmCarryParams, RegImmParams, SRType, SetFlags,
+    Reg4NoSetFlagsParams, Reg643232Params, RegImm32AddParams, RegImmCarryNoSetFlagsParams,
+    RegImmCarryParams, RegImmParams, SRType, SetFlags,
 };
 #[cfg(feature = "has-dsp-ext")]
 use crate::core::instruction::{Reg3HighParams, Reg4HighParams};

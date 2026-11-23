@@ -401,6 +401,10 @@ fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
         "saturation",
         &include_str!("../guests/saturation.rs")
             .replace(
+                "// EXTEND_PACK_CASES",
+                include_str!("../cpu/fixtures/extend_pack_probe_cases.rs"),
+            )
+            .replace(
                 "// DSP_MULTIPLY_CASES",
                 include_str!("../cpu/fixtures/dsp_multiply_probe_cases.rs"),
             )
@@ -421,7 +425,7 @@ fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
     saturation_probe::check(&fs::read(grade::artifact(&saturation, ".saturation.bin"))?)?;
     fs::write(
         grade::artifact(&saturation, ".saturation.txt"),
-        "saturation_register_pairs=15680\nindependent_numerical_expectations=QEMU\n",
+        "saturation_register_pairs=37632\nindependent_numerical_expectations=QEMU\n",
     )?;
     let old_psr = host.boot("saturation-psr-control", tone, "saturation-psr-control")?;
     let error = saturation_probe::check(&fs::read(grade::artifact(&old_psr, ".saturation.bin"))?)

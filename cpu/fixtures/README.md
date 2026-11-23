@@ -208,3 +208,14 @@ cargo run --release --manifest-path cpu/Cargo.toml --example qemu_isa -- /tmp/is
 Compare the generated file with this fixture before replacing it. The guest is
 `isa_oracle.rs`; `isa_oracle.ld` provides its memory map. QEMU's semihosting output
 is a local verification mechanism and is not part of the browser runtime.
+
+
+`isa_oracle_extend_pack.bin` adds 229,376 seven-word records from
+`extend_pack_oracle.rs`: literal opcode, two inputs, initial APSR, result, final
+APSR and magic `0x50545845`. It covers all four rotations of twelve extension
+forms and every PKHBT/PKHTB shift: 112 encodings, 512 boundary/seeded operand
+pairs and four flag states. QEMU 11.1.3 and rustc 1.97.1 execute the literal
+instructions independently. The generator writes `isa_oracle.extend-pack.bin`
+and extracts 112 cases in `isa_oracle.extend-pack-probe.rs` for the standalone
+ARM matrix. That matrix now checks 37,632 register-pair executions. The earlier
+15,680-case count above describes the v0.2.22 coverage before this addition.

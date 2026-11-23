@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.14. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.15. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
@@ -117,3 +117,13 @@ NaN payload signs agree with the executed ARM oracle. Its 49,152 clear-status
 records cover all rounding/FZ/DN modes, seeded/special triples and cancellation
 at the normal/subnormal boundary. Tests replay sticky flags and check high
 registers, source/destination aliases, instruction size and D16-bank rejection.
+
+
+Rotated SXTAB/SXTAH/SXTAB16/SXTB16 and UXTAB16 now execute, including all four
+rotations and the Rn=PC non-accumulating aliases. UXTAB and UXTB16 require the
+DSP extension in both decoding and direct execution. Base SXTB/SXTH/UXTB/UXTH
+remain available on Armv7-M. Extension and halfword-packing instructions reject
+SP/PC data registers before writing; all preserve APSR. A 229,376-record QEMU
+oracle checks all 112 extension/packing encodings, every legal general-register
+assignment and aliases through both paths, and skipped IT instructions. The
+standalone ARM saturation/packing matrix now has 37,632 cases.

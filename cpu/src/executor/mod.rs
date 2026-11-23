@@ -695,6 +695,14 @@ impl ExecutorHelper for Processor {
 
             Instruction::UXTB16 { params } => {
                 if self.condition_passed() {
+                    if !cfg!(feature = "has-dsp-ext")
+                        || [params.rd, params.rm]
+                            .iter()
+                            .any(|r| matches!(r, Reg::SP | Reg::PC))
+                        || !matches!(params.rotation, 0 | 8 | 16 | 24)
+                    {
+                        return Err(Fault::UndefInstr);
+                    }
                     let v = self.get_r(params.rm).rotate_right(params.rotation as u32) & 0x00ff00ff;
                     self.set_r(params.rd, v);
                     Ok(ExecuteSuccess::Taken { cycles: 1 })
