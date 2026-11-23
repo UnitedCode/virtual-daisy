@@ -525,7 +525,11 @@ impl Seed {
         self.memory.inject_bus_load_kind(target, ns, write)
     }
     pub(super) fn memory_report(&self) -> String {
-        self.memory.stats()
+        format!(
+            "{}{}",
+            self.memory.stats(),
+            self.clock.clocks().audio_observations().report()
+        )
     }
     pub(super) fn host_read(&mut self, a: u32, w: usize) -> Result<u32, &'static str> {
         self.read(a, w, false)

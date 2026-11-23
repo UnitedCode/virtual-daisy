@@ -26,6 +26,24 @@ impl Rate {
     }
 }
 
+/// Audio-clock progress since the clock model was last reset.
+/// Timestamps use modeled time, not host time or measured silicon latency.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AudioClockObservations {
+    pub elapsed_ns: u128,
+    pub generated_frames: u128,
+    /// Beginning of the first advanced interval with an enabled, nonzero clock.
+    pub first_running_interval_ns: Option<u128>,
+    /// Ceiling, in nanoseconds, of the first rational serial-frame edge.
+    pub first_frame_ns: Option<u128>,
+}
+impl AudioClockObservations {
+    pub fn report(self) -> String {
+        let show = |v: Option<u128>| v.map_or_else(|| "NOT_OBSERVED".to_owned(), |v| v.to_string());
+        format!("sai_clock_elapsed_ns={}\nsai_clock_generated_frames={}\nsai_clock_first_running_interval_ns={}\nsai_clock_first_frame_ns={}\nsai_clock_timestamp_scope=MODEL_SINCE_RESET\n",self.elapsed_ns,self.generated_frames,show(self.first_running_interval_ns),show(self.first_frame_ns))
+    }
+}
+
 pub struct ClockTree {
     registers: [u32; 0x100 / 4],
     fractions: [u32; 3],
@@ -39,6 +57,7 @@ pub struct ClockTree {
     dwt_locked: bool,
     cycle_rate: Option<Rate>,
     trace_enabled: bool,
+    audio_observations: AudioClockObservations,
 }
 impl Default for ClockTree {
     fn default() -> Self {
@@ -62,10 +81,14 @@ impl Default for ClockTree {
             dwt_locked: true,
             cycle_rate: None,
             trace_enabled: false,
+            audio_observations: AudioClockObservations::default(),
         }
     }
 }
 impl ClockTree {
+    pub fn audio_observations(&self) -> AudioClockObservations {
+        self.audio_observations
+    }
     pub fn trace_enable(&mut self, enabled: bool, now: u64) -> Result<(), &'static str> {
         self.sync_cycles(now)?;
         self.trace_enabled = enabled;
@@ -318,6 +341,8 @@ impl ClockTree {
             .map_err(|_| "audio deadline too large")
     }
     pub fn advance(&mut self, cr1: u32, frcr: u32, nanoseconds: u64) -> Result<u32, &'static str> {
+        let start = self.audio_observations.elapsed_ns;
+        self.audio_observations.elapsed_ns += u128::from(nanoseconds);
         if cr1 & (1 << 16) == 0 || self.read(0xf0) & (1 << 22) == 0 {
             self.phase = 0;
             self.last_rate = None;
@@ -336,6 +361,17 @@ impl ClockTree {
             self.last_rate = Some(rate);
         }
         let denominator = u128::from(rate.denominator) * 1_000_000_000;
+        if rate.numerator != 0 && nanoseconds != 0 {
+            self.audio_observations
+                .first_running_interval_ns
+                .get_or_insert(start);
+            if self.audio_observations.first_frame_ns.is_none() {
+                let until = (denominator - self.phase).div_ceil(u128::from(rate.numerator));
+                if until <= u128::from(nanoseconds) {
+                    self.audio_observations.first_frame_ns = Some(start + until);
+                }
+            }
+        }
         self.phase += u128::from(rate.numerator) * u128::from(nanoseconds);
         let frames = if let (Ok(phase), Ok(denominator)) =
             (u64::try_from(self.phase), u64::try_from(denominator))
@@ -348,7 +384,9 @@ impl ClockTree {
             self.phase %= denominator;
             frames
         };
-        u32::try_from(frames).map_err(|_| "clock advance too large")
+        let frames = u32::try_from(frames).map_err(|_| "clock advance too large")?;
+        self.audio_observations.generated_frames += u128::from(frames);
+        Ok(frames)
     }
     pub fn stats(&self, cr1: u32, frcr: u32) -> Result<String, &'static str> {
         let rate = self.sample_rate(cr1, frcr)?;
@@ -367,6 +405,7 @@ impl ClockTree {
                 self.domain_rate(domain)?.map_or(0.0, Rate::hz)
             ));
         }
+        stats.push_str(&self.audio_observations.report());
         Ok(stats)
     }
 }
