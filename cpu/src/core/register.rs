@@ -158,7 +158,7 @@ impl BaseReg for Processor {
                     }
                 }
                 14 => self.lr,
-                15 => self.pc + 4,
+                15 => self.pc.wrapping_add(4),
                 _ => unreachable!(),
             }
         }
@@ -207,7 +207,7 @@ impl BaseReg for Processor {
 
     #[inline(always)]
     fn add_pc(&mut self, value: u32) {
-        self.pc += value;
+        self.pc = self.pc.wrapping_add(value);
     }
 
     #[inline(always)]
@@ -228,18 +228,18 @@ impl BaseReg for Processor {
         let reg = r as u32;
 
         if reg < 13 {
-            self.r0_12[reg as usize] += value;
+            self.r0_12[reg as usize] = self.r0_12[reg as usize].wrapping_add(value);
         } else {
             match reg {
                 13 => {
                     if self.control.sp_sel {
-                        self.psp += value;
+                        self.psp = self.psp.wrapping_add(value);
                     } else {
-                        self.msp += value;
+                        self.msp = self.msp.wrapping_add(value);
                     }
                 }
-                14 => self.lr += value,
-                15 => self.pc += value,
+                14 => self.lr = self.lr.wrapping_add(value),
+                15 => self.pc = self.pc.wrapping_add(value),
                 _ => unreachable!(),
             }
         }
@@ -252,18 +252,18 @@ impl BaseReg for Processor {
         let reg = r as u32;
 
         if reg < 13 {
-            self.r0_12[reg as usize] -= value;
+            self.r0_12[reg as usize] = self.r0_12[reg as usize].wrapping_sub(value);
         } else {
             match reg {
                 13 => {
                     if self.control.sp_sel {
-                        self.psp -= value;
+                        self.psp = self.psp.wrapping_sub(value);
                     } else {
-                        self.msp -= value;
+                        self.msp = self.msp.wrapping_sub(value);
                     }
                 }
-                14 => self.lr -= value,
-                15 => self.pc -= value,
+                14 => self.lr = self.lr.wrapping_sub(value),
+                15 => self.pc = self.pc.wrapping_sub(value),
                 _ => unreachable!(),
             }
         }

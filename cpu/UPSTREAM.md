@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.25. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.26. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
@@ -222,3 +222,14 @@ All 16 DBG option values now decode as NOP-compatible hints rather than UDF;
 trace/debug side effects are not modeled. The ARM guest checks LDMDB with/without
 writeback, PC/SP cases, narrow STM with R7 and all debug hints. Its capture stays
 128 words. Decoder revision is 21; native adapter 19 is unchanged.
+
+Literal, floating-point and multiple/stack-transfer address arithmetic now uses
+explicit 32-bit wrapping in debug builds as well as release. Register/PC increment
+helpers do the same. Floating-point and multiple transfers now record the faulting
+data address through the existing integer-access helpers, making MMFAR/BFAR valid
+for explicit data faults. Automatic exception stacking retains its separate path.
+Eight regressions cover 24,480 wrapped FP loads into populated memory, wrapped
+unmapped accesses, fault addresses, invalid stack extents and register/PC boundaries
+through ordinary and compiled execution. A board-level ARM fixture loads/stores
+single and double words through wrapped ITCM addresses. Decoder 21, native adapter
+19 and retirement costs are unchanged.

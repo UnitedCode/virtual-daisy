@@ -104,7 +104,7 @@ impl Processor {
         })
     }
 
-    fn read32_data(&mut self, address: u32) -> Result<u32, Fault> {
+    pub(super) fn read32_data(&mut self, address: u32) -> Result<u32, Fault> {
         self.read32(address).map_err(|fault| {
             self.fault_with_status(fault, FaultStatusContext::with_fault_address(address))
         })
@@ -122,7 +122,7 @@ impl Processor {
         })
     }
 
-    fn write32_data(&mut self, address: u32, value: u32) -> Result<(), Fault> {
+    pub(super) fn write32_data(&mut self, address: u32, value: u32) -> Result<(), Fault> {
         self.write32(address, value).map_err(|fault| {
             self.fault_with_status(fault, FaultStatusContext::with_fault_address(address))
         })
@@ -634,7 +634,7 @@ impl IsaLoadAndStore for Processor {
             self.require_alignment(address, 4)?;
             let data = self.read32_data(address)?;
             self.set_r(params.rt, data);
-            let data2 = self.read32_data(address + 4)?;
+            let data2 = self.read32_data(address.wrapping_add(4))?;
             self.set_r(params.rt2, data2);
 
             if params.wback {
@@ -660,7 +660,7 @@ impl IsaLoadAndStore for Processor {
             let value1 = self.get_r(params.rt);
             self.write32_data(address, value1)?;
             let value2 = self.get_r(params.rt2);
-            self.write32_data(address + 4, value2)?;
+            self.write32_data(address.wrapping_add(4), value2)?;
 
             if params.wback {
                 self.set_r(params.rn, offset_address);
@@ -676,9 +676,9 @@ impl IsaLoadAndStore for Processor {
         if self.condition_passed() {
             let base = self.get_r(Reg::PC) & 0xffff_fffc;
             let address = if params.add {
-                base + params.imm32
+                base.wrapping_add(params.imm32)
             } else {
-                base - params.imm32
+                base.wrapping_sub(params.imm32)
             };
             let data = self.read32_data(address)?;
 
