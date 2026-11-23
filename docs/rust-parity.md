@@ -639,3 +639,26 @@ and native adapter 17; retirement costs remain unchanged and uncalibrated.
 All twenty earlier numerical datasets regenerate unchanged. Semantics follow
 the [Cortex-M7 instruction guide, SDIV/UDIV](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1)
 and the independent QEMU corpus. No hardware division latency is claimed.
+
+### Fractional wait deadlines (v0.2.29)
+
+The Rust host retained fractional nanoseconds when advancing the CPU but
+discarded them when converting a peripheral deadline back to CPU cycles. Some
+waits therefore advanced one cycle too far. The inverse calculation now uses
+the retained phase. RCC writes that leave the core rate unchanged also retain
+that phase, including peripheral gate and audio-clock writes.
+
+Two tests failed before the fix. One independently advances the chosen number
+of cycles and requires the deadline to be reached on the first eligible edge,
+across four integer/fractional rates, 32 starting phases and 256 short waits.
+The other checks elapsed time across an unrelated GPIO clock-gate write.
+Instruction retirement costs, CPU 0.1.18, decoder 16 and native adapter 17 are
+unchanged.
+
+For the fixed nonperiodic production input at 200 ms, the first Rust SAI frame
+moves from 12,860,390 ns to 12,824,084 ns. The reference remains at 12,756,753 ns:
+the gap falls from 103,637 ns to 67,331 ns. Rust produces 9,020 frames versus
+9,023 in the reference, at the same exact rational sample rate and with no CPU
+faults or FIFO errors. This does not establish waveform agreement. The 4,000-frame
+comparison still finds a 48-frame offset and an aligned RMS difference of
+0.012813561881. Physical pipeline and converter timing remain unverified.

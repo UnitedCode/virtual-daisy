@@ -422,7 +422,9 @@ impl Seed {
         if let Some(next) = self.next_audio {
             ns = ns.min(next.saturating_sub(self.now).max(1));
         }
-        let cycles = (u128::from(ns) * u128::from(self.rate.numerator))
+        // Invert synchronize's accumulated phase, rather than starting a new
+        // clock period at every wait. Select the first edge reaching the event.
+        let cycles = (u128::from(ns) * u128::from(self.rate.numerator) - self.fraction)
             .div_ceil(u128::from(self.rate.denominator) * 1_000_000_000)
             .max(1);
         Ok(cycles.min(u128::from(u32::MAX)) as u32)
@@ -661,12 +663,15 @@ impl Seed {
                 self.clock.dwt(0, None, self.now)?;
                 self.clock
                     .write(u64::from(a - 0x58024400), rcc_ready(a - 0x58024400, v))?;
-                self.rate = self
+                let rate = self
                     .clock
                     .clocks()
                     .core_rate()?
                     .ok_or("core clock stopped")?;
-                self.fraction = 0;
+                if rate != self.rate {
+                    self.rate = rate;
+                    self.fraction = 0;
+                }
                 self.sync_memory()?;
             }
             0x52004000..=0x52004fff => {
@@ -1533,5 +1538,48 @@ mod fetch_word_tests {
             .unwrap();
         assert_eq!(fetch(&device, pc, pc + 2, &mut cycles), 0x1234);
         assert_eq!(completed(&device), first + 1);
+    }
+}
+
+#[cfg(test)]
+mod clock_deadline_tests {
+    use super::*;
+    #[test]
+    fn wait_budget_selects_the_first_core_edge_reaching_the_deadline() {
+        let mut seed = Seed::new(Board::Rev5).unwrap();
+        for rate in [
+            Rate::new(64_000_000, 1),
+            Rate::new(480_000_000, 1),
+            Rate::new(64_000_001, 3),
+            Rate::new(3_932_160_000_333, 8192),
+        ] {
+            seed.rate = rate;
+            let period = u128::from(rate.denominator) * 1_000_000_000;
+            for start in 0..32u128 {
+                seed.fraction = (start * period) % u128::from(rate.numerator);
+                for ns in 1..=256u64 {
+                    let cycles = seed.next_cycles(ns).unwrap();
+                    let elapsed =
+                        (seed.fraction + u128::from(cycles) * period) / u128::from(rate.numerator);
+                    let previous = (seed.fraction + u128::from(cycles - 1) * period)
+                        / u128::from(rate.numerator);
+                    assert!(elapsed >= u128::from(ns), "deadline not reached");
+                    assert!(previous<u128::from(ns),"{rate:?} phase {} wait {ns}: {cycles} cycles chosen; previous edge already reaches {previous}",seed.fraction);
+                }
+            }
+        }
+    }
+    #[test]
+    fn a_gate_write_that_keeps_the_core_rate_preserves_fractional_phase() {
+        let mut seed = Seed::new(Board::Rev5).unwrap();
+        seed.synchronize(1).unwrap();
+        let fraction = seed.fraction;
+        let rate = seed.rate;
+        assert_ne!(fraction, 0);
+        seed.host_write(0x580244e0, 4, 1).unwrap();
+        assert_eq!(seed.rate, rate);
+        assert_eq!(seed.fraction, fraction);
+        seed.synchronize(2).unwrap();
+        assert_eq!(seed.now, 31);
     }
 }
