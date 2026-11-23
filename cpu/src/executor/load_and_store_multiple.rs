@@ -17,6 +17,7 @@ pub trait IsaLoadAndStoreMultiple {
     fn exec_stm(&mut self, params: &LoadAndStoreMultipleParams) -> ExecuteResult;
     fn exec_stmdb(&mut self, params: &LoadAndStoreMultipleParams) -> ExecuteResult;
     fn exec_ldm(&mut self, params: &LoadAndStoreMultipleParams) -> ExecuteResult;
+    fn exec_ldmdb(&mut self, params: &LoadAndStoreMultipleParams) -> ExecuteResult;
     fn exec_push(&mut self, registers: EnumSet<Reg>) -> ExecuteResult;
     fn exec_pop(&mut self, registers: EnumSet<Reg>) -> ExecuteResult;
 }
@@ -69,36 +70,11 @@ impl IsaLoadAndStoreMultiple for Processor {
     }
 
     fn exec_ldm(&mut self, params: &LoadAndStoreMultipleParams) -> ExecuteResult {
-        if self.condition_passed() {
-            let regs_size = 4 * (params.registers.len() as u32);
+        self.exec_load_multiple(params, false)
+    }
 
-            let mut address = self.get_r(params.rn);
-            self.require_alignment(address, 4)?;
-
-            let mut loaded_pc = None;
-            for reg in &params.registers {
-                let value = self.read32(address)?;
-                if reg == Reg::PC {
-                    loaded_pc = Some(value);
-                } else {
-                    self.set_r(reg, value);
-                }
-                address += 4;
-            }
-
-            if params.wback && !params.registers.contains(&params.rn) {
-                self.add_r(params.rn, regs_size);
-            }
-            let cc = 1 + params.registers.len() as u32;
-            if let Some(value) = loaded_pc {
-                // Exception return consumes the hardware frame at the updated
-                // SP and restores GPRs. Complete writeback before unstacking.
-                self.load_write_pc(value)?;
-                return Ok(ExecuteSuccess::Branched { cycles: cc });
-            }
-            return Ok(ExecuteSuccess::Taken { cycles: cc });
-        }
-        Ok(ExecuteSuccess::NotTaken)
+    fn exec_ldmdb(&mut self, params: &LoadAndStoreMultipleParams) -> ExecuteResult {
+        self.exec_load_multiple(params, true)
     }
 
     fn exec_push(&mut self, registers: EnumSet<Reg>) -> ExecuteResult {
@@ -150,6 +126,55 @@ impl IsaLoadAndStoreMultiple for Processor {
                     cycles: 1 + registers.len() as u32,
                 });
             }
+        }
+        Ok(ExecuteSuccess::NotTaken)
+    }
+}
+
+impl Processor {
+    fn exec_load_multiple(
+        &mut self,
+        params: &LoadAndStoreMultipleParams,
+        decrement_before: bool,
+    ) -> ExecuteResult {
+        if self.condition_passed() {
+            let regs_size = 4 * params.registers.len() as u32;
+            let base = self.get_r(params.rn);
+            let start = if decrement_before {
+                base.wrapping_sub(regs_size)
+            } else {
+                base
+            };
+            let mut address = start;
+            self.require_alignment(address, 4)?;
+            let mut loaded_pc = None;
+            for reg in &params.registers {
+                let value = self.read32(address)?;
+                if reg == Reg::PC {
+                    loaded_pc = Some(value);
+                } else {
+                    self.set_r(reg, value);
+                }
+                address = address.wrapping_add(4);
+            }
+            if params.wback && !params.registers.contains(&params.rn) {
+                self.set_r(
+                    params.rn,
+                    if decrement_before {
+                        start
+                    } else {
+                        base.wrapping_add(regs_size)
+                    },
+                );
+            }
+            let cycles = 1 + params.registers.len() as u32;
+            if let Some(value) = loaded_pc {
+                // Exception return consumes the hardware frame at the updated
+                // SP. Complete writeback before unstacking.
+                self.load_write_pc(value)?;
+                return Ok(ExecuteSuccess::Branched { cycles });
+            }
+            return Ok(ExecuteSuccess::Taken { cycles });
         }
         Ok(ExecuteSuccess::NotTaken)
     }

@@ -212,6 +212,82 @@ probe_wide_core:
 .Ladr_after:
     .word 0xabcdef01
     .ltorg
+    .balign 4
+    .global probe_multiple_and_hints
+    .thumb_func
+probe_multiple_and_hints:
+    push {{r4-r7, lr}}
+    ldr r4, =0x20000200
+    mov r5, r4
+    movw r0, #0x1111
+    movw r7, #0x7777
+    stmia r4!, {{r0, r7}}
+    ldmdb r4!, {{r1, r6}}
+    cmp r4, r5
+    bne .Lmultiple_failed
+    cmp r1, r0
+    bne .Lmultiple_failed
+    cmp r6, r7
+    bne .Lmultiple_failed
+    adds r4, #8
+    ldmdb r4, {{r1, r6}}
+    subs r2, r4, #8
+    cmp r2, r5
+    bne .Lmultiple_failed
+    cmp r1, r0
+    bne .Lmultiple_failed
+    cmp r6, r7
+    bne .Lmultiple_failed
+    adr.w r2, .Lmultiple_pc_resume
+    orr r2, r2, #1
+    str r2, [r5, #4]
+    ldmdb r4!, {{r1, pc}}
+    b .Lmultiple_failed
+.Lmultiple_pc_resume:
+    cmp r4, r5
+    bne .Lmultiple_failed
+    cmp r1, r0
+    bne .Lmultiple_failed
+    sub sp, #8
+    str r0, [sp]
+    str r7, [sp, #4]
+    add sp, #8
+    movs r0, #0
+    movs r7, #0
+    ldmdb sp, {{r0, r7}}
+    movw r1, #0x1111
+    cmp r0, r1
+    bne .Lmultiple_failed
+    movw r1, #0x7777
+    cmp r7, r1
+    bne .Lmultiple_failed
+    ldr r2, =0xa80a0000
+    msr APSR_nzcvqg, r2
+    dbg #0
+    dbg #1
+    dbg #2
+    dbg #3
+    dbg #4
+    dbg #5
+    dbg #6
+    dbg #7
+    dbg #8
+    dbg #9
+    dbg #10
+    dbg #11
+    dbg #12
+    dbg #13
+    dbg #14
+    dbg #15
+    mrs r3, APSR
+    cmp r2, r3
+    bne .Lmultiple_failed
+    movs r0, #1
+    pop {{r4-r7, pc}}
+.Lmultiple_failed:
+    movs r0, #0
+    pop {{r4-r7, pc}}
+    .ltorg
     .section .flashprobe,"a",%progbits
     .balign 32
     .space 28
@@ -227,6 +303,7 @@ extern "C" {
     fn probe_literal_loads() -> u32;
     fn probe_table_wraps() -> u32;
     fn probe_wide_core() -> u32;
+    fn probe_multiple_and_hints() -> u32;
 }
 
 #[no_mangle]
@@ -337,6 +414,10 @@ unsafe extern "C" fn probe_main() -> ! {
     }
     if probe_wide_core() != 1 {
         phase(0xbad0f034);
+        loop { asm!("wfi", options(nostack)); }
+    }
+    if probe_multiple_and_hints() != 1 {
+        phase(0xbad0f036);
         loop { asm!("wfi", options(nostack)); }
     }
     record(2, read(0xe000ed90));

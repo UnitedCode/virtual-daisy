@@ -810,3 +810,25 @@ The contract follows STM T1 in the
 section A7.7.156. CPU 0.1.24 uses decoder revision 20 and native adapter 19.
 The transfer-count cost formula is unchanged; including the missing register
 corrects the transfer count as well as data and writeback.
+
+### Decrement-before multiple loads and debug hints (v0.2.36)
+
+LDMDB previously decoded as undefined. It now uses the same ordered-load path as
+LDMIA, with a decremented start address and optional writeback to that address.
+Alignment is checked before loads. PC writes occur after transfers/writeback,
+retaining exception-return ordering. Wide multiple loads reject forbidden
+lists, PC bases, writeback aliases and simultaneous LR/PC destinations.
+
+Six regressions include 73,666 legal list/writeback/path cases and 260 base-field
+cases, covering SP/LR bases, base-in-list loads without writeback, PC branches,
+unchanged flags/registers/memory, alignment traps and failed conditions. Every
+DBG option, 0–15, now decodes as a NOP-compatible hint; debug trace actions are
+outside the model.
+
+The ARM guest requires narrow STM with R7, LDMDB with/without writeback, SP and
+PC forms, and all 16 debug hints to complete. The capture remains 128 words.
+CPU 0.1.25 uses decoder revision 21; native adapter 19 and the existing
+transfer-count cost formula are unchanged. The contracts follow the
+[Armv7-M architecture manual](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820),
+sections A7.7.41 and A7.7.31. These tests do not establish physical bus or debug
+trace timing.
