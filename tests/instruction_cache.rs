@@ -1,6 +1,38 @@
 use virtual_daisy::memory::SystemMemory;
 
 #[test]
+fn repeated_decoder_peeks_reuse_validation_without_losing_coherence() {
+    let mut memory = SystemMemory::default();
+    let address = 0x24000000;
+    memory.write_dma(address, 4, 0x47702001).unwrap();
+    memory.write_scb(0xd14, 1 << 17).unwrap();
+    for _ in 0..32 {
+        assert_eq!(memory.decode_instruction(address, 4).unwrap(), 0x47702001);
+        assert!(!memory.runtime_fetch(address, 4).unwrap());
+    }
+    let reused: u64 = memory
+        .stats()
+        .lines()
+        .find_map(|line| line.strip_prefix("runtime_cached_checks="))
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(
+        reused >= 28,
+        "unchanged decoder peeks discarded every validation"
+    );
+    // A DMA write cannot replace the instruction cache's stale view.
+    memory.write_dma(address, 4, 0x47702002).unwrap();
+    assert_eq!(memory.decode_instruction(address, 4).unwrap(), 0x47702001);
+    assert!(!memory.runtime_fetch(address, 4).unwrap());
+    // Maintenance must still reject the old translation before redecoding it.
+    memory.write_scb(0xf58, address).unwrap();
+    assert!(memory.runtime_fetch(address, 4).unwrap());
+    assert_eq!(memory.decode_instruction(address, 4).unwrap(), 0x47702002);
+    assert!(!memory.runtime_fetch(address, 4).unwrap());
+}
+
+#[test]
 fn repeated_cached_fetch_validation_preserves_dma_staleness_and_maintenance() {
     let mut memory = SystemMemory::default();
     memory.write_dma(0x24000000, 4, 0x47702001).unwrap();

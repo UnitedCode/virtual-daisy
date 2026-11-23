@@ -11,6 +11,8 @@ type Result<T> = std::result::Result<T, &'static str>;
 const LINE: u32 = 32;
 const SETS: usize = 128;
 const WAYS: usize = 4;
+// Bound host-side decoded-block metadata; this is not a silicon cache size.
+const FETCH_BLOCK_MEMO_LIMIT: usize = 4096;
 // Cortex-M7 FPv5-D16: ARM DDI0489, floating-point identification registers.
 pub const FP_FEATURES: [u32; 3] = [0x10110221, 0x12000011, 0x00000040];
 
@@ -1376,8 +1378,7 @@ impl SystemMemory {
     /// Translation is a side-effect-free peek: it must not populate the cache.
     pub fn decode_instruction(&mut self, address: u32, width: usize) -> Result<u32> {
         Self::check(address, width)?;
-        self.blocks.clear();
-        self.invalidate_fetch_validations();
+        let mut changed = false;
         let mut value = 0;
         for byte in 0..width {
             let addr = address + byte as u32;
@@ -1395,7 +1396,15 @@ impl SystemMemory {
                 self.backing_byte(addr, true)?
             };
             value |= u32::from(b) << (byte * 8);
-            self.decoded.insert(addr, b);
+            if self.decoded.insert(addr, b) != Some(b) && !changed {
+                // A decoder peek does not change the instruction view when its
+                // bytes match. Keep existing validations in that common case.
+                // Invalidate immediately so a later fault cannot leave a changed
+                // prefix paired with an older expected block.
+                self.blocks.clear();
+                self.invalidate_fetch_validations();
+                changed = true;
+            }
         }
         Ok(value)
     }
@@ -1424,6 +1433,9 @@ impl SystemMemory {
         let block = if let Some(block) = self.blocks.get(&key) {
             Arc::clone(block)
         } else {
+            if self.blocks.len() >= FETCH_BLOCK_MEMO_LIMIT {
+                self.blocks.clear();
+            }
             let end = address.checked_add(bytes).ok_or("invalid block extent")?;
             if bytes == 0 || bytes > 8192 || address & 1 != 0 || bytes & 1 != 0 {
                 return Err("invalid Thumb block");
