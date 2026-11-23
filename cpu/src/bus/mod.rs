@@ -343,7 +343,11 @@ impl Bus for Processor {
                 if value >> 16 == 0x05fa {
                     self.aircr = value & 0x700;
                     self.execution_priority = self.get_execution_priority();
-                    if let Some(device) = self.device.as_mut().filter(|bus| bus.transactional()) {
+                    if let Some(device) = self
+                        .device
+                        .as_mut()
+                        .filter(|bus| bus.transactional() || bus.observes_core_cycles())
+                    {
                         device.core_config_changed(addr, value)?;
                     }
                 }

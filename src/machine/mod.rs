@@ -12,6 +12,7 @@ use crate::board::Board;
 pub use seed::{Carrier, Seed};
 use std::{cell::RefCell, fmt, rc::Rc};
 use zmu_cortex_m::{
+    bus::Bus,
     core::{
         exception::{Exception, ExceptionHandling, ExceptionState},
         fault::FaultTrapMode,
@@ -19,6 +20,7 @@ use zmu_cortex_m::{
         reset::Reset,
     },
     executor::Executor,
+    memory::map::MemoryMapConfig,
     memory::ram::RAM,
     peripheral::nvic::NVIC,
     Processor,
@@ -54,6 +56,16 @@ pub struct Machine {
     resets: u64,
 }
 impl Machine {
+    /// Fast functional execution for immutable flash / DTCM IRQ firmware.
+    /// Executes the same CPU instructions and peripheral models, with board
+    /// service at MMIO and event deadlines. Does not model bus/cache timing,
+    /// MPU behavior, flash programming or DMA. Use from_elf for those checks.
+    pub fn from_elf_functional(board: Board, bytes: &[u8]) -> Result<Self, Error> {
+        let mut seed = Seed::new(board)?;
+        seed.functional = true;
+        image::load(&mut seed, bytes)?;
+        Self::boot(seed, 0x08000000)
+    }
     /// Load an ARM ELF executable without rebuilding or patching it.
     pub fn from_elf(board: Board, bytes: &[u8]) -> Result<Self, Error> {
         Self::from_elf_at(board, bytes, 0x08000000)
@@ -106,6 +118,28 @@ impl Machine {
         let mut cpu = Processor::new();
         cpu.flash_memory(0, &[]);
         cpu.sram = RAM::new(0, 0);
+        if seed.borrow().functional {
+            let mut s = seed.borrow_mut();
+            let mut flash = vec![0xff; 128 * 1024];
+            for (offset, chunk) in flash.chunks_exact_mut(4).enumerate() {
+                chunk.copy_from_slice(
+                    &s.host_read(0x08000000 + offset as u32 * 4, 4)?
+                        .to_le_bytes(),
+                );
+            }
+            cpu.flash_memory(flash.len(), &flash);
+            cpu.memory_map(Some(MemoryMapConfig::new(0x08000000, 0, 128 * 1024)));
+            cpu.sram = RAM::new(0x20000000, 128 * 1024);
+            for (offset, chunk) in s.dtcm.chunks_exact(4).enumerate() {
+                cpu.sram
+                    .write32(
+                        0x20000000 + offset as u32 * 4,
+                        u32::from_le_bytes(chunk.try_into().unwrap()),
+                    )
+                    .map_err(|e| Error::new(e.to_string()))?;
+            }
+            cpu.cache_instructions();
+        }
         cpu.device(Some(Box::new(seed::Device(seed.clone()))));
         cpu.cpuid = 0x411fc271;
         cpu.ccr = 1 << 9;
@@ -154,6 +188,9 @@ impl Machine {
     }
     /// Execute one instruction, exception entry, or scheduled bus-wait interval.
     pub fn step(&mut self) -> Result<(), Error> {
+        if self.seed.borrow().functional {
+            return self.run_functional(self.time_ns().saturating_add(1), 1);
+        }
         self.step_limit(u64::MAX)
     }
     fn step_limit(&mut self, maximum_ns: u64) -> Result<(), Error> {
@@ -197,6 +234,9 @@ impl Machine {
     /// Advance at most `maximum_steps`, stopping at the requested virtual time.
     /// A finite step budget prevents malformed firmware from hanging its caller.
     pub fn run_until(&mut self, nanoseconds: u64, maximum_steps: u64) -> Result<(), Error> {
+        if self.seed.borrow().functional {
+            return self.run_functional(nanoseconds, maximum_steps);
+        }
         for _ in 0..maximum_steps {
             if self.time_ns() >= nanoseconds {
                 return Ok(());
@@ -210,6 +250,59 @@ impl Machine {
             "step budget exhausted at {} ns (target {nanoseconds} ns)",
             self.time_ns()
         )))
+    }
+    fn run_functional(&mut self, target: u64, maximum_steps: u64) -> Result<(), Error> {
+        let mut deadline = self.cpu.cycle_count;
+        for _ in 0..maximum_steps {
+            let boundary = self.cpu.take_device_boundary();
+            if boundary || self.cpu.cycle_count >= deadline || self.cpu.sleeping {
+                self.service()?;
+                if self.seed.borrow().reset_requested {
+                    self.seed.borrow_mut().reset_board()?;
+                    let ram = std::mem::replace(&mut self.cpu.sram, RAM::new(0, 0));
+                    self.cpu = Self::processor(&self.seed, self.vectors, self.cpu.cycle_count)?;
+                    self.cpu.sram = ram;
+                    self.irq_levels = [0; 5];
+                    self.resets += 1;
+                    self.service()?;
+                }
+                if self.time_ns() >= target {
+                    return Ok(());
+                }
+                deadline = self.cpu.cycle_count
+                    + u64::from(self.seed.borrow().next_cycles(target - self.time_ns())?);
+            }
+            self.steps += 1;
+            if self.cpu.sleeping
+                && self.cpu.get_pending_exception().is_none()
+                && !self.cpu.has_wakeup_condition()
+            {
+                let wait = deadline
+                    .saturating_sub(self.cpu.cycle_count)
+                    .max(1)
+                    .min(u64::from(
+                        self.cpu.next_systick_cycles().unwrap_or(u32::MAX),
+                    ));
+                self.cpu.advance_wait_cycles(wait as u32);
+            } else {
+                if self.cpu.sleeping && self.cpu.has_wakeup_condition() {
+                    self.cpu.sleeping = false;
+                }
+                self.cpu.step();
+            }
+            if let Some(fault) = self.cpu.take_pending_fault_trap() {
+                return Err(Error::new(fault.to_string()));
+            }
+        }
+        self.service()?;
+        if self.time_ns() >= target {
+            Ok(())
+        } else {
+            Err(Error::new(format!(
+                "functional step budget exhausted at {} ns (target {target} ns)",
+                self.time_ns()
+            )))
+        }
     }
     /// Elapsed board time in nanoseconds.
     pub fn time_ns(&self) -> u64 {
@@ -234,6 +327,9 @@ impl Machine {
     }
     /// Issue one peripheral DMA request edge for a fixture or attached device.
     pub fn request_dma(&mut self, stream: usize) -> Result<(), Error> {
+        if self.seed.borrow().functional {
+            return Err(Error::new("DMA requires the timed runtime"));
+        }
         self.seed
             .borrow_mut()
             .request_dma(stream)
@@ -282,6 +378,15 @@ impl Machine {
     }
     /// Physical memory or register read, matching a debugger rather than CPU cache.
     pub fn read32(&mut self, address: u32) -> Result<u32, Error> {
+        if self.seed.borrow().functional && (0x20000000..0x20020000).contains(&address) {
+            if address > 0x2001fffc {
+                return Err(Error::new("DTCM read crosses populated memory"));
+            }
+            return self
+                .cpu
+                .debug_read32(address)
+                .map_err(|e| Error::new(e.to_string()));
+        }
         if self.seed.borrow().contains(address) {
             self.seed
                 .borrow_mut()
@@ -295,6 +400,22 @@ impl Machine {
     }
     /// Write a board register, physical memory, or core control register.
     pub fn write32(&mut self, address: u32, value: u32) -> Result<(), Error> {
+        if self.seed.borrow().functional {
+            if (0x08000000..0x08020000).contains(&address) {
+                return Err(Error::new(
+                    "functional flash is immutable; reload the image",
+                ));
+            }
+            if (0x20000000..0x20020000).contains(&address) {
+                if address > 0x2001fffc {
+                    return Err(Error::new("DTCM write crosses populated memory"));
+                }
+                return self
+                    .cpu
+                    .debug_write32(address, value)
+                    .map_err(|e| Error::new(e.to_string()));
+            }
+        }
         if self.seed.borrow().contains(address) {
             self.seed
                 .borrow_mut()
