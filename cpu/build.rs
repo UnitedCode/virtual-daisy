@@ -107,7 +107,7 @@ fn generate_decode(
         .collect();
 
     if bits == 32 {
-        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 5;")?;
+        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 6;")?;
         let profile = u8::from(cargo_feature_enabled("has-fp"))
             | (u8::from(cargo_feature_enabled("has-dsp-ext")) << 1)
             | (u8::from(cargo_feature_enabled("fpv5-d16")) << 2)
@@ -375,7 +375,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             ("111011101.10........101..1.0....", "VFMS_t1"),
             ("111011101.10........101..0.0....", "VFMA_t1"),
             ("111011101.01........101..0.0....", "VFNMS_t1"),
-            //("111011101.01........101..1.0....": "VFNMA_t1"),
+            ("111011101.01........101..1.0....", "VFNMA_t1"),
             ("11101110111.0001....101000010000", "VMRS"),
             ("1110110....1........1011.......0", "VLDM_t1"),
             ("1110110....1........1010........", "VLDM_t2"),

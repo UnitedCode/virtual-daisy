@@ -153,7 +153,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.4. Generated tables check their revision and
+The vendored CPU is revision 0.1.5. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -232,6 +232,15 @@ with ARM NaN priority, FZ, before-rounding tininess and finite-overflow flags
 applied explicitly. Square root uses an integer restoring algorithm and exact
 remainder rounding. Guarded native arithmetic remains available. These are
 instruction-level checks; they do not establish complete FPU or waveform parity.
+
+Fused arithmetic has another 49,152 executed QEMU result/FPSCR records for
+VFMA/VFMS/VFNMS/VFNMA in both precisions. All rounding/FZ/DN modes pass on both
+execution paths with native arithmetic on/off and sticky-flag replay. Separate
+checks cover register aliases, high registers, instruction size and bank limits.
+These found a missing VFNMA decode, tiny binary64 results disappearing, incorrect
+exception flags, and the wrong NaN sign in VFMS. Fused operations now use one
+APFloat rounding step. Boundary checks include an overflowing product canceled
+by its addend and a tiny product perturbing the normal/subnormal boundary.
 
 ## Supported scope and remaining limits
 

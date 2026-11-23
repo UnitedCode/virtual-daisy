@@ -56,6 +56,16 @@ reproduce it and all five earlier datasets unchanged. Both interpreter paths are
 checked with native arithmetic enabled and disabled. The binary64 cases include
 square root at tiny and very large magnitudes.
 
+`isa_oracle_fused.bin` contains 49,152 thirteen-word records from `fused_oracle.rs`:
+precision, A low/high, B low/high, addend low/high, operation (VFMA/VFMS/VFNMS/VFNMA),
+initial FPSCR, result low/high, final FPSCR, magic `0x45535546`. Each precision
+uses 256 special triples plus 128 seeded/targeted triples, with all rounding and
+FZ/DN combinations. Every executed record starts with clear exception flags;
+tests also replay it with sticky flags. Cases include product overflow canceled
+by the addend and tiny products perturbing the normal/subnormal boundary.
+QEMU 11.1.3 and rustc 1.97.1 reproduce the fixture and the six earlier datasets
+unchanged. The generator writes `isa_oracle.fused.bin`.
+
 Regenerate from the repository root:
 
 ```sh

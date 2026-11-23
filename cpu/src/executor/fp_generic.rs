@@ -1077,9 +1077,9 @@ impl FloatingPointPublicOperations for Processor {
             standard_fpscr_value(self.fpscr)
         };
 
-        let (typea, signa, valuea) = self.fp_unpack::<T>(addend, fpscr_val);
-        let (type1, sign1, value1) = self.fp_unpack::<T>(op1, fpscr_val);
-        let (type2, sign2, value2) = self.fp_unpack::<T>(op2, fpscr_val);
+        let (typea, signa) = integer_operand(self, addend.into(), T::n(), fpscr_val);
+        let (type1, sign1) = integer_operand(self, op1.into(), T::n(), fpscr_val);
+        let (type2, sign2) = integer_operand(self, op2.into(), T::n(), fpscr_val);
 
         let inf1 = type1 == FPType::Infinity;
         let zero1 = type1 == FPType::Zero;
@@ -1099,31 +1099,19 @@ impl FloatingPointPublicOperations for Processor {
             return result;
         }
 
-        let infa = typea == FPType::Infinity;
-        let zeroa = typea == FPType::Zero;
-
-        let signp = sign1 != sign2;
-        let infp = inf1 || inf2;
-        let zerop = zero1 || zero2;
-
-        if (inf1 && zero2) || (zero1 && inf2) || (infa && infp && signa != signp) {
-            self.fp_process_exception(FPExc::InvalidOp, fpscr_val);
-            T::fp_default_nan()
-        } else if (infa && !signa) || (infp && !signp) {
-            T::fp_infinity(false)
-        } else if (infa && signa) || (infp && signp) {
-            T::fp_infinity(true)
-        } else if zeroa && zerop && signa == signp {
+        let a = if zero1 { T::fp_zero(sign1) } else { op1 };
+        let b = if zero2 { T::fp_zero(sign2) } else { op2 };
+        let c = if typea == FPType::Zero {
             T::fp_zero(signa)
         } else {
-            let result_value = valuea + (value1 * value2);
-            if result_value == BigFloat::default() {
-                let result_sign =
-                    fpscr_val.get_rounding_mode() == FPSCRRounding::RoundTowardsMinusInfinity;
-                T::fp_zero(result_sign)
-            } else {
-                self.fp_round::<T>(result_value, fpscr_val)
-            }
+            addend
+        };
+        let (bits, flags) = super::fp_ieee::fused(a.into(), b.into(), c.into(), T::n(), fpscr_val);
+        self.fpscr |= flags;
+        if flags & 1 != 0 {
+            T::fp_default_nan()
+        } else {
+            T::from_integer(bits)
         }
     }
 

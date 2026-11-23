@@ -4,7 +4,10 @@ use rustc_apfloat::{
     ieee::{Double, Quad, Single},
 };
 
-fn operation<F: Float>(op: u8, a: F, b: F, rounding: Round) -> StatusAnd<F> {
+fn operation<F: Float>(op: u8, a: F, b: F, addend: Option<F>, rounding: Round) -> StatusAnd<F> {
+    if let Some(c) = addend {
+        return a.mul_add_r(b, c, rounding);
+    }
     match op {
         0 => a.add_r(b, rounding),
         1 => a.sub_r(b, rounding),
@@ -18,6 +21,7 @@ fn inner<F: Float + FloatConvert<W>, W: Float>(
     op: u8,
     a: u64,
     b: u64,
+    addend: Option<u64>,
     control: u32,
     minimum: u64,
 ) -> (u64, u32) {
@@ -29,7 +33,8 @@ fn inner<F: Float + FloatConvert<W>, W: Float>(
     };
     let a = F::from_bits(u128::from(a));
     let b = F::from_bits(u128::from(b));
-    let result = operation(op, a, b, rounding);
+    let addend = addend.map(|c| F::from_bits(u128::from(c)));
+    let result = operation(op, a, b, addend, rounding);
     let minimum = F::from_bits(u128::from(minimum));
     let mut flags = u32::from(result.status.bits());
     let mut tiny = result.value.is_denormal() || result.status.contains(Status::UNDERFLOW);
@@ -39,13 +44,15 @@ fn inner<F: Float + FloatConvert<W>, W: Float>(
         && !result.status.contains(Status::OVERFLOW);
     if tiny_boundary || overflow_boundary {
         // LLVM tests tininess after rounding; ARM tests it before rounding.
-        // W has enough exponent range and significand bits to distinguish the
-        // exact rational result from this boundary for both input precisions.
+        // W holds every input/product exponent. Rounding its magnitude toward
+        // zero preserves which side of a representable power-of-two boundary
+        // the exact result lies on, even for a tiny FMA perturbation.
         let mut loses_info = false;
         let wide_a: W = a.convert(&mut loses_info).value;
         let wide_b: W = b.convert(&mut loses_info).value;
+        let wide_addend: Option<W> = addend.map(|c| c.convert(&mut loses_info).value);
         let wide_minimum: W = minimum.convert(&mut loses_info).value;
-        let wide_result = operation(op, wide_a, wide_b, Round::NearestTiesToEven)
+        let wide_result = operation(op, wide_a, wide_b, wide_addend, Round::TowardZero)
             .value
             .abs();
         if tiny_boundary {
@@ -70,9 +77,17 @@ fn inner<F: Float + FloatConvert<W>, W: Float>(
 
 pub(super) fn binary(op: u8, a: u64, b: u64, size: usize, control: u32) -> (u64, u32) {
     if size == 32 {
-        inner::<Single, Double>(op, a, b, control, 0x0080_0000)
+        inner::<Single, Double>(op, a, b, None, control, 0x0080_0000)
     } else {
-        inner::<Double, Quad>(op, a, b, control, 0x0010_0000_0000_0000)
+        inner::<Double, Quad>(op, a, b, None, control, 0x0010_0000_0000_0000)
+    }
+}
+
+pub(super) fn fused(a: u64, b: u64, c: u64, size: usize, control: u32) -> (u64, u32) {
+    if size == 32 {
+        inner::<Single, Double>(0, a, b, Some(c), control, 0x0080_0000)
+    } else {
+        inner::<Double, Quad>(0, a, b, Some(c), control, 0x0010_0000_0000_0000)
     }
 }
 
