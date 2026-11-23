@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.8. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.9. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
@@ -43,6 +43,13 @@ an ARM guest checks every legal register pairing and preserved packed halves.
 The public raw-bit conversion API lets the optional Renode adapter use the same
 kernel, correcting its unsupported double-half and incorrect inexact flag paths.
 That adapter comparison checks integration; QEMU supplies independent math.
+
+Fixed-point VCVT now has its own decoder rather than falling through to integer
+conversion and reading an immediate field as a register number. Every legal
+16/32-bit scaling count is checked against 401,408 QEMU records. Signed results
+extend to the full destination width; 16-bit results saturate at their own bounds.
+The fixed-to-float path uses nearest-even APFloat conversion and exact power-of-two
+scaling, avoiding the old generic helper's inaccurate division at 19 fraction bits.
 
 Changes are checked against the upstream instruction suite, executed ARM guests,
 the pinned Renode reference backend and ST's PM0253 programming manual. See

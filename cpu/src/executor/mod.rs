@@ -1025,6 +1025,8 @@ impl ExecutorHelper for Processor {
             #[cfg(feature = "has-fp")]
             Instruction::VCVT_half { params } => self.exec_vcvt_half(*params),
             #[cfg(feature = "has-fp")]
+            Instruction::VCVT_fixed { params } => self.exec_vcvt_fixed(*params),
+            #[cfg(feature = "has-fp")]
             Instruction::VSEL_f32 { params } => self.exec_vsel_f32(*params),
             #[cfg(feature = "has-fp")]
             Instruction::VSEL_f64 { params } => self.exec_vsel_f64(*params),

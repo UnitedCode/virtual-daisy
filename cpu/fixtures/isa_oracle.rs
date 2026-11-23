@@ -20,6 +20,7 @@ mod fused_oracle;
 mod precision_oracle;
 mod accumulate_oracle;
 mod half_oracle;
+mod fixed_oracle;
 #[unsafe(no_mangle)]
 extern "C" fn Reset()->!{
  unsafe{core::ptr::write_volatile(0xe000ed88 as *mut u32,0x00f00000);asm!("dsb","isb",options(nostack));}
@@ -92,6 +93,7 @@ extern "C" fn Reset()->!{
  precision_oracle::run();
  accumulate_oracle::run();
  half_oracle::run();
+ fixed_oracle::run();
  exit(0)
 }
 

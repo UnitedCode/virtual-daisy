@@ -7,6 +7,8 @@ mod cpu_probe;
 #[cfg(feature = "rust-host")]
 mod emulate;
 mod fetch_probe;
+#[path = "../cpu/fixtures/fixed_probe.rs"]
+mod fixed_probe;
 mod grade;
 mod guest;
 #[path = "../cpu/fixtures/half_probe.rs"]
@@ -169,6 +171,8 @@ impl Host<'_> {
             ".half.bin",
             ".half-site.bin",
             ".half.txt",
+            ".fixed.bin",
+            ".fixed.txt",
             ".architecture.bin",
             ".architecture.txt",
             ".architecture-negative.txt",
@@ -296,6 +300,7 @@ impl Host<'_> {
             "instruction-clock-coarse-control",
             "half",
             "half-double-control",
+            "fixed",
             "dsb-fault",
             "entry-fault",
             "wait-irq",
@@ -350,6 +355,20 @@ impl Host<'_> {
 }
 
 fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
+    guest::prepare(
+        host.directory,
+        "fixed",
+        &include_str!("../guests/fixed.rs").replace(
+            "// FIXED_CASES",
+            include_str!("../cpu/fixtures/fixed_probe_cases.rs"),
+        ),
+    )?;
+    let fixed = host.boot("fixed", tone, "fixed")?;
+    fixed_probe::check(&fs::read(grade::artifact(&fixed, ".fixed.bin"))?)?;
+    fs::write(
+        grade::artifact(&fixed, ".fixed.txt"),
+        "fixed_conversion_register_matrix=passed\nindependent_numerical_expectations=QEMU\n",
+    )?;
     guest::prepare(host.directory, "half", include_str!("../guests/half.rs"))?;
     let half = host.boot("half", tone, "half")?;
     half_probe::check(&fs::read(grade::artifact(&half, ".half.bin"))?)?;
@@ -860,7 +879,7 @@ fn run(
         if fs::read(elf)? != firmware || fs::read(directory.join("firmware.elf"))? != firmware {
             return Err("Firmware changed during CPU check".into());
         }
-        let summary="ARM half storage conversions and 6,144 register pairs, SAI FIFO/mute IRQ87, SDRAM rows/read-ahead/refresh IRQ48, CPU faults/FPU, QSPI/FLASH bus errors, DMA QSPI completion/error, precise mapped-fetch and exception frame-transition probes passed, including all negative controls; production startup/audio and other ARM probes NOT RUN\n";
+        let summary="ARM fixed conversions across 960 register cases, half storage conversions across 6,144 register pairs, SAI FIFO/mute IRQ87, SDRAM rows/read-ahead/refresh IRQ48, CPU faults/FPU, QSPI/FLASH bus errors, DMA QSPI completion/error, precise mapped-fetch and exception frame-transition probes passed, including all negative controls; production startup/audio and other ARM probes NOT RUN\n";
         fs::write(directory.join("cpu-summary.txt"), summary)?;
         print!("{summary}");
         return Ok(());

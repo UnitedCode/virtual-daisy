@@ -2,9 +2,45 @@
 use crate::core::fpregister::IntegralRounding;
 use crate::core::{
     bits::Bits,
-    instruction::{Instruction, VCVTHalfParams, VCVTParams, VCVTParamsF32F64, VCVTParamsF64F32},
+    instruction::{
+        Instruction, VCVTFixedParams, VCVTHalfParams, VCVTParams, VCVTParamsF32F64,
+        VCVTParamsF64F32,
+    },
     register::{DoubleReg, ExtensionReg, SingleReg},
 };
+
+#[allow(non_snake_case)]
+pub fn decode_VCVT_fixed_t1(opcode: u32) -> Instruction {
+    let double = opcode & (1 << 8) != 0;
+    let high = (opcode >> 22) & 1;
+    let vd = (opcode >> 12) & 15;
+    let width = if opcode & (1 << 7) != 0 { 32 } else { 16 };
+    let immediate = ((opcode & 15) << 1) | ((opcode >> 5) & 1);
+    if immediate > width || (double && (!cfg!(feature = "fpv5-d16") || high != 0)) {
+        return Instruction::UDF {
+            imm32: 0,
+            opcode: opcode.into(),
+            thumb32: true,
+        };
+    }
+    Instruction::VCVT_fixed {
+        params: VCVTFixedParams {
+            register: if double {
+                ExtensionReg::Double {
+                    reg: DoubleReg::from(vd as u8),
+                }
+            } else {
+                ExtensionReg::Single {
+                    reg: SingleReg::from((vd * 2 + high) as u8),
+                }
+            },
+            to_fixed: opcode & (1 << 18) != 0,
+            unsigned: opcode & (1 << 16) != 0,
+            width: width as u8,
+            fraction_bits: (width - immediate) as u8,
+        },
+    }
+}
 
 #[allow(non_snake_case)]
 pub fn decode_VCVT_half_t1(opcode: u32) -> Instruction {

@@ -430,6 +430,16 @@ pub struct VCVTHalfParams {
 
 #[allow(missing_docs)]
 #[derive(PartialEq, Debug, Copy, Clone)]
+pub struct VCVTFixedParams {
+    pub register: ExtensionReg,
+    pub to_fixed: bool,
+    pub unsigned: bool,
+    pub width: u8,
+    pub fraction_bits: u8,
+}
+
+#[allow(missing_docs)]
+#[derive(PartialEq, Debug, Copy, Clone)]
 pub struct VCVTParamsF64F32 {
     pub dd: DoubleReg,
     pub sm: SingleReg,
@@ -1634,6 +1644,10 @@ pub enum Instruction {
     #[cfg(feature = "has-fp")]
     VCVT_half {
         params: VCVTHalfParams,
+    },
+    #[cfg(feature = "has-fp")]
+    VCVT_fixed {
+        params: VCVTFixedParams,
     },
     #[cfg(feature = "has-fp")]
     VSEL_f32 {
@@ -3019,6 +3033,29 @@ impl fmt::Display for Instruction {
             #[cfg(feature = "has-fp")]
             Self::VCVT_f32_f64 { params } => write!(f, "vcvt.f32.f64 {}, {}", params.sd, params.dm),
             #[cfg(feature = "has-fp")]
+            Self::VCVT_fixed { params } => {
+                let fixed = format!(
+                    "{}{}",
+                    if params.unsigned { "u" } else { "s" },
+                    params.width
+                );
+                let float = if matches!(params.register, ExtensionReg::Double { .. }) {
+                    "f64"
+                } else {
+                    "f32"
+                };
+                let (to, from) = if params.to_fixed {
+                    (fixed.as_str(), float)
+                } else {
+                    (float, fixed.as_str())
+                };
+                write!(
+                    f,
+                    "vcvt.{to}.{from} {}, {}, #{}",
+                    params.register, params.register, params.fraction_bits
+                )
+            }
+            #[cfg(feature = "has-fp")]
             Self::VCVT_half { params } => {
                 let selector = if params.top { "t" } else { "b" };
                 let size = if matches!(params.full, ExtensionReg::Double { .. }) {
@@ -3491,7 +3528,7 @@ pub fn instruction_size(instruction: &Instruction) -> usize {
         #[cfg(feature = "has-fp")]
         Instruction::VCVT_f32_f64 { .. } => 4,
         #[cfg(feature = "has-fp")]
-        Instruction::VCVT_half { .. } => 4,
+        Instruction::VCVT_half { .. } | Instruction::VCVT_fixed { .. } => 4,
         #[cfg(feature = "has-fp")]
         Instruction::VSEL_f32 { .. } => 4,
         #[cfg(feature = "has-fp")]

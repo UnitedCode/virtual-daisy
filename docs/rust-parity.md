@@ -34,6 +34,7 @@ Guests were built with Rust 1.97.1 for `thumbv7em-none-eabihf`, Cortex-M7,
 | --- | --- |
 | CPU faults and FPU | All 100 result words match for DTCM/shared SRAM stacks and lazy/eager FP saves. Includes divide-by-zero, normal/forced alignment, MPU denied/XN access, NOCP, f64 arithmetic, FP identifiers, scalar/paired VMOV bit transfers and precise fault PCs. |
 | Half-precision storage conversion | VCVTB/VCVTT convert directly between FP16 and binary32/binary64, preserving the other packed half. An ARM guest checks 6,144 register pairs, aliases and FPSCR. Restoring the reference's old double-half rejection must fault at the expected instruction. Numerical independence comes from the separate QEMU oracle below. |
+| Fixed-point conversion | An ARM guest checks 40 QEMU-pinned boundary cases across all populated registers: 960 executions, including signed extension, unsigned saturation and fractional scaling. The separate 401,408-record oracle covers every legal fractional-bit count. |
 | SysTick source selection | An ARM guest compares both CLKSOURCE settings against DWT cycles. The reference suite also restores the old core-only behavior as a required negative control. |
 | Progress inside a translated block | A literal 128-NOP ITCM sequence checks progress before the block completes. A second sequence bounds short DWT intervals. Completed-block-only reporting and eight-cycle grouping at 64 MHz are both retained as failing controls. Fractional nanosecond phase is kept in Rust; neither backend has a calibrated M7 pipeline. |
 | QSPI bus faults / DMA | Five fixtures: disabled mapping, valid DMA completion, controller disable, abort and aperture range error. Checks precise data/execute faults, escalation, flash key errors, TEIF/TCIF, EN, NDTR and interrupt delivery. |
@@ -171,7 +172,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.8. Generated tables check their revision and
+The vendored CPU is revision 0.1.9. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -293,13 +294,30 @@ exception flags, and the wrong NaN sign in VFMS. Fused operations now use one
 APFloat rounding step. Boundary checks include an overflowing product canceled
 by its addend and a tiny product perturbing the normal/subnormal boundary.
 
+Fixed-point VCVT had been decoded as integer conversion, treating fraction bits
+as a source register. It now has a separate decoder and executes both precisions,
+signed/unsigned 16/32-bit fixed values, and every legal scaling immediate.
+Floating-to-fixed truncates and saturates at the selected integer width; signed
+results extend through the full destination register. Fixed-to-float uses
+nearest-even rounding and exact power-of-two scaling. The old generic division
+helper introduced error at 19 fraction bits, including an incorrect inexact flag
+for an exactly representable result.
+
+QEMU independently executed 401,408 records with boundary/seeded inputs and all
+FPSCR rounding/FZ/DN combinations. Both interpreter paths pass with native
+arithmetic on/off and sticky flags. Register checks cover every legal encoding;
+invalid fraction fields and unpopulated double registers remain undefined.
+The legal 0–16/1–32 fraction ranges and extension behavior follow
+[Arm's fixed-point conversion guide](https://documentation-service.arm.com/static/5e7b6a6216d2907d594035c4), C4.8,
+and the [Cortex-M7 guide](https://support.arm.com/documentation/dui0646/c/The-Cortex-M7-Instruction-Set/Floating-point-instructions/VCVT-between-floating-point-and-fixed-point).
+
 ## Supported scope and remaining limits
 
 | Area | Current scope |
 | --- | --- |
 | Seed revisions | Rev4/AK4556, Rev5/WM8731 and Rev7/PCM3060. No Seed2 DFM or Seed3 profile. |
 | CPU timing | Interpreter cycle counts and coupled functional bus service. No calibrated M7 pipeline, dual issue, speculation, store-buffer overlap or exception-entry latency. Startup frame counts and arbitrary timed interrupt PCs can differ. |
-| CPU instruction coverage | Thumb interpreter with the tested DSP/FPv5 cases above, including half-precision storage conversion. Fixed-point VCVT instruction paths remain unimplemented; complete ISA coverage has not been established. |
+| CPU instruction coverage | Thumb interpreter with the tested DSP/FPv5 cases above, including half-storage and fixed-point conversions. Complete ISA coverage has not been established. |
 | SysTick silicon scope | Selectable core and core/8 clocks, matching revision V. Earlier revision-Y behavior without the /8 divider is not a selectable silicon profile; see [ES0392](https://www.st.com/resource/en/errata_sheet/es0392-stm32h747xibixg-device-errata-stmicroelectronics.pdf), SysTick external-clock erratum. Board codec revisions do not identify the die revision. |
 | Audio | Stereo serial PCM, codec routing/power/mute and validated clocks. Exact rational rate is recorded. Converter analog noise, clipping curves and complete filter coefficients/rounding are not modeled. |
 | Memory | Populated H750 memories, shared cache/fabric, FMC SDRAM, internal flash and external IS25LP064A controller/chip models. Retention, electrical signal integrity and physical contention timing are unverified. |
