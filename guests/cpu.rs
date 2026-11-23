@@ -150,7 +150,7 @@ unsafe extern "C" fn probe_main() -> ! {
         phase(0xbad0f022);
         loop { asm!("wfi", options(nostack)); }
     }
-    for word in 0..100 {
+    for word in 0..104 {
         record(word, 0);
     }
     record(2, read(0xe000ed90));
@@ -274,6 +274,15 @@ unsafe extern "C" fn probe_main() -> ! {
     write(0x52002000, 2);
     barriers();
     record(95, probe_ldrd_alias());
+    let mut quotient:u32;
+    asm!("sdiv r0,r1,r2",in("r1") 0x80000000u32,in("r2") 0xffffffffu32,out("r0") quotient);
+    record(100,quotient);
+    asm!("sdiv r0,r1,r2",in("r1") 0xfffffff9u32,in("r2") 3u32,out("r0") quotient);
+    record(101,quotient);
+    asm!("udiv r0,r1,r2",in("r1") 0xffffffffu32,in("r2") 3u32,out("r0") quotient);
+    record(102,quotient);
+    asm!("udiv r0,r1,r2",in("r1") 0x12345678u32,in("r2") 0u32,out("r0") quotient);
+    record(103,quotient);
     phase(0xab);
     loop {
         asm!("wfi", options(nostack));

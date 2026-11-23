@@ -2,6 +2,8 @@
 //! The same unmodified ARM guests run by the Renode reference harness.
 use std::{fs, path::PathBuf, process::Command};
 use virtual_daisy::{board::Board, machine::Machine};
+#[path = "../cpu/fixtures/divide_probe_cases.rs"]
+mod divide_cases;
 #[path = "../src/events_probe.rs"]
 mod events_probe;
 #[path = "../cpu/fixtures/fixed_probe.rs"]
@@ -723,7 +725,7 @@ fn architectural_guest_matches_reference_results() {
         machine
             .run_until(2_000_000, 1_000_000)
             .unwrap_or_else(|e| panic!("{label}: {e}"));
-        let words: Vec<_> = (0..100)
+        let words: Vec<_> = (0..104)
             .map(|i| machine.read32(0x20018000 + i * 4).unwrap())
             .collect();
         eprintln!(
@@ -735,6 +737,9 @@ fn architectural_guest_matches_reference_results() {
             &words[96..100],
             &[0x7f800001, 0x80000000, 0xffc01234, 0x80000000]
         );
+        for (i, case) in divide_cases::CPU_DIVIDE_CASES.into_iter().enumerate() {
+            assert_eq!(words[100 + i], case[4]);
+        }
         assert_eq!(words[1], 16, "fault count");
         for (phase, exception, status) in [
             (1, 6, 0x02000000),

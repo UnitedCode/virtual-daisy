@@ -235,3 +235,13 @@ and selects sixteen aligned/unaligned cases plus initial guard words in
 `isa_oracle.unprivileged-probe.rs` for `unprivileged_probe_cases.rs`.
 Numerical/memory results are independent of the Rust emulator; the separate
 ARM guest adds MPU permission, alignment-trap and user-STIR checks.
+
+
+`isa_oracle_divide.bin` contains 4,096 seven-word records from `divide_oracle.rs`:
+literal opcode, dividend, divisor, initial APSR, result, final APSR and magic
+`0x49564944`. Both SDIV and UDIV execute a sixteen-value boundary matrix plus
+256 seeded pairs under four flag states, with DIV_0_TRP clear. It includes
+MIN/-1, signed rounding toward zero, unsigned large values and zero divisors.
+The generator writes `isa_oracle.divide.bin` and pins four architectural-guest
+results in `isa_oracle.divide-probe.rs` for `divide_probe_cases.rs`. All twenty
+earlier datasets reproduce unchanged with QEMU 11.1.3 and rustc 1.97.1.

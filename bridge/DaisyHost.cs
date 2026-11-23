@@ -589,7 +589,7 @@ public static class DaisyHost
         if(kind=="cpu-align-fault") cpu.DisableAlignment();
         bus.WriteDoubleWord(0x20018200,kind=="cpu-div-fault" ? 1U:kind=="cpu-lazy-fault" ? 2U:kind.StartsWith("cpu-eager") ? 4U:0U);
         emulation.RunFor(TimeInterval.FromMilliseconds(2));
-        File.WriteAllBytes(prefix+".cpu.bin",bus.ReadBytes(0x20018000UL,400));
+        File.WriteAllBytes(prefix+".cpu.bin",bus.ReadBytes(0x20018000UL,416));
         using(var output=new BinaryWriter(File.Create(prefix+".cpu-sites.bin")))
             foreach(uint word in new uint[]{7,11,15,23,27,31,35,39,67,71,75,79,83,87,91}) output.Write(bus.ReadDoubleWord(bus.ReadDoubleWord(0x20018000+4*word)));
         ((DaisyNvic)machine["sysbus.nvic"]).Architecture.Save(prefix+".memory.txt");

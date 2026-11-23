@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.17. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.18. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
@@ -149,3 +149,12 @@ QEMU oracle covers all offsets, signed loads, memory guards, flags and aliases;
 both execution paths check all legal GPR pairs, including SP bases and LR.
 PPB access and CCR.UNALIGN_TRP are enforced before side effects. STIR honors
 USERSETMPEND and keeps disabled IRQs pending until the NVIC enables them.
+
+
+SDIV now returns the architectural wrapped result for MIN/-1 instead of
+panicking the host. Division rejects SP/PC operands before access or writes.
+A 4,096-record independent QEMU oracle checks signed/unsigned quotients and
+unchanged flags through both paths, including every legal GPR triple and
+aliases. Separate regressions cover trapped zero division and skipped IT
+instructions. The architectural guest appends four pinned division results,
+expanding its capture from 100 to 104 words without changing earlier result slots.

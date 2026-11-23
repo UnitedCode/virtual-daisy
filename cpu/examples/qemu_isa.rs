@@ -82,6 +82,7 @@ fn main() {
     let mut long_multiply = Vec::new();
     let mut extend_pack = Vec::new();
     let mut unprivileged = Vec::new();
+    let mut divide = Vec::new();
     for line in hex.lines() {
         assert!(matches!(line.len(), 40 | 48 | 56 | 64 | 72 | 80 | 88 | 104));
         let destination = if line.len() == 48 && line.ends_with("53534154") {
@@ -96,6 +97,8 @@ fn main() {
             &mut qadd
         } else if line.len() == 56 && line.ends_with("45585450") {
             &mut extend_pack
+        } else if line.len() == 56 && line.ends_with("44495649") {
+            &mut divide
         } else if line.len() == 56 {
             &mut precision
         } else if line.len() == 64 && line.ends_with("4c4f4e47") {
@@ -142,6 +145,14 @@ fn main() {
         unprivileged_cases(&unprivileged),
     )
     .unwrap();
+    assert_eq!(divide.len(), 4096 * 7 * 4);
+    fs::write(output.with_extension("divide.bin"), &divide).unwrap();
+    fs::write(
+        output.with_extension("divide-probe.rs"),
+        divide_cases(&divide),
+    )
+    .unwrap();
+    println!("4096 QEMU integer division cases; {} bytes", divide.len());
     assert_eq!(bytes.len(), 210 * 5 * 5 * 4);
     fs::write(&output, &bytes).unwrap();
     assert_eq!(doubles.len(), 344 * 5 * 8 * 4);
@@ -497,5 +508,35 @@ fn unprivileged_cases(data: &[u8]) -> String {
     let a = initial[&0];
     let b = initial[&1];
     source.push_str(&format!("];\npub const INITIAL_GUARDS: [[u32; 2]; 2] = [[0x{:08x}, 0x{:08x}], [0x{:08x}, 0x{:08x}]];\n", a[0], a[1], b[0], b[1]));
+    source
+}
+
+fn divide_cases(data: &[u8]) -> String {
+    let mut source = String::from(
+        "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const CPU_DIVIDE_CASES: [[u32; 6]; 4] = [\n",
+    );
+    for (op, a, b) in [
+        (0xfb91f0f2, 0x80000000, 0xffffffff),
+        (0xfb91f0f2, 0xfffffff9, 3),
+        (0xfbb1f0f2, 0xffffffff, 3),
+        (0xfbb1f0f2, 0x12345678, 0),
+    ] {
+        let words = data
+            .as_chunks::<28>()
+            .0
+            .iter()
+            .map(|r| {
+                core::array::from_fn::<_, 7, _>(|i| {
+                    u32::from_le_bytes(r[i * 4..i * 4 + 4].try_into().unwrap())
+                })
+            })
+            .find(|w| w[..4] == [op, a, b, 0xa80a0000])
+            .expect("missing CPU division case");
+        source.push_str(&format!(
+            "    [\n        0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x},\n    ],\n",
+            words[0], words[1], words[2], words[3], words[4], words[5]
+        ));
+    }
+    source.push_str("];\n");
     source
 }
