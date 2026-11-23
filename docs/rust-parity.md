@@ -34,7 +34,7 @@ Guests were built with Rust 1.97.1 for `thumbv7em-none-eabihf`, Cortex-M7,
 | --- | --- |
 | CPU faults and FPU | All 100 result words match for DTCM/shared SRAM stacks and lazy/eager FP saves. Includes divide-by-zero, normal/forced alignment, MPU denied/XN access, NOCP, f64 arithmetic, FP identifiers, scalar/paired VMOV bit transfers and precise fault PCs. |
 | SysTick source selection | An ARM guest compares both CLKSOURCE settings against DWT cycles. The reference suite also restores the old core-only behavior as a required negative control. |
-| Progress inside a translated block | A literal 128-NOP ITCM sequence advances DWT by 128 cycles in the reference and 127 after subtracting measurement overhead in Rust. The old reference path reports 72 and is retained as a failing control. Reference nanosecond conversion still groups eight cycles at 64 MHz; this does not calibrate either backend's M7 pipeline. |
+| Progress inside a translated block | A literal 128-NOP ITCM sequence checks progress before the block completes. A second sequence bounds short DWT intervals. Completed-block-only reporting and eight-cycle grouping at 64 MHz are both retained as failing controls. Fractional nanosecond phase is kept in Rust; neither backend has a calibrated M7 pipeline. |
 | QSPI bus faults / DMA | Five fixtures: disabled mapping, valid DMA completion, controller disable, abort and aperture range error. Checks precise data/execute faults, escalation, flash key errors, TEIF/TCIF, EN, NDTR and interrupt delivery. |
 | Demand instruction fetch | Valid prefixes execute; Thumb32 crossing the QSPI limit faults at the instruction's start; the faulting store does not occur; cached prefixes remain executable after controller disable. |
 | SAI | Reset values, FIFO level, mute detect/clear and IRQ87 delivery. |
@@ -208,6 +208,14 @@ error (0.054696441 peak). Fault and FIFO flags remained clear. This independentl
 confirms a material pacing contribution for the current firmware. Production
 retains its instruction costs; the diagnostic is not a calibrated M7 model or
 a waveform parity pass.
+
+The later fractional-progress reference adapter removes whole-cycle grouping
+without fitting the waveform. A 200 ms nonperiodic-input comparison still has
+9,012 Rust frames versus 9,037 reference frames, with onset at 1,794 versus 1,746.
+Unshifted RMS error is 0.180121244 (peak 0.385588408). The first 4,096-frame
+constant-offset diagnostic reaches 0.013076096 channel-0 RMS at -48 frames.
+Neither this accounting correction nor an offset search establishes waveform
+parity. The exact same firmware/input is retained for the next pacing comparison.
 
 ### FPv5 rounding and integer conversions
 

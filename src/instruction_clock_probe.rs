@@ -13,12 +13,18 @@ pub fn check(bytes: &[u8]) -> Result<(), String> {
         return Err("ARM instruction clock guest did not complete without faults".into());
     }
     let nops = words[3].wrapping_sub(words[1]);
-    // Renode's integer-nanosecond conversion at 64 MHz groups eight cycles.
     // This proves instruction progress, not physical Cortex-M7 pipeline timing.
     if nops.abs_diff(128) > 8 {
         return Err(format!(
             "ARM instruction clock: 128 NOPs advanced {nops} cycles"
         ));
+    }
+    for &cycles in &words[13..20] {
+        if cycles > 4 {
+            return Err(format!(
+                "ARM instruction clock: short DWT interval jumped {cycles} cycles"
+            ));
+        }
     }
     Ok(())
 }

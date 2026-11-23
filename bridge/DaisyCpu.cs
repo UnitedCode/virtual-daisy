@@ -8,6 +8,7 @@ using Antmicro.Renode.Peripherals;
 using Antmicro.Renode.Peripherals.CPU;
 using Antmicro.Renode.Peripherals.IRQControllers;
 using Antmicro.Renode.Utilities.Binding;
+using Antmicro.Renode.Time;
 
 namespace Antmicro.Renode.Peripherals.Miscellaneous
 {
@@ -36,6 +37,16 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public void DisableLateArrival() { tlibDaisySetLateInterrupt(IntPtr.Zero); }
         public void DisableTailChaining() { tlibDaisySetTailchain(0); }
         public void DisablePrefixTime() { tlibDaisySetPrefixTime(0); }
+        public bool CoarseProgress {get;set;}
+        // Called by the guarded BaseCPU ReportProgress adapter. Only the Rust
+        // fractional accumulator owns timing arithmetic for Daisy CPUs.
+        public static TimeInterval ProgressTime(ulong cycles,uint mips,out ulong remainder,BaseCPU cpu) {
+            if(cpu is DaisyCortexM daisy && !daisy.CoarseProgress) {
+                remainder=0;
+                return TimeInterval.FromNanoseconds(daisy.architecture.ProgressNanoseconds(cycles,mips));
+            }
+            return TimeInterval.FromCPUCycles(cycles,mips,out remainder);
+        }
         public override ExecutionResult ExecuteInstructions(ulong numberOfInstructionsToExecute,out ulong numberOfExecutedInstructions) {
             architecture.Synchronize();
             var result=base.ExecuteInstructions(numberOfInstructionsToExecute,out numberOfExecutedInstructions);

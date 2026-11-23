@@ -70,7 +70,7 @@ For a Rust project, the library can also be used directly:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.13" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.14" }
 ```
 
 ## Checks
@@ -129,7 +129,11 @@ The CPU suite includes an ITCM instruction-clock guest. The native adapter repor
 the completed prefix when a peripheral synchronizes time inside a translated
 block, then bills the rest once on completion or unwind. A negative control
 restores completed-block-only reporting. This fixes within-block progress;
-integer-nanosecond quantization and the functional instruction pacing remain.
+the CPU also retains fractional nanosecond phase instead of waiting for a group
+of whole cycles. Short DWT intervals reject the old grouping in a separate
+negative control. Fixed-rate split advances preserve the exact integer elapsed
+nanoseconds; a rate change rounds the retained fraction down by less than one
+unit of the new fractional denominator. Functional instruction pacing remains.
 
 The writeback and interrupt probes erase their temporary machine's internal flash
 through the modeled controller before installing their fixtures. This keeps their
