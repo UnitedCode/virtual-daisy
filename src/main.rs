@@ -31,6 +31,7 @@ mod source_archive;
 mod storage_probe;
 mod systick_probe;
 mod transition_probe;
+mod unprivileged_probe;
 mod vector_probe;
 use sha2::{Digest, Sha256};
 use std::{
@@ -175,6 +176,8 @@ impl Host<'_> {
             ".systick.txt",
             ".events.bin",
             ".events.txt",
+            ".unprivileged.bin",
+            ".unprivileged.txt",
             ".instruction-clock.bin",
             ".instruction-clock.txt",
             ".half.bin",
@@ -321,6 +324,7 @@ impl Host<'_> {
             "saturation-psr-control",
             "events",
             "events-noop-control",
+            "unprivileged",
             "psr",
             "dsb-fault",
             "entry-fault",
@@ -442,6 +446,23 @@ fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
     fs::write(
         grade::artifact(&old_psr, ".saturation.txt"),
         format!("legacy_psr_ge_loss=caught\n{error}\n"),
+    )?;
+    guest::prepare(
+        host.directory,
+        "unprivileged",
+        &include_str!("../guests/unprivileged.rs").replace(
+            "// UNPRIVILEGED_CASES",
+            include_str!("../cpu/fixtures/unprivileged_probe_cases.rs"),
+        ),
+    )?;
+    let unprivileged = host.boot("unprivileged", tone, "unprivileged")?;
+    unprivileged_probe::check(&fs::read(grade::artifact(
+        &unprivileged,
+        ".unprivileged.bin",
+    ))?)?;
+    fs::write(
+        grade::artifact(&unprivileged, ".unprivileged.txt"),
+        "unprivileged_mpu_alignment_and_user_stir_cases=74\n",
     )?;
     guest::prepare(
         host.directory,
@@ -989,7 +1010,9 @@ fn run(
         let summary = concat!(
             "ARM PSR masks/aliases, unprivileged writes and SVC GE restoration: passed\n",
             "ARM long multiply across 33,124 register cases: passed\n",
-            "ARM saturation across 15,680 register pairs: passed\n",
+            "ARM saturation/packing across 37,632 register pairs: passed\n",
+            "ARM unprivileged MPU, alignment and user-STIR across 74 cases: passed\n",
+            "ARM WFE/WFI event behavior across nine sleep checkpoints: passed\n",
             "ARM fixed conversions across 960 register cases: passed\n",
             "ARM half conversions across 6,144 register pairs: passed\n",
             "ARM SAI FIFO/mute IRQ87 and SDRAM rows/read-ahead/refresh IRQ48: passed\n",

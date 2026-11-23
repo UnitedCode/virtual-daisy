@@ -16,6 +16,58 @@ mod long_multiply_probe;
 mod psr_probe;
 #[path = "../cpu/fixtures/saturation_probe.rs"]
 mod saturation_probe;
+#[path = "../src/unprivileged_probe.rs"]
+mod unprivileged_probe;
+
+#[test]
+fn old_reference_user_stir_bypass_fails_the_privilege_gate() {
+    let bytes = include_bytes!("fixtures/unprivileged_legacy_reference.bin");
+    assert!(unprivileged_probe::check(bytes)
+        .unwrap_err()
+        .starts_with("ARM unprivileged case 72 opcode 0xf8410e00:"));
+    let at = (16 + 72 * 8) * 4;
+    assert_eq!(
+        u32::from_le_bytes(bytes[at + 8..at + 12].try_into().unwrap()),
+        32
+    );
+    assert_eq!(
+        u32::from_le_bytes(bytes[at + 20..at + 24].try_into().unwrap()),
+        0
+    );
+}
+
+#[test]
+fn old_native_transfers_and_disabled_stir_fail_the_privilege_gate() {
+    let bytes = include_bytes!("fixtures/unprivileged_legacy_native.bin");
+    assert!(unprivileged_probe::check(bytes)
+        .unwrap_err()
+        .starts_with("ARM unprivileged guest did not complete:"));
+    assert_eq!(u32::from_le_bytes(bytes[60..64].try_into().unwrap()), 21);
+    // The first byte load was undefined, rather than a denied unprivileged read.
+    assert_eq!(
+        u32::from_le_bytes(bytes[116..120].try_into().unwrap()),
+        1 << 16
+    );
+}
+
+#[test]
+#[ignore = "requires rustup target add thumbv7em-none-eabihf"]
+fn unprivileged_guest_checks_mpu_permissions_alignment_and_user_stir() {
+    let (directory, image) = guest("unprivileged");
+    let mut machine = Machine::from_elf_at(Board::Rev5, &image, 0x6000).unwrap();
+    machine.run_until(20_000_000, 3_000_000).unwrap();
+    let data: Vec<_> = (0..unprivileged_probe::WORDS as u32)
+        .flat_map(|i| machine.read32(0x20019800 + i * 4).unwrap().to_le_bytes())
+        .collect();
+    unprivileged_probe::check(&data).unwrap();
+    if let Some(path) = std::env::var_os("VIRTUAL_DAISY_REFERENCE") {
+        let reference =
+            fs::read(PathBuf::from(path).join("unprivileged.unprivileged.bin")).unwrap();
+        unprivileged_probe::check(&reference).unwrap();
+        assert_eq!(data, reference);
+    }
+    fs::remove_dir_all(directory).unwrap();
+}
 
 #[test]
 fn old_reference_sevonpend_bank_fails_the_event_gate() {
@@ -248,6 +300,10 @@ fn guest(name: &str) -> (PathBuf, Vec<u8>) {
     fs::write(
         &source,
         content
+            .replace(
+                "// UNPRIVILEGED_CASES",
+                include_str!("../cpu/fixtures/unprivileged_probe_cases.rs"),
+            )
             .replace(
                 "// LONG_MULTIPLY_CASES",
                 include_str!("../cpu/fixtures/long_multiply_probe_cases.rs"),

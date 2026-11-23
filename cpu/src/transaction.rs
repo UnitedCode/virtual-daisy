@@ -26,6 +26,7 @@ checkpoint_fields! {
     #[cfg(not(feature="armv6m"))] basepri: u8,
     control: Control, mode: ProcessorMode, running: bool, sleeping: bool, exit_code: u32,
     waiting_for_event: bool, event_register: bool,
+    unprivileged_access: bool,
     exceptions: HashMap<usize,ExceptionState>, pending_exception_count: u32,
     pending_exceptions: Vec<usize>, pending_choice: Option<ExceptionState>,
     execution_priority: i16, itstate: u8,
@@ -63,15 +64,31 @@ impl Processor {
         width: usize,
         kind: u8,
     ) -> Result<(), Fault> {
+        let privileged = self.current_mode_is_privileged() && !self.unprivileged_access;
+        // PPB is privileged except for the explicitly enabled STIR write.
+        if !privileged
+            && address >= 0xe0000000
+            && !(address == 0xe000ef00 && width == 4 && kind == 1 && self.ccr & 2 != 0)
+        {
+            return Err(if kind == 2 {
+                Fault::IAccViol
+            } else {
+                Fault::DAccViol
+            });
+        }
         self.device.as_ref().map_or(Ok(()), |bus| {
             bus.validate_access(
                 address,
                 width,
                 kind,
-                self.mode != ProcessorMode::ThreadMode || !self.control.n_priv,
+                privileged,
                 self.execution_priority < 0,
             )
-        })
+        })?;
+        if kind != 2 && self.ccr & 8 != 0 && !(address as usize).is_multiple_of(width) {
+            return Err(Fault::Unaligned);
+        }
+        Ok(())
     }
     pub(crate) fn transactional_bus(&self) -> bool {
         self.device.as_ref().is_some_and(|bus| bus.transactional())

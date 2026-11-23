@@ -133,11 +133,7 @@ pub fn decode_LDR_reg_t2(opcode: u32) -> Instruction {
 
 #[allow(non_snake_case)]
 pub fn decode_LDRBT_t1(opcode: u32) -> Instruction {
-    Instruction::UDF {
-        imm32: 0,
-        opcode: opcode.into(),
-        thumb32: true,
-    }
+    super::unprivileged::decode_UNPRIV_t1(opcode)
 }
 
 #[allow(non_snake_case)]
@@ -197,36 +193,20 @@ pub fn decode_LDREX_t1(opcode: u32) -> Instruction {
 
 #[allow(non_snake_case)]
 pub fn decode_LDRHT_t1(opcode: u32) -> Instruction {
-    Instruction::UDF {
-        imm32: 0,
-        opcode: opcode.into(),
-        thumb32: true,
-    }
+    super::unprivileged::decode_UNPRIV_t1(opcode)
 }
 
 #[allow(non_snake_case)]
 pub fn decode_LDRSBT_t1(opcode: u32) -> Instruction {
-    Instruction::UDF {
-        imm32: 0,
-        opcode: opcode.into(),
-        thumb32: true,
-    }
+    super::unprivileged::decode_UNPRIV_t1(opcode)
 }
 
 #[allow(non_snake_case)]
 pub fn decode_LDRSHT(opcode: u32) -> Instruction {
-    Instruction::UDF {
-        imm32: 0,
-        opcode: opcode.into(),
-        thumb32: true,
-    }
+    super::unprivileged::decode_UNPRIV_t1(opcode)
 }
 
 #[allow(non_snake_case)]
 pub fn decode_LDRT_t1(opcode: u32) -> Instruction {
-    Instruction::UDF {
-        imm32: 0,
-        opcode: opcode.into(),
-        thumb32: true,
-    }
+    super::unprivileged::decode_UNPRIV_t1(opcode)
 }

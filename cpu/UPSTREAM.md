@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.16. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.17. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
@@ -138,3 +138,14 @@ instruction widths, ordinary/compiled execution, skipped IT conditions, reset,
 masked/disabled IRQs and preservation of an event received during WFI. A separate
 host-driven ARM guest checks nine sleep checkpoints against Renode and requires
 its old no-op event mode to fail. No physical sleep latency is claimed.
+
+
+LDRT/LDRBT/LDRHT/LDRSBT/LDRSHT and STRT/STRBT/STRHT now share an explicit
+unprivileged transfer representation. Loads previously decoded as undefined;
+stores used the caller's privileged permissions. Access validation now receives
+the forced unprivileged context without changing CONTROL or processor mode.
+Fault delivery and transaction replay restore that context. A 262,144-record
+QEMU oracle covers all offsets, signed loads, memory guards, flags and aliases;
+both execution paths check all legal GPR pairs, including SP bases and LR.
+PPB access and CCR.UNALIGN_TRP are enforced before side effects. STIR honors
+USERSETMPEND and keeps disabled IRQs pending until the NVIC enables them.

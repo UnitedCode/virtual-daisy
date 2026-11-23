@@ -631,6 +631,10 @@ impl Display for VMRSTarget {
 /// the mnemonics listed in the ref manual, instead
 /// the exact variant is decoded to allow faster runtime.
 pub enum Instruction {
+    /// Unprivileged byte, halfword or word transfer with an imm8 offset.
+    Unprivileged {
+        opcode: u32,
+    },
     /// Additional ARMv7E-M packed, saturating and bit operations.
     DSP {
         opcode: u32,
@@ -1938,6 +1942,26 @@ impl fmt::Display for Instruction {
         // TODO: shift_t, shift_n formattings missing.
         // TODO: some of the wide instruction formattings missing.
         match *self {
+            Self::Unprivileged { opcode } => {
+                let mnemonic = match (opcode >> 20) & 31 {
+                    0 => "strbt",
+                    1 => "ldrbt",
+                    2 => "strht",
+                    3 => "ldrht",
+                    4 => "strt",
+                    5 => "ldrt",
+                    17 => "ldrsbt",
+                    19 => "ldrsht",
+                    _ => "unprivileged",
+                };
+                write!(
+                    f,
+                    "{mnemonic} {}, [{}, #{}]",
+                    Reg::from(((opcode >> 12) & 15) as u8),
+                    Reg::from(((opcode >> 16) & 15) as u8),
+                    opcode & 255
+                )
+            }
             Self::DSP { opcode } => write!(f, "dsp 0x{opcode:08x}"),
             Self::ADD_imm { params, thumb32 } => write!(f, "{}", fmt_add_imm(params, thumb32)),
             Self::ADC_imm { params } => write!(
@@ -3223,6 +3247,7 @@ impl fmt::Display for ITCondition {
 /// Get the size of an instruction in bytes
 pub fn instruction_size(instruction: &Instruction) -> usize {
     match instruction {
+        Instruction::Unprivileged { .. } => 4,
         Instruction::DSP { .. } => 4,
         Instruction::ADC_imm { .. } => 4,
         Instruction::ADC_reg { params, thumb32 } => isize_t(*thumb32),

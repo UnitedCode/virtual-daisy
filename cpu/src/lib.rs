@@ -169,6 +169,7 @@ pub struct Processor {
     pub sleeping: bool,
     pub(crate) waiting_for_event: bool,
     pub(crate) event_register: bool,
+    pub(crate) unprivileged_access: bool,
     pub exit_code: u32,
 
     ///
@@ -393,6 +394,7 @@ impl Processor {
             sleeping: false,
             waiting_for_event: false,
             event_register: false,
+            unprivileged_access: false,
             running: true,
             exit_code: 0,
             cycle_count: 0,

@@ -140,7 +140,7 @@ public static class DaisyHost
         ((DaisyGpio)machine["sysbus.gpioPortD"]).ConfigureStraps(uint.Parse(args[7]));
         Console.WriteLine("Board: " + args[6]);
         var cpu = (CortexM)machine["sysbus.cpu"];
-        if(((DaisyCortexM)cpu).FetchTagVersion!=16) throw new InvalidOperationException("Missing native instruction-fetch/runtime adapter");
+        if(((DaisyCortexM)cpu).FetchTagVersion!=17) throw new InvalidOperationException("Missing native instruction-fetch/runtime adapter");
         Console.WriteLine("Native instruction-fetch tag verified");
         cpu.VectorTableOffset = 0x08000000;
         cpu.SP = bus.ReadDoubleWord(0x08000000);
@@ -169,6 +169,13 @@ public static class DaisyHost
             cpu.VectorTableOffset=0x6000;cpu.SP=bus.ReadDoubleWord(0x6000);cpu.PC=bus.ReadDoubleWord(0x6004);
             emulation.RunFor(TimeInterval.FromMilliseconds(1600));
             File.WriteAllBytes(args[3]+".saturation.bin",bus.ReadBytes(0x20018400UL,128));
+            emulation.Dispose();return;
+        }
+        if(args[5]=="unprivileged") {
+            bus.LoadELF(Path.Combine(Path.GetDirectoryName(args[3]),"unprivileged-probe.elf"));
+            cpu.VectorTableOffset=0x6000;cpu.SP=bus.ReadDoubleWord(0x6000);cpu.PC=bus.ReadDoubleWord(0x6004);
+            emulation.RunFor(TimeInterval.FromMilliseconds(20));
+            File.WriteAllBytes(args[3]+".unprivileged.bin",bus.ReadBytes(0x20019800UL,2432));
             emulation.Dispose();return;
         }
         if(args[5]=="events" || args[5]=="events-noop-control") {

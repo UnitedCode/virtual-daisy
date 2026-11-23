@@ -26,3 +26,19 @@ saved capture must fail the gate. The adapter now negates the callback's
 "target nonsecure" boolean before passing it to `SecurityBanked.Get(secure)`.
 The guest, stimuli and checker remain in `guests/events.rs`,
 `tests/arm_guests.rs`, `bridge/DaisyHost.cs` and `src/events_probe.rs`.
+
+
+`unprivileged_legacy_native.bin` is the 2,432-byte ARM guest capture from released
+v0.2.26 (merge `0c6c84e37bcd01d8e2f898c0c91757ca9c0d8bd7`). Its SHA256 is
+`f9237c568b28f8304a487c35bb442a2cc9cd331c19ddcf23b07d67a0944335e8`.
+The first unprivileged byte load raises UNDEFINSTR instead of the expected MPU
+fault. The old STIR path later delivers disabled IRQ5 and stops in the unexpected
+handler (IPSR21). Both failures are pinned independently of a completion marker.
+
+`unprivileged_legacy_reference.bin` is the 2,432-byte result with native adapter16.
+Its SHA256 is
+`003791151d1394f39d678c8c842c482751b2c23708241ae17adf839577b5b7a6`.
+It completes all 74 cases but case72 incorrectly accepts STRT to STIR with
+USERSETMPEND clear: pending IRQ5 is set, CFSR remains zero. The gate expects
+DACCVIOL with a valid MMFAR and no pending IRQ. Adapter17 enforces PPB access
+before the MPU-disabled fast path; the saved result must still fail.

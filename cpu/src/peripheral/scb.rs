@@ -8,6 +8,8 @@ use crate::core::bits::Bits;
 use crate::core::exception::Exception;
 use crate::core::exception::ExceptionHandling;
 use crate::core::fault::{Fault, FaultStatusContext};
+#[cfg(any(feature = "armv7m", feature = "armv7em"))]
+use crate::peripheral::nvic::NVIC;
 #[cfg(feature = "has-fp")]
 use crate::{FP_MVFR0_RESET, FP_MVFR1_RESET, FP_MVFR2_RESET};
 
@@ -753,9 +755,8 @@ impl SystemControlBlock for Processor {
 
     #[cfg(any(feature = "armv7m", feature = "armv7em"))]
     fn write_stir(&mut self, value: u32) {
-        self.set_exception_pending(Exception::Interrupt {
-            n: value.get_bits(0..9) as usize,
-        });
+        let irq = value.get_bits(0..9) as usize;
+        self.nvic_write_ispr(irq / 32, 1 << (irq % 32));
     }
 }
 
