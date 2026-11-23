@@ -15,6 +15,7 @@ macro_rules! controlled{($op:literal,$a:expr,$b:expr,$control:expr)=>{{let value
 macro_rules! floating64{($op:literal,$a:expr,$b:expr)=>{{let lo:u32;let hi:u32;let flags:u32;unsafe{asm!("vmov d1, {al}, {ah}","vmov d2, {bl}, {bh}","vmsr fpscr, {zero}",$op,"vmov {lo}, {hi}, d0","vmrs {flags}, fpscr",al=in(reg)$a as u32,ah=in(reg)($a>>32)as u32,bl=in(reg)$b as u32,bh=in(reg)($b>>32)as u32,zero=in(reg)0u32,lo=out(reg)lo,hi=out(reg)hi,flags=out(reg)flags,out("d0")_,out("d1")_,out("d2")_,options(nostack));}(lo,hi,flags)}};}
 macro_rules! controlled64{($op:literal,$a:expr,$b:expr,$control:expr)=>{{let lo:u32;let hi:u32;let flags:u32;unsafe{asm!("vmov d1, {al}, {ah}","vmov d2, {bl}, {bh}","vmsr fpscr, {control}",$op,"vmov {lo}, {hi}, d0","vmrs {flags}, fpscr",al=in(reg)$a as u32,ah=in(reg)($a>>32)as u32,bl=in(reg)$b as u32,bh=in(reg)($b>>32)as u32,control=in(reg)$control,lo=out(reg)lo,hi=out(reg)hi,flags=out(reg)flags,out("d0")_,out("d1")_,out("d2")_,options(nostack));}(lo,hi,flags)}};}
 mod rounding_oracle;
+mod arithmetic_rounding_oracle;
 #[unsafe(no_mangle)]
 extern "C" fn Reset()->!{
  unsafe{core::ptr::write_volatile(0xe000ed88 as *mut u32,0x00f00000);asm!("dsb","isb",options(nostack));}
@@ -82,6 +83,7 @@ extern "C" fn Reset()->!{
   }
  }
  rounding_oracle::run();
+ arithmetic_rounding_oracle::run();
  exit(0)
 }
 

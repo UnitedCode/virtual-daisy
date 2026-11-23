@@ -250,6 +250,38 @@ pub trait FloatingPointChecks {
 }
 
 impl Processor {
+    fn fp_binary_ieee<T: FloatOps>(
+        &mut self,
+        operation: u8,
+        op1: T::Bits,
+        op2: T::Bits,
+        control: u32,
+    ) -> T::Bits {
+        let (type1, sign1) = integer_operand(self, op1.into(), T::n(), control);
+        let (type2, sign2) = integer_operand(self, op2.into(), T::n(), control);
+        let (done, result) = self.fp_process_nans::<T>(type1, type2, op1, op2, control);
+        if done {
+            return result;
+        }
+        let a = if type1 == FPType::Zero {
+            T::fp_zero(sign1)
+        } else {
+            op1
+        };
+        let b = if type2 == FPType::Zero {
+            T::fp_zero(sign2)
+        } else {
+            op2
+        };
+        let (bits, flags) = super::fp_ieee::binary(operation, a.into(), b.into(), T::n(), control);
+        self.fpscr |= flags;
+        if flags & 1 != 0 {
+            T::fp_default_nan()
+        } else {
+            T::from_integer(bits)
+        }
+    }
+
     fn preserve_fp_state(&mut self) -> Result<(), Fault> {
         let acctype = if !self.fpccr.get_bit(FPCCR_USER) {
             AccType::Normal
@@ -1009,41 +1041,7 @@ impl FloatingPointPublicOperations for Processor {
                 return bits;
             }
         }
-        let (type1, sign1, value1) = self.fp_unpack::<T>(op1, fpscr_val);
-        let (type2, sign2, value2) = self.fp_unpack::<T>(op2, fpscr_val);
-        let (done, result) = self.fp_process_nans::<T>(type1, type2, op1, op2, fpscr_val);
-        if done {
-            result
-        } else {
-            let inf1 = type1 == FPType::Infinity;
-            let inf2 = type2 == FPType::Infinity;
-            let zero1 = type1 == FPType::Zero;
-            let zero2 = type2 == FPType::Zero;
-
-            if inf1 && inf2 && sign1 != sign2 {
-                let res = T::fp_default_nan();
-                self.fp_process_exception(FPExc::InvalidOp, fpscr_val);
-                res
-            } else if (inf1 && !sign1) || (inf2 && !sign2) {
-                T::fp_infinity(false)
-            } else if (inf1 && sign1) || (inf2 && sign2) {
-                T::fp_infinity(true)
-            } else if zero1 && zero2 && sign1 == sign2 {
-                T::fp_zero(sign1)
-            } else {
-                // Calculate in 'real' numbers, with unbounded size and precision.
-                // As in real life there must be some limit, we use the defined Real type limits
-                let result_value = value1 + value2;
-                if result_value == BigFloat::default() {
-                    // Sign of exact zero result depends on rounding mode
-                    T::fp_zero(
-                        fpscr_val.get_rounding_mode() == FPSCRRounding::RoundTowardsMinusInfinity,
-                    )
-                } else {
-                    self.fp_round::<T>(result_value, fpscr_val)
-                }
-            }
-        }
+        self.fp_binary_ieee::<T>(0, op1, op2, fpscr_val)
     }
 
     fn fp_sub<T: FloatOps>(
@@ -1063,39 +1061,7 @@ impl FloatingPointPublicOperations for Processor {
                 return bits;
             }
         }
-        let (type1, sign1, value1) = self.fp_unpack::<T>(op1, fpscr_val);
-        let (type2, sign2, value2) = self.fp_unpack::<T>(op2, fpscr_val);
-        let (done, result) = self.fp_process_nans::<T>(type1, type2, op1, op2, fpscr_val);
-        if done {
-            result
-        } else {
-            let inf1 = type1 == FPType::Infinity;
-            let inf2 = type2 == FPType::Infinity;
-            let zero1 = type1 == FPType::Zero;
-            let zero2 = type2 == FPType::Zero;
-
-            if inf1 && inf2 && sign1 == sign2 {
-                let res = T::fp_default_nan();
-                self.fp_process_exception(FPExc::InvalidOp, fpscr_val);
-                res
-            } else if inf1 {
-                T::fp_infinity(sign1)
-            } else if inf2 {
-                T::fp_infinity(!sign2)
-            } else if zero1 && zero2 && sign1 != sign2 {
-                T::fp_zero(sign1)
-            } else {
-                let result_value = value1 - value2;
-                if result_value == BigFloat::default() {
-                    // Sign of exact zero result depends on rounding mode
-                    T::fp_zero(
-                        fpscr_val.get_rounding_mode() == FPSCRRounding::RoundTowardsMinusInfinity,
-                    )
-                } else {
-                    self.fp_round::<T>(result_value, fpscr_val)
-                }
-            }
-        }
+        self.fp_binary_ieee::<T>(1, op1, op2, fpscr_val)
     }
 
     fn fp_mul_add<T: FloatOps>(
@@ -1179,34 +1145,7 @@ impl FloatingPointPublicOperations for Processor {
                 return bits;
             }
         }
-        let (type1, sign1, value1) = self.fp_unpack::<T>(op1, fpscr_val);
-        let (type2, sign2, value2) = self.fp_unpack::<T>(op2, fpscr_val);
-        let (done, result) = self.fp_process_nans::<T>(type1, type2, op1, op2, fpscr_val);
-        if done {
-            return result;
-        }
-
-        let inf1 = type1 == FPType::Infinity;
-        let zero1 = type1 == FPType::Zero;
-        let inf2 = type2 == FPType::Infinity;
-        let zero2 = type2 == FPType::Zero;
-        let sign = sign1 != sign2;
-
-        if (inf1 && zero2) || (zero1 && inf2) {
-            self.fp_process_exception(FPExc::InvalidOp, fpscr_val);
-            T::fp_default_nan()
-        } else if inf1 || inf2 {
-            T::fp_infinity(sign)
-        } else if zero1 || zero2 {
-            T::fp_zero(sign)
-        } else {
-            let result_value = value1 * value2;
-            if result_value == BigFloat::default() {
-                T::fp_zero(sign)
-            } else {
-                self.fp_round::<T>(result_value, fpscr_val)
-            }
-        }
+        self.fp_binary_ieee::<T>(2, op1, op2, fpscr_val)
     }
 
     fn fp_div<T: FloatOps>(
@@ -1227,39 +1166,7 @@ impl FloatingPointPublicOperations for Processor {
                 return bits;
             }
         }
-        let (type1, sign1, value1) = self.fp_unpack::<T>(op1, fpscr_val);
-        let (type2, sign2, value2) = self.fp_unpack::<T>(op2, fpscr_val);
-        let (done, result) = self.fp_process_nans::<T>(type1, type2, op1, op2, fpscr_val);
-        if done {
-            return result;
-        }
-
-        let inf1 = type1 == FPType::Infinity;
-        let zero1 = type1 == FPType::Zero;
-        let inf2 = type2 == FPType::Infinity;
-        let zero2 = type2 == FPType::Zero;
-        let sign = sign1 != sign2;
-
-        if (zero1 && zero2) || (inf1 && inf2) {
-            self.fp_process_exception(FPExc::InvalidOp, fpscr_val);
-            T::fp_default_nan()
-        } else if inf1 {
-            T::fp_infinity(sign)
-        } else if inf2 {
-            T::fp_zero(sign)
-        } else if zero2 {
-            self.fp_process_exception(FPExc::DivideByZero, fpscr_val);
-            T::fp_infinity(sign)
-        } else if zero1 {
-            T::fp_zero(sign)
-        } else {
-            let result_value = value1 / value2;
-            if result_value == BigFloat::default() {
-                T::fp_zero(sign)
-            } else {
-                self.fp_round::<T>(result_value, fpscr_val)
-            }
-        }
+        self.fp_binary_ieee::<T>(3, op1, op2, fpscr_val)
     }
 
     fn fp_compare<T: FloatOps>(
@@ -1323,7 +1230,7 @@ impl FloatingPointPublicOperations for Processor {
             }
         }
 
-        let (fptype, sign, value) = self.fp_unpack::<T>(op, fpscr_val);
+        let (fptype, sign) = integer_operand(self, op.into(), T::n(), fpscr_val);
 
         match fptype {
             FPType::SNaN | FPType::QNaN => self.fp_process_nan::<T>(fptype, op, fpscr_val),
@@ -1342,24 +1249,9 @@ impl FloatingPointPublicOperations for Processor {
                     return T::fp_default_nan();
                 }
 
-                // Use helper-based round path for architectural FPSCR semantics
-                // (rounding modes and cumulative exception bits).
-                let sqrt_value = value.sqrt();
-
-                if sqrt_value == BigFloat::default() {
-                    // Guard for host-independent BigFloat precision limits on very tiny inputs.
-                    // Fall back to host sqrt representation for this degenerate case.
-                    let result_bits: u64 = if T::n() == 32 {
-                        let input = f32::from_bits((op.into() & 0xFFFF_FFFF) as u32);
-                        u64::from(input.sqrt().to_bits())
-                    } else {
-                        let input = f64::from_bits(op.into());
-                        input.sqrt().to_bits()
-                    };
-                    T::from_integer(result_bits)
-                } else {
-                    self.fp_round::<T>(sqrt_value, fpscr_val)
-                }
+                let (bits, flags) = super::fp_ieee::square_root(op.into(), T::n(), fpscr_val);
+                self.fpscr |= flags;
+                T::from_integer(bits)
             }
         }
     }
