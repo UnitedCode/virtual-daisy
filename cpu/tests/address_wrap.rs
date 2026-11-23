@@ -27,7 +27,10 @@ fn fixture() -> (Processor, Vec<u8>) {
     let mut cpu = Processor::new();
     cpu.flash_memory(bytes.len(), &bytes);
     cpu.msp = 0x2001fff0;
-    cpu.cpacr = 0x00f00000;
+    #[cfg(feature = "has-fp")]
+    {
+        cpu.cpacr = 0x00f00000;
+    }
     cpu.branch_write_pc(0x100);
     (cpu, bytes)
 }
