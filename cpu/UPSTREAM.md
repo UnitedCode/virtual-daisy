@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.24. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.25. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
@@ -211,3 +211,14 @@ low-register list/base combinations through both paths, checking each stored
 word, surrounding guards, writeback, registers, APSR and PC. Cases whose stored
 base value is architecturally UNKNOWN are excluded. Decoder revision is 20;
 the existing transfer-count cost formula and native adapter 19 are unchanged.
+
+LDMDB now decodes and shares ordered loads, alignment checks, deferred PC writes
+and writeback-before-exception-return with LDMIA. Its address calculation wraps
+at 32 bits. Wide load-multiple forms reject illegal lists/bases/writeback aliases,
+including simultaneous LR/PC. Tests cover every legal list with and without
+writeback, all bases including SP/LR, base-in-list loads, PC branches, flags,
+memory guards, alignment faults and skipped conditions through both paths.
+All 16 DBG option values now decode as NOP-compatible hints rather than UDF;
+trace/debug side effects are not modeled. The ARM guest checks LDMDB with/without
+writeback, PC/SP cases, narrow STM with R7 and all debug hints. Its capture stays
+128 words. Decoder revision is 21; native adapter 19 is unchanged.

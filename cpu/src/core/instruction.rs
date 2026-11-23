@@ -1351,6 +1351,9 @@ pub enum Instruction {
         params: LoadAndStoreMultipleParams,
         thumb32: bool,
     },
+    LDMDB {
+        params: LoadAndStoreMultipleParams,
+    },
     POP {
         registers: EnumSet<Reg>,
         thumb32: bool,
@@ -2235,6 +2238,13 @@ impl fmt::Display for Instruction {
                 "ldm{} {}, {{{:?}}}",
                 if thumb32 { ".W" } else { "" },
                 params.rn,
+                params.registers
+            ),
+            Self::LDMDB { params } => write!(
+                f,
+                "ldmdb {}{}, {{{:?}}}",
+                params.rn,
+                if params.wback { "!" } else { "" },
                 params.registers
             ),
             Self::LDR_reg { params, thumb32 } => write!(
@@ -3300,7 +3310,7 @@ pub fn instruction_size(instruction: &Instruction) -> usize {
         Instruction::LDC_imm { .. } => 4,
         Instruction::LDC2_imm { .. } => 4,
         Instruction::LDM { thumb32, .. } => isize_t(*thumb32),
-        //LDMDB
+        Instruction::LDMDB { .. } => 4,
         Instruction::LDR_imm { thumb32, .. } => isize_t(*thumb32),
         Instruction::LDR_lit { thumb32, .. } => isize_t(*thumb32),
         Instruction::LDR_reg { thumb32, .. } => isize_t(*thumb32),

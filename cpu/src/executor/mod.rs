@@ -858,6 +858,7 @@ impl ExecutorHelper for Processor {
             Instruction::STM { params, .. } => self.exec_stm(params),
             Instruction::STMDB { params } => self.exec_stmdb(params),
             Instruction::LDM { params, .. } => self.exec_ldm(params),
+            Instruction::LDMDB { params } => self.exec_ldmdb(params),
 
             Instruction::PUSH { registers, .. } => self.exec_push(*registers),
             Instruction::POP { registers, .. } => self.exec_pop(*registers),

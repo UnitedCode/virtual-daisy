@@ -112,6 +112,7 @@ pub(super) fn invalid_pc_write(instruction: &Instruction) -> bool {
         | Instruction::LDRSH_reg { params, .. } => params.wback && params.rn == Reg::PC,
         Instruction::STRD_imm { params } => params.wback && params.rn == Reg::PC,
         Instruction::LDM { params, .. }
+        | Instruction::LDMDB { params }
         | Instruction::STM { params, .. }
         | Instruction::STMDB { params } => params.rn == Reg::PC,
         _ => false,

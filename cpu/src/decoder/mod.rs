@@ -419,7 +419,7 @@ fn decode_32(opcode: u32) -> Instruction {
 // Reject a stale generated table instead of running firmware with old masks.
 #[cfg(feature = "has-dsp-ext")]
 use self::{uxt::decode_UXTB16_t1, uxtab::decode_UXTAB_t1};
-const _: () = assert!(GENERATED_DECODER_REVISION == 20);
+const _: () = assert!(GENERATED_DECODER_REVISION == 21);
 const _: () = assert!(
     GENERATED_DECODER_PROFILE
         == (cfg!(feature = "has-fp") as u8)
