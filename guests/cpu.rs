@@ -164,6 +164,54 @@ probe_table_wraps:
     movs r0, #0
     pop {{r4, pc}}
     .ltorg
+    .balign 4
+.Ladr_before:
+    .word 0x12345678
+    .global probe_wide_core
+    .thumb_func
+probe_wide_core:
+    push {{r4, lr}}
+    .balign 4
+    nop
+    adr.w r0, .Ladr_before
+    ldr r1, =.Ladr_before
+    cmp r0, r1
+    bne .Lwide_failed
+    adr.w r0, .Ladr_after
+    ldr r1, =.Ladr_after
+    cmp r0, r1
+    bne .Lwide_failed
+    movw r12, #0x7f01
+    movt r12, #0x80ff
+    rev.w r0, r12
+    movw r1, #0xff80
+    movt r1, #0x017f
+    cmp r0, r1
+    bne .Lwide_failed
+    rev16.w r0, r12
+    movw r1, #0x017f
+    movt r1, #0xff80
+    cmp r0, r1
+    bne .Lwide_failed
+    revsh.w r0, r12
+    movw r1, #0x017f
+    cmp r0, r1
+    bne .Lwide_failed
+    movw r12, #0x80
+    revsh.w r12, r12
+    movw r1, #0x8000
+    movt r1, #0xffff
+    cmp r12, r1
+    bne .Lwide_failed
+    movs r0, #1
+    pop {{r4, pc}}
+.Lwide_failed:
+    movs r0, #0
+    pop {{r4, pc}}
+    .balign 4
+.Ladr_after:
+    .word 0xabcdef01
+    .ltorg
     .section .flashprobe,"a",%progbits
     .balign 32
     .space 28
@@ -178,6 +226,7 @@ extern "C" {
     fn probe_ccr_stack() -> u32;
     fn probe_literal_loads() -> u32;
     fn probe_table_wraps() -> u32;
+    fn probe_wide_core() -> u32;
 }
 
 #[no_mangle]
@@ -284,6 +333,10 @@ unsafe extern "C" fn probe_main() -> ! {
     record(115, 0x48494e54);
     if probe_literal_loads() != 1 || probe_table_wraps() != 0xff {
         phase(0xbad0f033);
+        loop { asm!("wfi", options(nostack)); }
+    }
+    if probe_wide_core() != 1 {
+        phase(0xbad0f034);
         loop { asm!("wfi", options(nostack)); }
     }
     record(2, read(0xe000ed90));

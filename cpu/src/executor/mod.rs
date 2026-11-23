@@ -568,7 +568,7 @@ impl ExecutorHelper for Processor {
             Instruction::ADC_reg { params, .. } => self.exec_adc_reg(params),
             Instruction::ADC_imm { params } => self.exec_adc_imm(params),
 
-            Instruction::ADR { params, .. } => self.exec_adr(*params),
+            Instruction::ADR { params, add, .. } => self.exec_adr(*params, *add),
 
             Instruction::AND_reg { params, .. } => self.exec_and_reg(params),
             Instruction::AND_imm { params } => self.exec_and_imm(params),

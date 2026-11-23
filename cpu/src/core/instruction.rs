@@ -716,6 +716,7 @@ pub enum Instruction {
     /// Form PC-relative Address
     ADR {
         params: RegImmParams,
+        add: bool,
         thumb32: bool,
     },
 
@@ -2013,11 +2014,16 @@ impl fmt::Display for Instruction {
                     String::new()
                 }
             ),
-            Self::ADR { params, thumb32 } => write!(
+            Self::ADR {
+                params,
+                add,
+                thumb32,
+            } => write!(
                 f,
-                "adr{} {}, pc, 0x#{:x}",
+                "adr{} {}, pc, #{}0x{:x}",
                 if thumb32 { ".W" } else { "" },
                 params.r,
+                if add { "" } else { "-" },
                 params.imm32
             ),
             Self::AND_reg { params, thumb32 } => write!(
