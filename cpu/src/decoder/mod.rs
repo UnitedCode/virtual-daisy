@@ -395,7 +395,7 @@ fn decode_32(opcode: u32) -> Instruction {
     instruction
 }
 // Reject a stale generated table instead of running firmware with old masks.
-const _: () = assert!(GENERATED_DECODER_REVISION == 10);
+const _: () = assert!(GENERATED_DECODER_REVISION == 11);
 const _: () = assert!(
     GENERATED_DECODER_PROFILE
         == (cfg!(feature = "has-fp") as u8)

@@ -1,0 +1,7 @@
+// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.
+pub const WORD_CASES: [[u32; 5]; 4] = [
+    [0xfa82f081, 0x80000000, 0xa00a0000, 0x80000000, 0xa80a0000],
+    [0xfa82f0a1, 0x80000000, 0xa00a0000, 0x00000000, 0xa00a0000],
+    [0xfa82f091, 0x80000000, 0xa00a0000, 0x80000000, 0xa80a0000],
+    [0xfa82f0b1, 0x80000000, 0xa00a0000, 0x00000000, 0xa80a0000],
+];

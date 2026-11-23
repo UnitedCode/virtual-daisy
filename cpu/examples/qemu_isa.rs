@@ -75,6 +75,7 @@ fn main() {
     let mut fixed = Vec::new();
     let mut saturation = Vec::new();
     let mut psr = Vec::new();
+    let mut qadd = Vec::new();
     for line in hex.lines() {
         assert!(matches!(line.len(), 40 | 48 | 56 | 64 | 72 | 80 | 88 | 104));
         let destination = if line.len() == 48 && line.ends_with("53534154") {
@@ -83,6 +84,8 @@ fn main() {
             &mut half
         } else if line.len() == 40 {
             &mut bytes
+        } else if line.len() == 56 && line.ends_with("51414444") {
+            &mut qadd
         } else if line.len() == 56 {
             &mut precision
         } else if line.len() == 64 && line.ends_with("41505352") {
@@ -136,6 +139,36 @@ fn main() {
     fs::write(output.with_extension("saturate.bin"), &saturation).unwrap();
     assert_eq!(psr.len(), 768 * 8 * 4);
     fs::write(output.with_extension("psr.bin"), &psr).unwrap();
+    assert_eq!(qadd.len(), 8192 * 7 * 4);
+    fs::write(output.with_extension("qadd.bin"), &qadd).unwrap();
+    let opcodes = [0xfa82f081, 0xfa82f0a1, 0xfa82f091, 0xfa82f0b1];
+    let mut word_source = String::from(
+        "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const WORD_CASES: [[u32; 5]; 4] = [\n",
+    );
+    let mut word_cases = 0;
+    for record in qadd.as_chunks::<28>().0 {
+        let words: [u32; 7] = core::array::from_fn(|i| {
+            u32::from_le_bytes(record[4 * i..4 * i + 4].try_into().unwrap())
+        });
+        if words[1] != 0x80000000 || words[2] != 0x80000000 || words[3] != 0xa00a0000 {
+            continue;
+        }
+        word_source.push_str("    [");
+        for word in [
+            opcodes[words[0] as usize],
+            words[1],
+            words[3],
+            words[4],
+            words[5],
+        ] {
+            word_source.push_str(&format!("0x{word:08x}, "));
+        }
+        word_source.push_str("],\n");
+        word_cases += 1;
+    }
+    assert_eq!(word_cases, 4);
+    word_source.push_str("];\n");
+    fs::write(output.with_extension("qadd-probe.rs"), word_source).unwrap();
     let mut psr_source = String::from(
         "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const CASES: [[u32; 7]; 48] = [\n",
     );
@@ -261,4 +294,8 @@ fn main() {
     println!("401408 QEMU fixed conversion cases; {} bytes", fixed.len());
     println!("520192 QEMU saturation cases; {} bytes", saturation.len());
     println!("768 QEMU PSR mask/alias cases; {} bytes", psr.len());
+    println!(
+        "8192 QEMU saturating word arithmetic cases; {} bytes",
+        qadd.len()
+    );
 }
