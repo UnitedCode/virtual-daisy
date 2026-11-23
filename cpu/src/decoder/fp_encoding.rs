@@ -30,6 +30,9 @@ pub(super) fn valid(opcode: u32, instruction: &Instruction) -> bool {
         VCVT_half { params } if matches!(params.full, ExtensionReg::Double { .. }) => {
             (if params.to_half { 0x20 } else { 0x0040_0000 }, true)
         }
+        VCVT_fixed { params } if matches!(params.register, ExtensionReg::Double { .. }) => {
+            (0x0040_0000, true)
+        }
         VCVT { params } | VCVT_directed { params, .. } if params.dp_operation => {
             (if params.to_integer { 0x20 } else { 0x0040_0000 }, true)
         }

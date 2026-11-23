@@ -91,7 +91,7 @@ fn integer_operand(cpu: &mut Processor, bits: u64, size: usize, control: u32) ->
 }
 
 // Work on the IEEE significand directly: tiny binary64 values must not vanish
-// during a generic-real subtraction. The only targets are 32/64-bit integers;
+// during a generic-real subtraction. The targets are 16/32/64-bit integers;
 // a u128::MAX sentinel is already beyond every representable target bound.
 fn rounded_magnitude(
     bits: u64,
@@ -157,6 +157,38 @@ fn saturate_magnitude(magnitude: u128, sign: bool, width: usize, unsigned: bool)
         clamped
     };
     (result, magnitude > bound)
+}
+
+pub(super) fn float_to_fixed_bits(
+    cpu: &mut Processor,
+    bits: u64,
+    size: usize,
+    width: usize,
+    fraction_bits: usize,
+    unsigned: bool,
+    rounding: IntegralRounding,
+    control: u32,
+) -> u64 {
+    let (kind, sign) = integer_operand(cpu, bits, size, control);
+    if kind == FPType::SNaN || kind == FPType::QNaN {
+        cpu.fp_process_exception(FPExc::InvalidOp, control);
+        return 0;
+    }
+    if kind == FPType::Infinity {
+        cpu.fp_process_exception(FPExc::InvalidOp, control);
+        return saturate_magnitude(u128::MAX, sign, width, unsigned).0;
+    }
+    if kind == FPType::Zero {
+        return 0;
+    }
+    let (magnitude, fractional) = rounded_magnitude(bits, size, fraction_bits, rounding);
+    let (result, overflow) = saturate_magnitude(magnitude, sign, width, unsigned);
+    if overflow {
+        cpu.fp_process_exception(FPExc::InvalidOp, control);
+    } else if fractional {
+        cpu.fp_process_exception(FPExc::Inexact, control);
+    }
+    result
 }
 
 /// Trait for floating point operations
@@ -1404,29 +1436,16 @@ impl FloatingPointPublicOperations for Processor {
         };
 
         let rounding = rounding.unwrap_or_else(|| IntegralRounding::from_fpscr(fpscr_val));
-        let (type_t, sign) = integer_operand(self, op.into(), N::n(), fpscr_val);
-        if type_t == FPType::SNaN || type_t == FPType::QNaN {
-            self.fp_process_exception(FPExc::InvalidOp, fpscr_val);
-            return M::from_integer(0);
-        }
-        if type_t == FPType::Infinity {
-            self.fp_process_exception(FPExc::InvalidOp, fpscr_val);
-            let (result, _) = saturate_magnitude(u128::MAX, sign, M::n(), unsigned);
-            return M::from_integer(result);
-        }
-        if type_t == FPType::Zero {
-            return M::from_integer(0);
-        }
-        let (magnitude, fractional) = rounded_magnitude(op.into(), N::n(), fraction_bits, rounding);
-        let (result, overflow) = saturate_magnitude(magnitude, sign, M::n(), unsigned);
-
-        if overflow {
-            self.fp_process_exception(FPExc::InvalidOp, fpscr_val);
-        } else if fractional {
-            self.fp_process_exception(FPExc::Inexact, fpscr_val);
-        }
-
-        M::from_integer(result)
+        M::from_integer(float_to_fixed_bits(
+            self,
+            op.into(),
+            N::n(),
+            M::n(),
+            fraction_bits,
+            unsigned,
+            rounding,
+            fpscr_val,
+        ))
     }
 }
 

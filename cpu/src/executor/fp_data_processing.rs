@@ -2,16 +2,16 @@
 use crate::Processor;
 use crate::core::fpregister::{Fpscr, IntegralRounding};
 use crate::core::instruction::{
-    VAddSubParamsf32, VAddSubParamsf64, VCVTHalfParams, VCVTParams, VCVTParamsF32F64,
-    VCVTParamsF64F32, VCmpParamsf32, VCmpParamsf64, VMovRegParamsf32, VMovRegParamsf64,
-    VSelParamsf32, VSelParamsf64,
+    VAddSubParamsf32, VAddSubParamsf64, VCVTFixedParams, VCVTHalfParams, VCVTParams,
+    VCVTParamsF32F64, VCVTParamsF64F32, VCmpParamsf32, VCmpParamsf64, VMovRegParamsf32,
+    VMovRegParamsf64, VSelParamsf32, VSelParamsf64,
 };
 
 use crate::executor::ExecuteSuccess;
 
 use super::ExecuteResult;
 use super::fp_generic::{FloatingPointChecks, FloatingPointPublicOperations};
-use crate::core::register::ExtensionRegOperations;
+use crate::core::register::{ExtensionReg, ExtensionRegOperations};
 use crate::executor::ExecutorHelper;
 
 pub trait IsaFloatingPointDataProcessing {
@@ -84,6 +84,7 @@ pub trait IsaFloatingPointDataProcessing {
     fn exec_vcvt_f64_f32(&mut self, params: VCVTParamsF64F32) -> ExecuteResult;
     fn exec_vcvt_f32_f64(&mut self, params: VCVTParamsF32F64) -> ExecuteResult;
     fn exec_vcvt_half(&mut self, params: VCVTHalfParams) -> ExecuteResult;
+    fn exec_vcvt_fixed(&mut self, params: VCVTFixedParams) -> ExecuteResult;
     fn exec_vsel_f32(&mut self, params: VSelParamsf32) -> ExecuteResult;
     fn exec_vsel_f64(&mut self, params: VSelParamsf64) -> ExecuteResult;
 }
@@ -746,6 +747,57 @@ impl IsaFloatingPointDataProcessing for Processor {
     }
 
     #[inline(always)]
+    fn exec_vcvt_fixed(&mut self, p: VCVTFixedParams) -> ExecuteResult {
+        if !self.condition_passed() {
+            return Ok(ExecuteSuccess::NotTaken);
+        }
+        self.execute_fp_check()?;
+        let (bits, size) = match p.register {
+            ExtensionReg::Single { reg } => (u64::from(self.get_sr(reg)), 32),
+            ExtensionReg::Double { reg } => {
+                let (lo, hi) = self.get_dr(reg);
+                (u64::from(lo) | (u64::from(hi) << 32), 64)
+            }
+        };
+        let result = if p.to_fixed {
+            let value = super::fp_generic::float_to_fixed_bits(
+                self,
+                bits,
+                size,
+                usize::from(p.width),
+                usize::from(p.fraction_bits),
+                p.unsigned,
+                crate::core::fpregister::IntegralRounding::TowardZero,
+                self.fpscr,
+            );
+            if p.unsigned {
+                value
+            } else if p.width == 16 {
+                (value as i16 as i64) as u64
+            } else {
+                (value as i32 as i64) as u64
+            }
+        } else {
+            let value = if p.width == 16 {
+                if p.unsigned {
+                    u32::from(bits as u16)
+                } else {
+                    (bits as i16 as i32) as u32
+                }
+            } else {
+                bits as u32
+            };
+            let (result, flags) =
+                super::fp_ieee::fixed_to_float(value, size, p.fraction_bits, p.unsigned);
+            self.fpscr |= flags;
+            result
+        };
+        match p.register {
+            ExtensionReg::Single { reg } => self.set_sr(reg, result as u32),
+            ExtensionReg::Double { reg } => self.set_dr(reg, result as u32, (result >> 32) as u32),
+        }
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
     fn exec_vcvt_half(&mut self, p: VCVTHalfParams) -> ExecuteResult {
         use crate::core::register::ExtensionReg;
         if !self.condition_passed() {

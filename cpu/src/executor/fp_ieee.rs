@@ -4,6 +4,32 @@ use rustc_apfloat::{
     ieee::{Double, Quad, Single},
 };
 
+pub(super) fn fixed_to_float(
+    bits: u32,
+    size: usize,
+    fraction_bits: u8,
+    unsigned: bool,
+) -> (u64, u32) {
+    fn convert<F: Float>(bits: u32, fraction_bits: u8, unsigned: bool) -> (u64, u32) {
+        let rounded = if unsigned {
+            F::from_u128(u128::from(bits))
+        } else {
+            F::from_i128(i128::from(bits as i32))
+        };
+        // Scaling a 16/32-bit integer by 2^-0..32 stays normal in both formats.
+        // The only rounding is the required nearest-even integer conversion.
+        (
+            rounded.value.scalbn(-i32::from(fraction_bits)).to_bits() as u64,
+            u32::from(rounded.status.bits()),
+        )
+    }
+    if size == 64 {
+        convert::<Double>(bits, fraction_bits, unsigned)
+    } else {
+        convert::<Single>(bits, fraction_bits, unsigned)
+    }
+}
+
 fn operation<F: Float>(op: u8, a: F, b: F, addend: Option<F>, rounding: Round) -> StatusAnd<F> {
     if let Some(c) = addend {
         return a.mul_add_r(b, c, rounding);

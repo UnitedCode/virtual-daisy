@@ -48,7 +48,7 @@ fn main() {
         .stderr(Stdio::from(fs::File::create(&capture).unwrap()))
         .spawn()
         .unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
             break status;
@@ -56,7 +56,7 @@ fn main() {
         if std::time::Instant::now() > deadline {
             child.kill().unwrap();
             let _ = child.wait();
-            panic!("QEMU reference guest exceeded thirty seconds");
+            panic!("QEMU reference guest exceeded sixty seconds");
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     };
@@ -72,6 +72,7 @@ fn main() {
     let mut precision = Vec::new();
     let mut accumulate = Vec::new();
     let mut half = Vec::new();
+    let mut fixed = Vec::new();
     for line in hex.lines() {
         assert!(matches!(line.len(), 40 | 48 | 56 | 64 | 72 | 80 | 88 | 104));
         let destination = if line.len() == 72 && line.ends_with("48414c46") {
@@ -80,6 +81,8 @@ fn main() {
             &mut bytes
         } else if line.len() == 56 {
             &mut precision
+        } else if line.len() == 64 && line.ends_with("46495844") {
+            &mut fixed
         } else if line.len() == 64 {
             &mut doubles
         } else if line.len() == 80 {
@@ -121,6 +124,44 @@ fn main() {
     fs::write(output.with_extension("accumulate.bin"), &accumulate).unwrap();
     assert_eq!(half.len(), 331_776 * 9 * 4);
     fs::write(output.with_extension("half.bin"), &half).unwrap();
+    assert_eq!(fixed.len(), 401_408 * 8 * 4);
+    fs::write(output.with_extension("fixed.bin"), &fixed).unwrap();
+    let mut cases = Vec::new();
+    for block in fixed.chunks_exact(1024 * 32) {
+        let opcode = u32::from_le_bytes(block[..4].try_into().unwrap());
+        let width = if opcode & (1 << 7) != 0 { 32 } else { 16 };
+        let fbits = width - (((opcode & 15) << 1) | ((opcode >> 5) & 1));
+        if (width == 16 && ![0, 16].contains(&fbits))
+            || (width == 32 && ![1, 19, 32].contains(&fbits))
+        {
+            continue;
+        }
+        let sample = if opcode & (1 << 18) == 0 {
+            8
+        } else if opcode & (1 << 16) != 0 {
+            4
+        } else {
+            5
+        };
+        let record = &block[sample * 16 * 32..(sample * 16 + 1) * 32];
+        let words: [u32; 7] = core::array::from_fn(|i| {
+            u32::from_le_bytes(record[4 * i..4 * i + 4].try_into().unwrap())
+        });
+        cases.push(words);
+    }
+    assert_eq!(cases.len(), 40);
+    let mut source = String::from(
+        "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const CASES: [[u32; 7]; 40] = [\n",
+    );
+    for row in cases {
+        source.push_str("    [");
+        for word in row {
+            source.push_str(&format!("0x{word:08x}, "));
+        }
+        source.push_str("],\n");
+    }
+    source.push_str("];\n");
+    fs::write(output.with_extension("fixed-probe.rs"), source).unwrap();
     fs::remove_file(&elf).unwrap();
     fs::remove_file(&capture).unwrap();
     println!("1050 QEMU ARM-ISA reference cases; {} bytes", bytes.len());
@@ -154,4 +195,5 @@ fn main() {
         accumulate.len()
     );
     println!("331776 QEMU half conversion cases; {} bytes", half.len());
+    println!("401408 QEMU fixed conversion cases; {} bytes", fixed.len());
 }

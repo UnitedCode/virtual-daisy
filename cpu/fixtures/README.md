@@ -104,6 +104,21 @@ pass the negative gate, with an undefined-instruction fault at `0xeeb20b41`.
 The repaired reference uses the Rust numerical kernel; only QEMU is independent
 for half-conversion arithmetic.
 
+`isa_oracle_fixed.bin` contains 401,408 eight-word records from `fixed_oracle.rs`:
+literal opcode, input low/high, initial FPSCR, result low/high, final FPSCR,
+magic `0x44584946`. The 392 legal operation/precision/width/fraction combinations
+each use 64 boundary/seeded operands under all rounding/FZ/DN combinations.
+Sixteen-bit fixed formats allow 0–16 fraction bits; 32-bit formats allow 1–32.
+The guest executes literal instructions from writable RAM with DSB/ISB between
+changes, independently of the interpreter's decoder and numerical code.
+QEMU 11.1.3 and rustc 1.97.1 reproduce this companion and all ten earlier binary
+datasets unchanged. The generator writes `isa_oracle.fixed.bin`.
+
+The same generator extracts 40 boundary records as `isa_oracle.fixed-probe.rs`;
+`fixed_probe_cases.rs` keeps those values for the standalone ARM guest. Its 960
+executions cover all populated registers for selected endpoint/interior scales.
+CPU tests require every selected row to exist in the full independent fixture.
+
 Regenerate from the repository root:
 
 ```sh

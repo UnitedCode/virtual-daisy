@@ -2,12 +2,31 @@
 //! The same unmodified ARM guests run by the Renode reference harness.
 use std::{fs, path::PathBuf, process::Command};
 use virtual_daisy::{board::Board, machine::Machine};
+#[path = "../cpu/fixtures/fixed_probe.rs"]
+mod fixed_probe;
 #[path = "../cpu/fixtures/half_probe.rs"]
 mod half_probe;
 #[path = "../src/instruction_clock_probe.rs"]
 mod instruction_clock_probe;
 #[path = "../src/systick_probe.rs"]
 mod systick_probe;
+
+#[test]
+#[ignore = "requires rustup target add thumbv7em-none-eabihf"]
+fn fixed_guest_executes_signed_unsigned_scaling_and_register_preservation() {
+    let (directory, image) = guest("fixed");
+    let mut machine = Machine::from_elf_at(Board::Rev5, &image, 0x6000).unwrap();
+    machine.run_until(100_000_000, 12_000_000).unwrap();
+    let data: Vec<_> = (0..32)
+        .flat_map(|i| machine.read32(0x20018800 + i * 4).unwrap().to_le_bytes())
+        .collect();
+    fixed_probe::check(&data).unwrap();
+    if let Some(path) = std::env::var_os("VIRTUAL_DAISY_REFERENCE") {
+        fixed_probe::check(&fs::read(PathBuf::from(path).join("fixed.fixed.bin")).unwrap())
+            .unwrap();
+    }
+    fs::remove_dir_all(directory).unwrap();
+}
 
 #[test]
 #[ignore = "requires rustup target add thumbv7em-none-eabihf"]
@@ -81,6 +100,16 @@ fn guest(name: &str) -> (PathBuf, Vec<u8>) {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let directory = std::env::temp_dir().join(format!("daisy-{name}-guest-{}", std::process::id()));
     fs::create_dir_all(&directory).unwrap();
+    let source = directory.join(format!("{name}.rs"));
+    let content = fs::read_to_string(root.join(format!("guests/{name}.rs"))).unwrap();
+    fs::write(
+        &source,
+        content.replace(
+            "// FIXED_CASES",
+            include_str!("../cpu/fixtures/fixed_probe_cases.rs"),
+        ),
+    )
+    .unwrap();
     let elf = directory.join(format!("{name}.elf"));
     assert!(Command::new("rustc")
         .args([
@@ -101,7 +130,7 @@ fn guest(name: &str) -> (PathBuf, Vec<u8>) {
         ))
         .arg("--crate-name")
         .arg(format!("daisy_{name}_probe"))
-        .arg(root.join(format!("guests/{name}.rs")))
+        .arg(source)
         .arg("-o")
         .arg(&elf)
         .status()

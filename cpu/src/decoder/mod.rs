@@ -310,7 +310,7 @@ use {
     vabs::decode_VABS_t1,
     vadd_vsub::{decode_VADD_t1, decode_VSUB_t1},
     vcmp::{decode_VCMP_t1, decode_VCMP_t2},
-    vcvt::{decode_VCVT_ds_t1, decode_VCVT_half_t1, decode_VCVT_t1},
+    vcvt::{decode_VCVT_ds_t1, decode_VCVT_fixed_t1, decode_VCVT_half_t1, decode_VCVT_t1},
     vfma::{decode_VFMA_t1, decode_VFMS_t1, decode_VFNMA_t1, decode_VFNMS_t1},
     vldm::{decode_VLDM_t1, decode_VLDM_t2},
     vldr::{decode_VLDR_t1, decode_VLDR_t2},
@@ -393,7 +393,7 @@ fn decode_32(opcode: u32) -> Instruction {
     instruction
 }
 // Reject a stale generated table instead of running firmware with old masks.
-const _: () = assert!(GENERATED_DECODER_REVISION == 8);
+const _: () = assert!(GENERATED_DECODER_REVISION == 9);
 const _: () = assert!(
     GENERATED_DECODER_PROFILE
         == (cfg!(feature = "has-fp") as u8)
