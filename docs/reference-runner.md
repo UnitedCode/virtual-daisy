@@ -70,7 +70,7 @@ For a Rust project, the library can also be used directly:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.10" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.11" }
 ```
 
 ## Checks
@@ -143,6 +143,10 @@ simulated pass as a hardware result.
 
 The engine downloads retain the upstream Renode infrastructure and tlib licenses.
 This repository does not bundle their binaries or change their licensing.
+Source downloads use connection, transfer and retry limits. Only a complete,
+checksum-verified file enters the cache. A later attempt replaces an older
+partial or corrupt archive after verifying its replacement; a failed attempt
+cleans up its own staging file. Verified cached archives work offline.
 
 ## Rust CPU core and instrument applications
 

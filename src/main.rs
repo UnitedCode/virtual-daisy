@@ -16,6 +16,7 @@ mod probe;
 mod sai_probe;
 mod sdram_probe;
 mod settings_probe;
+mod source_archive;
 mod storage_probe;
 mod systick_probe;
 mod transition_probe;

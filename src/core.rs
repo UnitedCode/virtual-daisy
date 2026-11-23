@@ -210,18 +210,25 @@ fn pinned_replace(code: &mut String, needle: &str, replacement: &str) -> Result<
 }
 
 fn archive(cache: &Path, name: &str, url: &str, sha: &str) -> Result<PathBuf> {
-    let path = cache.join(name);
-    if !path.exists() {
+    super::source_archive::fetch(cache, name, sha, |path| {
         checked(
             Command::new("curl")
-                .args(["-fL", "--retry", "3", url, "-o"])
-                .arg(&path),
-        )?;
-    }
-    if format!("{:x}", Sha256::digest(fs::read(&path)?)) != sha {
-        return Err(format!("Pinned CPU source hash mismatch: {}", path.display()).into());
-    }
-    Ok(path)
+                .args([
+                    "-fL",
+                    "--connect-timeout",
+                    "20",
+                    "--max-time",
+                    "120",
+                    "--retry",
+                    "2",
+                    "--retry-max-time",
+                    "180",
+                    url,
+                    "-o",
+                ])
+                .arg(path),
+        )
+    })
 }
 
 pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
