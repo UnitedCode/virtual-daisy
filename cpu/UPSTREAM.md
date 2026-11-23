@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.23. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.24. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
@@ -203,3 +203,11 @@ all low halfwords for REVSH, flags and skipped conditions. The architectural
 guest checks both ADR directions and all three reversals against Renode without
 enlarging its 128-word capture. Decoder revision is 19; reference adapter 19
 and instruction retirement costs remain unchanged.
+
+Narrow STM now retains all eight register-list bits; the old seven-bit mask
+silently dropped R7 and shortened writeback. Empty lists use the existing
+undefined-encoding policy. An executed 2,542-case matrix covers all defined
+low-register list/base combinations through both paths, checking each stored
+word, surrounding guards, writeback, registers, APSR and PC. Cases whose stored
+base value is architecturally UNKNOWN are excluded. Decoder revision is 20;
+the existing transfer-count cost formula and native adapter 19 are unchanged.
