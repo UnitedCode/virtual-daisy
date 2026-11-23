@@ -335,6 +335,15 @@ impl Processor {
 
     #[cfg(not(feature = "armv6m"))]
     fn fault_delivery_exception(&mut self, fault: Fault) -> Exception {
+        if fault == Fault::DebugEvt {
+            let group = 1_i16 << (((self.aircr >> 8) & 7) + 1);
+            let priority = self.get_exception_priority(Exception::DebugMonitor) & !(group - 1);
+            if self.demcr & (1 << 16) != 0 && priority < self.get_execution_priority() {
+                return Exception::DebugMonitor;
+            }
+            self.hfsr |= 1 << 31;
+            return Exception::HardFault;
+        }
         let mapped_exception = fault.exception();
 
         let enabled = self.configurable_fault_enabled(mapped_exception);

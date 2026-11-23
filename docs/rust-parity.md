@@ -50,6 +50,16 @@ panicking. VMOV follows the [Armv7-M architecture manual](https://documentation-
 A7.7.241–244; scalar words preserve the other half and paired moves allow odd S
 registers while rejecting a pair beginning at S31.
 
+Breakpoint regressions check HardFault/lockup delivery, the debug status bits,
+DebugMonitor vector 12, priority masks/grouping and software monitor pending.
+Without an explicitly installed semihosting handler, `BKPT #0xab` has the same
+architectural behavior as other breakpoints. Unsupported semihosting operations
+return to breakpoint fault delivery rather than panicking the host. These checks
+follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
+B1.5.6, C1.5 and C1.6. They are independent CPU tests, not Renode comparisons.
+Halting debug, hardware breakpoint comparators and monitor single stepping are
+not implemented.
+
 ## Deliberate differences from the reference
 
 The hardware manual takes precedence where the previous model is incomplete:
@@ -67,32 +77,45 @@ positive enabled/pending bits as the set-register reads; writing zero has no eff
 
 ## Real firmware check
 
-The Synthphone ELF with SHA256
-`a17bf43410c1acc8b446d1cfb704ac9851aca59861077a7f8fab1a28bb14aafa`
-ran for 100 virtual ms with the explicit I²C recording carrier. An early Rust run
-recorded 119 external I²C packets and produced 4,193 stereo frames. Renode produced
-4,731 frames over the same interval. Both used the same unmodified input ELF.
+The frozen Synthphone ELF has SHA256
+`6282df022fa18ec4f9ce22ab33bc3f4c2a66e82df7a9a4ac89d7d52464866ec6`.
+Each run executes 200 virtual ms with the same 220 Hz, 0.15-amplitude recording
+at 48,014 Hz, interpolated onto the derived serial clock. The display carrier
+acknowledges I²C address `0x3c`; it does not validate OLED pixels or the complete UI.
 
-This confirms execution and audio activity, not matching startup timing, audio
-quality or the complete Synthphone UI. The external I²C recording sink acknowledges
-one chosen address; it does not validate an OLED's pixels. The separate instrument
-application owns that device model and its end-to-end tests.
+| Board | Rust frames | Renode frames | First signal frame, Rust / Renode | Unshifted sample RMS error |
+| --- | ---: | ---: | ---: | ---: |
+| Rev4 | 9,497 | 9,515 | 536 / 487 | 0.109911 |
+| Rev5 | 9,011 | 9,032 | 537 / 478 | 0.129409 |
+| Rev7 | 9,497 | 9,515 | 536 / 487 | 0.109911 |
 
-A follow-up controlled capture used the same frozen ELF
-`6282df022fa18ec4f9ce22ab33bc3f4c2a66e82df7a9a4ac89d7d52464866ec6`
-before and after correcting the Renode runner's fixed 480 MIPS budget. It now
-follows the modeled RCC core clock, starting at 64 MHz. At 100 ms the reference
-changed from 4,731 to 4,728 frames, with no FIFO overrun/underrun or CPU fault.
-This corrects a reference pacing error but explains only three frames of the
-startup difference. Renode still budgets instructions rather than M7 pipeline
-cycles; the Rust host retains instruction costs and coupled bus waits.
+All six runs report zero CPU faults and zero SAI FIFO overruns/underruns.
+Both Rust output channels stay finite and within full scale. The final 4,096
+samples have RMS above 0.005 and no silent 256-sample block.
+**These checks pass; the waveforms do not match at the same serial-frame index.**
+Frame counts include startup, rather than discarding the differing beginning.
 
-The next correction restored SysTick's selectable core/8 source in the Renode
-adapter. Its upstream NVIC model forced CLKSOURCE high and ignored the firmware's
-external-clock request. With the same 200 ms ELF/input capture, Rev5 changed from
-9,547 to 9,032 frames; Rust produced 9,011. Both report zero FIFO errors. This
-reduces the startup difference from 536 to 21 frames, without changing firmware
-or tuning a delay to match the result. Waveform equality remains a separate check.
+Two reference corrections matter for interpreting this result:
+
+- Renode now follows the modeled RCC core clock, starting at 64 MHz, rather than
+  running at a fixed 480 MIPS. This changed the Rev5 100 ms count from 4,731 to
+  4,728 frames, explaining only three frames of the original gap.
+- Its NVIC adapter now honors SysTick's selectable core/8 source. The upstream
+  model forced CLKSOURCE high, ignoring this firmware's external-clock request.
+  At 200 ms, correcting that changed Rev5 from 9,547 to 9,032 frames and reduced
+  the Rust/reference startup gap from 536 to 21 frames. An independent ARM clock
+  test and an old-model negative control guard the correction.
+
+A separate, unshipped diagnostic forced ordinary Rust instruction retirement to
+one cycle while retaining bus waits and exception costs. With the same Rev5 ELF
+and input, the unshifted RMS error fell from 0.129409 to 0.007027; the first signal
+moved from frame 537 to 488, versus reference frame 478. This establishes that
+instruction pacing materially affects this comparison. It does not explain every
+remaining difference or validate a one-cycle Cortex-M7 model. Production retains
+its instruction costs. Neither backend models the full M7 pipeline.
+
+No microphone, audio playback or physical device was used. Audio quality,
+complete UI behavior and physical-device timing remain unverified.
 
 ## Supported scope and remaining limits
 

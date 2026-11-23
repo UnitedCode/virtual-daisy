@@ -360,6 +360,8 @@ impl Bus for Processor {
             0xE000_ED28 => self.write_cfsr(value),
             #[cfg(not(feature = "armv6m"))]
             0xE000_ED2C => self.write_hfsr(value),
+            #[cfg(not(feature = "armv6m"))]
+            0xE000_ED30 => self.dfsr &= !(value & 0x1f),
             #[cfg(any(feature = "armv7m", feature = "armv7em"))]
             0xE000_ED18 => self.write_shpr1(value),
             #[cfg(any(feature = "armv7m", feature = "armv7em"))]
