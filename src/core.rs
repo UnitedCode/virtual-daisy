@@ -47,7 +47,7 @@ const PREFIX_RESTORE: &str = r#"
         cpu->instructions_count_value += to_charge;
         cpu->instructions_count_total_value += to_charge;
 "#;
-const MARKER:&str="\nuint32_t tlib_daisy_fetch_tag_version(void) { return 16; }\nEXC_INT_0(uint32_t, tlib_daisy_fetch_tag_version)\nvoid *daisy_fetch_state;\nuint32_t (*daisy_fetch_runtime)(void *, uint32_t, uint32_t);\nvoid tlib_daisy_set_runtime_fetch(void *state, void *callback) { daisy_fetch_state = state; daisy_fetch_runtime = callback; }\nEXC_VOID_2(tlib_daisy_set_runtime_fetch, void *, state, void *, callback)\nuint64_t tlib_daisy_memory_context(void) { target_ulong data[TARGET_INSN_START_WORDS]; if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_STACKING) { return UINT64_MAX-1; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_UNSTACKING) { return UINT64_MAX-2; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_VECTOR_READ) { return UINT64_MAX; } if(!cpu->current_tb || !cpu->mem_io_pc) { return 0; } if(cpu_get_data_for_pc(cpu, cpu->current_tb, cpu->mem_io_pc, true, data, false) < 0) { return 0; } return ((uint64_t)data[0] << 32) | cpu->regs[13]; }\nEXC_INT_0(uint64_t, tlib_daisy_memory_context)\n";
+const MARKER:&str="\nuint32_t tlib_daisy_fetch_tag_version(void) { return 17; }\nEXC_INT_0(uint32_t, tlib_daisy_fetch_tag_version)\nvoid *daisy_fetch_state;\nuint32_t (*daisy_fetch_runtime)(void *, uint32_t, uint32_t);\nvoid tlib_daisy_set_runtime_fetch(void *state, void *callback) { daisy_fetch_state = state; daisy_fetch_runtime = callback; }\nEXC_VOID_2(tlib_daisy_set_runtime_fetch, void *, state, void *, callback)\nuint64_t tlib_daisy_memory_context(void) { target_ulong data[TARGET_INSN_START_WORDS]; if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_STACKING) { return UINT64_MAX-1; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_UNSTACKING) { return UINT64_MAX-2; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_VECTOR_READ) { return UINT64_MAX; } if(!cpu->current_tb || !cpu->mem_io_pc) { return 0; } if(cpu_get_data_for_pc(cpu, cpu->current_tb, cpu->mem_io_pc, true, data, false) < 0) { return 0; } return ((uint64_t)data[0] << 32) | cpu->regs[13]; }\nEXC_INT_0(uint64_t, tlib_daisy_memory_context)\n";
 const RUNTIME: &str = r#"
     if(cpu->tb_restart_request == 0 && cpu->current_tb->size != 0 && daisy_fetch_runtime) {
         uint32_t result = daisy_fetch_runtime(daisy_fetch_state, cpu->current_tb->pc, cpu->current_tb->size);
@@ -413,6 +413,22 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
         fs::write(helper,format!("extern void *daisy_fetch_state;\nextern unsigned int (*daisy_fetch_runtime)(void *, unsigned int, unsigned int);\n{}",original.replace(needle,&format!("{RUNTIME}{needle}"))))?;
         let arm_helper = tlib_dir.join("arch/arm/helper.c");
         let mut code = fs::read_to_string(&arm_helper)?;
+        // PPB permissions are fixed even with the MPU disabled. Retain the
+        // access's user MMU index, including privileged code's STRT/LDRT.
+        let disabled =
+            "        if((env->cp15.c1_sys & 1) == 0) {\n        /* MMU/MPU disabled.  */";
+        let ppb = r#"#ifdef TARGET_PROTO_ARM_M
+        if(!arm_feature(env, ARM_FEATURE_V8) && is_user && address >= 0xE0000000 && address <= 0xE00FFFFF) {
+        bool user_stir = access_type == ACCESS_DATA_STORE && tlib_nvic_is_stir_address(address)
+            && (env->v7m.ccr[is_secure] & FIELD_MASK(V7M_CCR, USERSETMPEND));
+        *phys_ptr = address;
+        *prot = user_stir ? PAGE_WRITE : 0;
+        *page_size = 0; /* CCR changes must not leave a writable user page. */
+        ret = user_stir ? TRANSLATE_SUCCESS : MPU_PERMISSION_FAULT;
+    } else
+#endif
+"#;
+        pinned_replace(&mut code, disabled, &format!("{ppb}{disabled}"))?;
         // Physical lazy-FP stores originate in a TCG helper rather than the
         // softmmu accessors. Preserve that helper's unwind PC so the existing
         // Rust instruction replay can resume without repeating completed stores.
@@ -644,6 +660,6 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
         rid,
         &core,
     )?;
-    fs::write(directory.join("cpu-core.txt"),format!("infrastructure_commit={INFRA}\ntlib_commit={TLIB}\nfetch_tag_version=16\ncore_sha256={:x}\nsdk_version={}\nhalf_kernel_source_sha256={:x}\npsr_kernel_source_sha256={:x}\n",Sha256::digest(fs::read(core)?),env!("CARGO_PKG_VERSION"),Sha256::digest(include_bytes!("../cpu/src/executor/fp_half.rs")),Sha256::digest(include_bytes!("../cpu/src/core/status.rs"))))?;
+    fs::write(directory.join("cpu-core.txt"),format!("infrastructure_commit={INFRA}\ntlib_commit={TLIB}\nfetch_tag_version=17\ncore_sha256={:x}\nsdk_version={}\nhalf_kernel_source_sha256={:x}\npsr_kernel_source_sha256={:x}\n",Sha256::digest(fs::read(core)?),env!("CARGO_PKG_VERSION"),Sha256::digest(include_bytes!("../cpu/src/executor/fp_half.rs")),Sha256::digest(include_bytes!("../cpu/src/core/status.rs"))))?;
     Ok(())
 }

@@ -219,3 +219,19 @@ instructions independently. The generator writes `isa_oracle.extend-pack.bin`
 and extracts 112 cases in `isa_oracle.extend-pack-probe.rs` for the standalone
 ARM matrix. That matrix now checks 37,632 register-pair executions. The earlier
 15,680-case count above describes the v0.2.22 coverage before this addition.
+
+
+`isa_oracle_unprivileged.bin` adds 262,144 nine-word records from
+`unprivileged_oracle.rs`: literal opcode, memory seed, initial Rt, initial APSR,
+final Rt, two guard-window words, final APSR and magic `0x56525055`.
+All eight unprivileged transfer forms execute every imm8 offset with sixteen
+memory patterns, two source values and four flag states. The guest obtains
+each template from the assembler, patches its imm8 and executes it from RAM.
+The eight-byte window includes the byte before the access and the following
+bytes, detecting over-wide or misplaced stores. Source=base cases pin aliases.
+QEMU 11.1.3 and Rust 1.97.1 reproduce this fixture and all nineteen earlier
+binary datasets unchanged. The generator writes `isa_oracle.unprivileged.bin`
+and selects sixteen aligned/unaligned cases plus initial guard words in
+`isa_oracle.unprivileged-probe.rs` for `unprivileged_probe_cases.rs`.
+Numerical/memory results are independent of the Rust emulator; the separate
+ARM guest adds MPU permission, alignment-trap and user-STIR checks.

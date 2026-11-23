@@ -81,6 +81,7 @@ fn main() {
     let mut smull = Vec::new();
     let mut long_multiply = Vec::new();
     let mut extend_pack = Vec::new();
+    let mut unprivileged = Vec::new();
     for line in hex.lines() {
         assert!(matches!(line.len(), 40 | 48 | 56 | 64 | 72 | 80 | 88 | 104));
         let destination = if line.len() == 48 && line.ends_with("53534154") {
@@ -119,6 +120,8 @@ fn main() {
             }
         } else if line.len() == 88 {
             &mut arithmetic
+        } else if line.len() == 72 && line.ends_with("55505256") {
+            &mut unprivileged
         } else if line.len() == 72 {
             &mut rounding
         } else {
@@ -132,6 +135,13 @@ fn main() {
     fs::write(output.with_extension("extend-pack.bin"), &extend_pack).unwrap();
     let source = extension_cases(&extend_pack);
     fs::write(output.with_extension("extend-pack-probe.rs"), source).unwrap();
+    assert_eq!(unprivileged.len(), 262_144 * 9 * 4);
+    fs::write(output.with_extension("unprivileged.bin"), &unprivileged).unwrap();
+    fs::write(
+        output.with_extension("unprivileged-probe.rs"),
+        unprivileged_cases(&unprivileged),
+    )
+    .unwrap();
     assert_eq!(bytes.len(), 210 * 5 * 5 * 4);
     fs::write(&output, &bytes).unwrap();
     assert_eq!(doubles.len(), 344 * 5 * 8 * 4);
@@ -425,6 +435,10 @@ fn main() {
         "229376 QEMU extension/packing cases; {} bytes",
         extend_pack.len()
     );
+    println!(
+        "262144 QEMU unprivileged transfer cases; {} bytes",
+        unprivileged.len()
+    );
 }
 
 fn extension_cases(data: &[u8]) -> String {
@@ -453,5 +467,35 @@ fn extension_cases(data: &[u8]) -> String {
         ));
     }
     source.push_str("];\n");
+    source
+}
+
+fn unprivileged_cases(data: &[u8]) -> String {
+    let mut cases = std::collections::BTreeMap::new();
+    let mut initial = std::collections::BTreeMap::new();
+    for row in data.as_chunks::<36>().0 {
+        let w: [u32; 9] =
+            core::array::from_fn(|i| u32::from_le_bytes(row[i * 4..i * 4 + 4].try_into().unwrap()));
+        if w[1] == 0x80008000 && w[2] == w[1] && w[3] == 0xa80a0000 && (w[0] & 255) <= 1 {
+            cases.insert(w[0], w);
+            if w[0] & 0xffffff00 == 0xf8510e00 {
+                initial.insert(w[0] & 255, [w[5], w[6]]);
+            }
+        }
+    }
+    assert_eq!(cases.len(), 16);
+    assert_eq!(initial.len(), 2);
+    let mut source = String::from(
+        "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const UNPRIVILEGED_CASES: [[u32; 5]; 16] = [\n",
+    );
+    for w in cases.values() {
+        source.push_str(&format!(
+            "    [0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x}],\n",
+            w[0], w[4], w[5], w[6], w[7]
+        ));
+    }
+    let a = initial[&0];
+    let b = initial[&1];
+    source.push_str(&format!("];\npub const INITIAL_GUARDS: [[u32; 2]; 2] = [[0x{:08x}, 0x{:08x}], [0x{:08x}, 0x{:08x}]];\n", a[0], a[1], b[0], b[1]));
     source
 }

@@ -172,7 +172,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.16. Generated tables check their revision and
+The vendored CPU is revision 0.1.17. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -592,3 +592,31 @@ selected the unused SCR bank, suppressing disabled-interrupt events. The managed
 adapter now inverts that boolean and verifies the exact pinned patch site at
 startup. `tests/fixtures/events_legacy_reference.bin` retains the failed capture.
 The Rust event implementation is independent of this reference correction.
+
+
+### Unprivileged transfers (v0.2.27)
+
+Five unprivileged load forms previously faulted as undefined instructions. Their
+three store counterparts incorrectly used the caller's privileged MPU access.
+All eight now execute with unprivileged data permissions while retaining the
+caller's actual CONTROL, exception mode and fault-delivery context. Rt=Rn loads,
+SP bases, LR data registers, every imm8 offset and unchanged APSR are checked.
+A 262,144-record QEMU oracle independently pins results and eight-byte memory
+guards. All nineteen earlier numerical datasets regenerate unchanged.
+
+A new ARM guest checks 74 cases: seven MPU permission settings, aligned and
+unaligned transfers, CCR.UNALIGN_TRP, and USERSETMPEND-controlled STIR writes.
+It checks results, untouched bytes, APSR, exact CFSR/MMFAR and the original base
+register. The default MPU background does not grant unprivileged access. The
+STIR path now retains disabled pending IRQs instead of making them eligible.
+The executed ARM suite now has sixteen guests. CPU 0.1.17 uses decoder16.
+
+The reference passed the numerical/MPU cases but incorrectly allowed a user
+STIR write with the MPU disabled and USERSETMPEND clear. Native adapter17 checks
+fixed PPB permissions using the access's user MMU index even in privileged
+software's STRT/LDRT. It uses a one-use translation for the STIR exception so
+permission changes cannot leave a writable user page. Saved native/reference
+captures retain the old failures. The Rust and native implementations remain
+independent. See the [Cortex-M7 guide](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1),
+sections 3.4.4, 4.2.8 and CCR.USERSETMPEND/UNALIGN_TRP. This validates functional
+protection behavior; physical bus protection and latency remain unverified.

@@ -62,6 +62,7 @@ impl Reset for Processor {
 
         self.event_register = false;
         self.waiting_for_event = false;
+        self.unprivileged_access = false;
         self.sleeping = false;
 
         self.itstate = 0;

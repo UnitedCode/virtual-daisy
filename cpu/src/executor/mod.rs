@@ -536,6 +536,7 @@ impl ExecutorHelper for Processor {
     #[inline(always)]
     fn execute_internal(&mut self, instruction: &Instruction) -> ExecuteResult {
         match instruction {
+            Instruction::Unprivileged { opcode } => self.exec_unprivileged(*opcode),
             Instruction::DSP { opcode } => self.exec_browser_dsp(*opcode),
             // --------------------------------------------
             //

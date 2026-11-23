@@ -22,6 +22,64 @@ use crate::{
 };
 
 impl Processor {
+    pub(super) fn exec_unprivileged(&mut self, opcode: u32) -> ExecuteResult {
+        if !self.condition_passed() {
+            return Ok(ExecuteSuccess::NotTaken);
+        }
+        let key = opcode & 0xfff00f00;
+        let rt = Reg::from(((opcode >> 12) & 15) as u8);
+        let rn = Reg::from(((opcode >> 16) & 15) as u8);
+        if !cfg!(any(feature = "armv7m", feature = "armv7em"))
+            || !matches!(
+                key,
+                0xf8500e00
+                    | 0xf8100e00
+                    | 0xf8300e00
+                    | 0xf9100e00
+                    | 0xf9300e00
+                    | 0xf8400e00
+                    | 0xf8000e00
+                    | 0xf8200e00
+            )
+            || matches!(rt, Reg::SP | Reg::PC)
+            || rn == Reg::PC
+        {
+            return Err(Fault::UndefInstr);
+        }
+        // Compute the address and store value before a permitted Rt=Rn load.
+        let address = self.get_r(rn).wrapping_add(opcode & 255);
+        let source = self.get_r(rt);
+        let previous = self.unprivileged_access;
+        self.unprivileged_access = true;
+        let result = (|| -> Result<Option<u32>, Fault> {
+            Ok(match key {
+                0xf8500e00 => Some(self.read32_data(address)?),
+                0xf8100e00 => Some(u32::from(self.read8_data(address)?)),
+                0xf8300e00 => Some(u32::from(self.read16_data(address)?)),
+                0xf9100e00 => Some(i32::from(self.read8_data(address)? as i8) as u32),
+                0xf9300e00 => Some(i32::from(self.read16_data(address)? as i16) as u32),
+                0xf8400e00 => {
+                    self.write32_data(address, source)?;
+                    None
+                }
+                0xf8000e00 => {
+                    self.write8_data(address, source as u8)?;
+                    None
+                }
+                0xf8200e00 => {
+                    self.write16_data(address, source as u16)?;
+                    None
+                }
+                _ => unreachable!(),
+            })
+        })();
+        // Fault delivery and transaction replay use the caller's real mode.
+        self.unprivileged_access = previous;
+        if let Some(value) = result? {
+            self.set_r(rt, value);
+        }
+        Ok(ExecuteSuccess::Taken { cycles: 2 })
+    }
     pub(crate) fn require_alignment(&self, address: u32, alignment: u32) -> Result<(), Fault> {
         if address & (alignment - 1) == 0 {
             Ok(())

@@ -277,7 +277,9 @@ impl SystemMemory {
         let default_device =
             (0x4000_0000..0x6000_0000).contains(&address) || address >= 0xa000_0000;
         if address >= 0xe000_0000 {
-            return Ok((privileged && !execute, true));
+            let user_stir =
+                (0xe000_ef00..0xe000_ef04).contains(&address) && write && self.ccr & 2 != 0;
+            return Ok(((privileged || user_stir) && !execute, true));
         }
         if self.mpu_ctrl & 1 == 0 || bypass && self.mpu_ctrl & 2 == 0 {
             return Ok((!execute || !default_device, default_device));

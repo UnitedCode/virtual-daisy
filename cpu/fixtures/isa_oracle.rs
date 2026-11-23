@@ -36,6 +36,7 @@ mod dsp_multiply_oracle;
 mod smull_oracle;
 mod long_multiply_oracle;
 mod extend_pack_oracle;
+mod unprivileged_oracle;
 #[unsafe(no_mangle)]
 extern "C" fn Reset()->!{
  unsafe{core::ptr::write_volatile(0xe000ed88 as *mut u32,0x00f00000);asm!("dsb","isb",options(nostack));}
@@ -117,6 +118,7 @@ extern "C" fn Reset()->!{
  smull_oracle::run();
  long_multiply_oracle::run();
  extend_pack_oracle::run();
+ unprivileged_oracle::run();
  exit(0)
 }
 
