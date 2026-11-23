@@ -23,7 +23,14 @@ integral operands retain their architectural results. Integer saturation raises
 IOC, and nearest-even ties select the even integer. Register-field tests include
 high registers, aliased operands and rejection of unpopulated double registers.
 
-The local CPU revision is 0.1.2. Generated decoder tables have a checked revision
+Raw floating-point register bits are checked before conversion to register enums
+can discard them. Unpopulated double registers fault; single-register stack lists
+use the correct S-register fields and widened list bounds. Tests cover all valid
+single stack lists, exact memory transfers, malformed counts in debug/release,
+and double-bank boundaries. Single-only profiles keep doubleword storage moves
+while rejecting double-precision arithmetic.
+
+The local CPU revision is 0.1.3. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 
 Changes are checked against the upstream instruction suite, executed ARM guests,
