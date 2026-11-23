@@ -1900,3 +1900,5 @@ mod browser_dsp;
 mod parallel_dsp;
 
 mod dsp_multiply;
+
+mod long_multiply;

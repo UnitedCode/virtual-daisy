@@ -172,7 +172,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.13. Generated tables check their revision and
+The vendored CPU is revision 0.1.14. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -363,6 +363,20 @@ legal output/source assignments and aliases. The architectural ARM guest checks
 the pinned negative product before its fault probes. Invalid SP/PC operands and
 equal output registers fault. Instruction semantics follow
 [Arm's multiply guide](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1), section 3.6.
+
+### Long multiply-accumulates
+
+UMAAL and the eight signed halfword/dual long-accumulate forms now execute.
+Another 292,864 QEMU records cover all 13 long multiply forms, including the four
+existing base instructions, boundary/seeded operands, accumulator carries/wrap
+and preserved APSR fields. Both execution paths check every legal output/source
+assignment and aliases. Base Armv7-M rejects the nine DSP-only forms.
+
+A separate ARM guest checks 33,124 register cases across both hosts. It includes
+all distinct output-register pairs, every legal second source including LR, and
+overlap with its fixed first source. Its instruction trampoline sits separately
+from the guest's executable code. Invalid SP/PC and equal output registers fault
+consistently across the long instruction families.
 
 That guest exposed three additional Rust bugs. A literal load into PC advanced
 another four bytes after branching, and MSR's field masks for GE or combined

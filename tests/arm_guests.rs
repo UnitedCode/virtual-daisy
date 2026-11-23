@@ -8,6 +8,8 @@ mod fixed_probe;
 mod half_probe;
 #[path = "../src/instruction_clock_probe.rs"]
 mod instruction_clock_probe;
+#[path = "../cpu/fixtures/long_multiply_probe.rs"]
+mod long_multiply_probe;
 #[path = "../cpu/fixtures/psr_probe.rs"]
 mod psr_probe;
 #[path = "../cpu/fixtures/saturation_probe.rs"]
@@ -23,6 +25,25 @@ fn old_reference_unsigned_exchange_flags_fail_the_register_gate() {
 }
 #[path = "../src/systick_probe.rs"]
 mod systick_probe;
+
+#[test]
+#[ignore = "requires rustup target add thumbv7em-none-eabihf"]
+fn long_multiply_guest_checks_all_output_pairs_and_source_aliases() {
+    let (directory, image) = guest("long_multiply");
+    let mut machine = Machine::from_elf_at(Board::Rev5, &image, 0x6000).unwrap();
+    machine.run_until(1_200_000_000, 144_000_000).unwrap();
+    let data: Vec<_> = (0..32)
+        .flat_map(|i| machine.read32(0x20018800 + i * 4).unwrap().to_le_bytes())
+        .collect();
+    long_multiply_probe::check(&data).unwrap();
+    if let Some(path) = std::env::var_os("VIRTUAL_DAISY_REFERENCE") {
+        long_multiply_probe::check(
+            &fs::read(PathBuf::from(path).join("long-multiply.long-multiply.bin")).unwrap(),
+        )
+        .unwrap();
+    }
+    fs::remove_dir_all(directory).unwrap();
+}
 
 #[test]
 #[ignore = "requires rustup target add thumbv7em-none-eabihf"]
@@ -158,6 +179,10 @@ fn guest(name: &str) -> (PathBuf, Vec<u8>) {
     fs::write(
         &source,
         content
+            .replace(
+                "// LONG_MULTIPLY_CASES",
+                include_str!("../cpu/fixtures/long_multiply_probe_cases.rs"),
+            )
             .replace(
                 "// DSP_MULTIPLY_CASES",
                 include_str!("../cpu/fixtures/dsp_multiply_probe_cases.rs"),

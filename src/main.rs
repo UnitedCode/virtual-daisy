@@ -15,6 +15,8 @@ mod guest;
 mod half_probe;
 mod instruction_clock_probe;
 mod level_check;
+#[path = "../cpu/fixtures/long_multiply_probe.rs"]
+mod long_multiply_probe;
 mod platform;
 mod probe;
 #[path = "../cpu/fixtures/psr_probe.rs"]
@@ -177,6 +179,8 @@ impl Host<'_> {
             ".half.txt",
             ".fixed.bin",
             ".fixed.txt",
+            ".long-multiply.bin",
+            ".long-multiply.txt",
             ".saturation.bin",
             ".saturation.txt",
             ".psr.bin",
@@ -309,6 +313,7 @@ impl Host<'_> {
             "half",
             "half-double-control",
             "fixed",
+            "long-multiply",
             "saturation",
             "saturation-psr-control",
             "psr",
@@ -366,6 +371,20 @@ impl Host<'_> {
 }
 
 fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
+    guest::prepare(
+        host.directory,
+        "long_multiply",
+        &include_str!("../guests/long_multiply.rs").replace(
+            "// LONG_MULTIPLY_CASES",
+            include_str!("../cpu/fixtures/long_multiply_probe_cases.rs"),
+        ),
+    )?;
+    let long = host.boot("long-multiply", tone, "long-multiply")?;
+    long_multiply_probe::check(&fs::read(grade::artifact(&long, ".long-multiply.bin"))?)?;
+    fs::write(
+        grade::artifact(&long, ".long-multiply.txt"),
+        "long_multiply_register_cases=33124\nindependent_numerical_expectations=QEMU\n",
+    )?;
     guest::prepare(
         host.directory,
         "psr",
@@ -941,6 +960,7 @@ fn run(
         }
         let summary = concat!(
             "ARM PSR masks/aliases, unprivileged writes and SVC GE restoration: passed\n",
+            "ARM long multiply across 33,124 register cases: passed\n",
             "ARM saturation across 15,680 register pairs: passed\n",
             "ARM fixed conversions across 960 register cases: passed\n",
             "ARM half conversions across 6,144 register pairs: passed\n",
