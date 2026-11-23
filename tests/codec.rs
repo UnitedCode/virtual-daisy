@@ -53,7 +53,7 @@ fn wm8731_lrswap_changes_captured_dac_channels_without_swapping_adc_channels() {
         std::fs::remove_file(&path).unwrap();
         std::fs::remove_file(format!("{}.stats", path.display())).unwrap();
         assert_eq!(samples.len(), 44, "exactly 22 stereo frames were clocked");
-        for (frame, samples) in samples.chunks_exact(2).enumerate() {
+        for (frame, samples) in samples.as_chunks::<2>().0.iter().enumerate() {
             assert_eq!(
                 samples,
                 if ideal == 0 || frame >= 18 {
