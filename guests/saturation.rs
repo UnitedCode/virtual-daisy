@@ -10,6 +10,7 @@ const DATA: *mut u32 = 0x2001b000 as *mut u32;
 const REGISTERS: [u32; 14] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14];
 // SATURATION_CASES
 // WORD_CASES
+// PARALLEL_CASES
 global_asm!(
     r#"
 .syntax unified
@@ -87,6 +88,7 @@ unsafe fn matrix() -> bool {
         .into_iter()
         .map(|row| (row, false))
         .chain(WORD_CASES.into_iter().map(|row| (row, true)))
+        .chain(PARALLEL_CASES.into_iter().map(|row| (row, true)))
         .enumerate()
     {
         for destination in 0..14 {

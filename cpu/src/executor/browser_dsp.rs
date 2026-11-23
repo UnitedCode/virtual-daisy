@@ -12,6 +12,9 @@ impl Processor {
         if !self.condition_passed() {
             return Ok(ExecuteSuccess::NotTaken);
         }
+        if opcode & 0xff80f080 == 0xfa80f000 {
+            return self.exec_parallel_dsp(opcode);
+        }
         if opcode & 0xfffffff0 == 0xf3bf8f20 {
             self.exclusive_monitor = None;
             return Ok(ExecuteSuccess::Taken { cycles: 1 });
@@ -50,28 +53,6 @@ impl Processor {
                 self.psr.value |= 1 << 27;
             }
             value as u32
-        } else if key == 0xfa90f050 || key == 0xfad0f050 {
-            if [rd, rn, rm].iter().any(|r| matches!(r, Reg::SP | Reg::PC)) {
-                return Err(Fault::UndefInstr);
-            }
-            // UQADD16/UQSUB16 saturate each unsigned lane without modifying any APSR flag.
-            let mut out = 0;
-            for shift in [0, 16] {
-                let x = ((a >> shift) & 0xffff) as i32;
-                let y = ((b >> shift) & 0xffff) as i32;
-                let z = if key == 0xfa90f050 { x + y } else { x - y };
-                out |= (z.clamp(0, 0xffff) as u32) << shift;
-            }
-            out
-        } else if key == 0xfa80f050 || key == 0xfac0f050 {
-            let mut out = 0;
-            for lane in 0..4 {
-                let x = ((a >> (lane * 8)) & 255) as i32;
-                let y = ((b >> (lane * 8)) & 255) as i32;
-                let z = if key == 0xfa80f050 { x + y } else { x - y };
-                out |= (z.clamp(0, 255) as u32) << (lane * 8);
-            }
-            out
         } else if opcode & 0xfff08010 == 0xeac00000 {
             let shift = ((opcode >> 12) & 7) * 4 + ((opcode >> 6) & 3);
             if opcode & (1 << 5) == 0 {

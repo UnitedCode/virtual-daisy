@@ -1,6 +1,7 @@
 //! Pinned QEMU results for the saturation ARM register guest.
 include!("saturation_probe_cases.rs");
 include!("qadd_probe_cases.rs");
+include!("parallel_probe_cases.rs");
 pub const REGISTERS: [u32; 14] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14];
 pub fn expected_matrix() -> (u32, u64) {
     let mut count = 0;
@@ -9,6 +10,7 @@ pub fn expected_matrix() -> (u32, u64) {
         .into_iter()
         .map(|row| (row, false))
         .chain(WORD_CASES.into_iter().map(|row| (row, true)))
+        .chain(PARALLEL_CASES.into_iter().map(|row| (row, true)))
     {
         for destination in 0..14 {
             for source in 0..14 {

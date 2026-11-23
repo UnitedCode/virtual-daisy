@@ -70,7 +70,7 @@ For a Rust project, the library can also be used directly:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.20" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.21" }
 ```
 
 ## Checks
@@ -171,9 +171,14 @@ cargo test --manifest-path cpu/Cargo.toml --no-default-features --features armv7
 ```
 
 The reference adapter requires the default `rust-host` feature. Its native core
-revision 15 routes scalar half conversions and PSR field selection through Rust
+revision 16 routes scalar half conversions and PSR field selection through Rust
 kernels, whose source hashes are recorded in `cpu-core.txt`. QEMU supplies the
 independent numerical and status-register oracles. Renode checks instruction
 integration; negative controls restore its old double-half rejection and PSR GE
 loss. A `--no-default-features` library is peripherals-only and does not provide
 these CPU services.
+
+Revision 16 also repairs unsigned halfword operand representation and exchanged
+halfword GE packing in the pinned core. Packed arithmetic still executes its
+independent native implementation. The ARM register matrix and a saved failing
+revision-15 UASX capture check the positive and negative flag gates.

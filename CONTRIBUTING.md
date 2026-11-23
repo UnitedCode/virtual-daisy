@@ -25,12 +25,15 @@ cargo test --locked --manifest-path cpu/Cargo.toml \
 
 # Executed ARM firmware tests.
 rustup target add thumbv7em-none-eabihf
-cargo test --locked --test arm_guests -- --ignored
+cargo test --locked --release --test arm_guests -- --ignored
 ```
 
 To compare fresh Renode captures, run the reference `cpu` suite, then set
 `VIRTUAL_DAISY_REFERENCE` to its output directory when running `arm_guests`.
 See [the parity record](docs/rust-parity.md) for comparison rules and evidence.
+
+Use the release build for ARM guests: these tests interpret entire firmware
+programs. Ordinary unit tests still run in the debug build, locally and in CI.
 
 Use `CARGO_TARGET_DIR` to share a compatible existing build cache. Normal SDK
 builds produce a Rust library; the reference runner explicitly builds its C ABI
