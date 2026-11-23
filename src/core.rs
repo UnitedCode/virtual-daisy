@@ -13,7 +13,41 @@ const INFRA_SHA: &str = "8353496d3489e3801a45fd79b9281040e9d6b00f0c1615a5e77e995
 const TLIB_SHA: &str = "8db4d1fe0a316eec5dcae83bd4d2757b5172332493d6fdecfd9d4b81cb7a77a3";
 const TAG: &str =
     "    cpustate |= (READ_ACCESS_TYPE == ACCESS_INST_FETCH) ? (UINT64_C(1) << 63) : 0;";
-const MARKER:&str="\nuint32_t tlib_daisy_fetch_tag_version(void) { return 12; }\nEXC_INT_0(uint32_t, tlib_daisy_fetch_tag_version)\nvoid *daisy_fetch_state;\nuint32_t (*daisy_fetch_runtime)(void *, uint32_t, uint32_t);\nvoid tlib_daisy_set_runtime_fetch(void *state, void *callback) { daisy_fetch_state = state; daisy_fetch_runtime = callback; }\nEXC_VOID_2(tlib_daisy_set_runtime_fetch, void *, state, void *, callback)\nuint64_t tlib_daisy_memory_context(void) { target_ulong data[TARGET_INSN_START_WORDS]; if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_STACKING) { return UINT64_MAX-1; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_UNSTACKING) { return UINT64_MAX-2; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_VECTOR_READ) { return UINT64_MAX; } if(!cpu->current_tb || !cpu->mem_io_pc) { return 0; } if(cpu_get_data_for_pc(cpu, cpu->current_tb, cpu->mem_io_pc, true, data, false) < 0) { return 0; } return ((uint64_t)data[0] << 32) | cpu->regs[13]; }\nEXC_INT_0(uint64_t, tlib_daisy_memory_context)\n";
+// SyncTime may run inside a data callback, before the translated block ends.
+// Bill only its completed prefix; the remaining declaration is billed later.
+const PREFIX_TIME: &str = r#"
+static uint32_t daisy_prefix_time_enabled = 1;
+void tlib_daisy_set_prefix_time(uint32_t enabled) { daisy_prefix_time_enabled=enabled; }
+EXC_VOID_1(tlib_daisy_set_prefix_time, uint32_t, enabled)
+static void daisy_sync_instruction_prefix(void) {
+    TranslationBlock *tb=cpu->current_tb;
+    if(!daisy_prefix_time_enabled || !tb || !cpu->mem_io_pc ||
+       cpu->v7m.exception_phase != V7M_EXCEPTION_PHASE_NONE ||
+       !cpu->instructions_count_declaration || cpu->instructions_count_declaration > tb->icount) { return; }
+    target_ulong data[TARGET_INSN_START_WORDS];
+    int ordinal=cpu_get_data_for_pc(cpu,tb,cpu->mem_io_pc,true,data,false);
+    if(ordinal<1) { return; }
+    uint32_t completed=ordinal-1;
+    uint32_t billed=tb->icount-cpu->instructions_count_declaration;
+    if(completed>billed) {
+        uint32_t delta=completed-billed;
+        cpu->instructions_count_declaration-=delta;
+        cpu->instructions_count_value+=delta;
+        cpu->instructions_count_total_value+=delta;
+    }
+}
+"#;
+const PREFIX_RESTORE: &str = r#"
+        int to_charge=executed_instructions;
+        if(tb==cpu->current_tb && cpu->instructions_count_declaration && cpu->instructions_count_declaration<=tb->icount) {
+            int billed=tb->icount-cpu->instructions_count_declaration;
+            if(to_charge<billed) { tlib_abort("Daisy instruction prefix exceeds restored execution"); }
+            to_charge-=billed;
+        }
+        cpu->instructions_count_value += to_charge;
+        cpu->instructions_count_total_value += to_charge;
+"#;
+const MARKER:&str="\nuint32_t tlib_daisy_fetch_tag_version(void) { return 13; }\nEXC_INT_0(uint32_t, tlib_daisy_fetch_tag_version)\nvoid *daisy_fetch_state;\nuint32_t (*daisy_fetch_runtime)(void *, uint32_t, uint32_t);\nvoid tlib_daisy_set_runtime_fetch(void *state, void *callback) { daisy_fetch_state = state; daisy_fetch_runtime = callback; }\nEXC_VOID_2(tlib_daisy_set_runtime_fetch, void *, state, void *, callback)\nuint64_t tlib_daisy_memory_context(void) { target_ulong data[TARGET_INSN_START_WORDS]; if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_STACKING) { return UINT64_MAX-1; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_UNSTACKING) { return UINT64_MAX-2; } if(cpu->v7m.exception_phase == V7M_EXCEPTION_PHASE_VECTOR_READ) { return UINT64_MAX; } if(!cpu->current_tb || !cpu->mem_io_pc) { return 0; } if(cpu_get_data_for_pc(cpu, cpu->current_tb, cpu->mem_io_pc, true, data, false) < 0) { return 0; } return ((uint64_t)data[0] << 32) | cpu->regs[13]; }\nEXC_INT_0(uint64_t, tlib_daisy_memory_context)\n";
 const RUNTIME: &str = r#"
     if(cpu->tb_restart_request == 0 && cpu->current_tb->size != 0 && daisy_fetch_runtime) {
         uint32_t result = daisy_fetch_runtime(daisy_fetch_state, cpu->current_tb->pc, cpu->current_tb->size);
@@ -263,6 +297,12 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
         )?;
         let exports = tlib_dir.join("exports.c");
         let mut code = fs::read_to_string(&exports)?;
+        let entry = "uint64_t tlib_get_executed_instructions()\n{";
+        pinned_replace(
+            &mut code,
+            entry,
+            &format!("{PREFIX_TIME}\n{entry}\n    daisy_sync_instruction_prefix();"),
+        )?;
         code.push_str(MARKER);
         code.push_str(BARRIER_EXPORT);
         code.push_str(EXCEPTION_EXPORT);
@@ -276,6 +316,12 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
             ),
         )?;
         fs::write(exports, code)?;
+        let translate = tlib_dir.join("arch/translate-all.c");
+        let mut code = fs::read_to_string(&translate)?;
+        pinned_replace(&mut code,
+            "        cpu->instructions_count_value += executed_instructions;\n        cpu->instructions_count_total_value += executed_instructions;",
+            PREFIX_RESTORE)?;
+        fs::write(translate, code)?;
         let helper = tlib_dir.join("helper.c");
         let original = fs::read_to_string(&helper)?;
         let needle = "    return cpu->tb_restart_request;";
@@ -436,6 +482,6 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
         rid,
         &core,
     )?;
-    fs::write(directory.join("cpu-core.txt"),format!("infrastructure_commit={INFRA}\ntlib_commit={TLIB}\nfetch_tag_version=12\ncore_sha256={:x}\n",Sha256::digest(fs::read(core)?)))?;
+    fs::write(directory.join("cpu-core.txt"),format!("infrastructure_commit={INFRA}\ntlib_commit={TLIB}\nfetch_tag_version=13\ncore_sha256={:x}\n",Sha256::digest(fs::read(core)?)))?;
     Ok(())
 }

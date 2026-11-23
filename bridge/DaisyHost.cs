@@ -120,7 +120,7 @@ public static class DaisyHost
         ((DaisyGpio)machine["sysbus.gpioPortD"]).ConfigureStraps(uint.Parse(args[7]));
         Console.WriteLine("Board: " + args[6]);
         var cpu = (CortexM)machine["sysbus.cpu"];
-        if(((DaisyCortexM)cpu).FetchTagVersion!=12) throw new InvalidOperationException("Missing native instruction-fetch/runtime adapter");
+        if(((DaisyCortexM)cpu).FetchTagVersion!=13) throw new InvalidOperationException("Missing native instruction-fetch/runtime adapter");
         Console.WriteLine("Native instruction-fetch tag verified");
         cpu.VectorTableOffset = 0x08000000;
         cpu.SP = bus.ReadDoubleWord(0x08000000);
@@ -129,6 +129,14 @@ public static class DaisyHost
             cpu.PerformanceInMips=checked((uint)Math.Max(1UL,(hz+500000UL)/1000000UL));
         });
         emulation.MasterTimeSource.Quantum = TimeInterval.FromMicroseconds(1);
+        if(args[5]=="instruction-clock" || args[5]=="instruction-clock-control") {
+            if(args[5]=="instruction-clock-control") ((DaisyCortexM)cpu).DisablePrefixTime();
+            bus.LoadELF(Path.Combine(Path.GetDirectoryName(args[3]),"instruction_clock-probe.elf"));
+            cpu.VectorTableOffset=0x6000;cpu.SP=bus.ReadDoubleWord(0x6000);cpu.PC=bus.ReadDoubleWord(0x6004);
+            emulation.RunFor(TimeInterval.FromMilliseconds(2));
+            File.WriteAllBytes(args[3]+".instruction-clock.bin",bus.ReadBytes(0x20019000UL,128));
+            emulation.Dispose();return;
+        }
         if(args[5]=="systick" || args[5]=="systick-core-control") {
             var nvic=(DaisyNvic)machine["sysbus.nvic"];
             nvic.CoreOnlySysTick=args[5]=="systick-core-control";

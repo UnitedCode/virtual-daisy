@@ -9,6 +9,7 @@ mod emulate;
 mod fetch_probe;
 mod grade;
 mod guest;
+mod instruction_clock_probe;
 mod level_check;
 mod platform;
 mod probe;
@@ -160,6 +161,8 @@ impl Host<'_> {
         for suffix in [
             ".systick.bin",
             ".systick.txt",
+            ".instruction-clock.bin",
+            ".instruction-clock.txt",
             ".architecture.bin",
             ".architecture.txt",
             ".architecture-negative.txt",
@@ -282,6 +285,8 @@ impl Host<'_> {
             "timing",
             "systick",
             "systick-core-control",
+            "instruction-clock",
+            "instruction-clock-control",
             "dsb-fault",
             "entry-fault",
             "wait-irq",
@@ -336,6 +341,38 @@ impl Host<'_> {
 }
 
 fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
+    guest::prepare(
+        host.directory,
+        "instruction_clock",
+        include_str!("../guests/instruction_clock.rs"),
+    )?;
+    let capture = host.boot("instruction-clock", tone, "instruction-clock")?;
+    instruction_clock_probe::check(&fs::read(grade::artifact(
+        &capture,
+        ".instruction-clock.bin",
+    ))?)?;
+    fs::write(
+        grade::artifact(&capture, ".instruction-clock.txt"),
+        "within_block_instruction_progress=passed\nphysical_pipeline_timing=NOT_CALIBRATED\n",
+    )?;
+    let broken = host.boot(
+        "instruction-clock-control",
+        tone,
+        "instruction-clock-control",
+    )?;
+    let error = instruction_clock_probe::check(&fs::read(grade::artifact(
+        &broken,
+        ".instruction-clock.bin",
+    ))?)
+    .err()
+    .ok_or("Completed-block-only time escaped the instruction-clock gate")?;
+    if !error.contains("128 NOPs advanced") {
+        return Err(format!("Unexpected instruction-clock negative control: {error}").into());
+    }
+    fs::write(
+        grade::artifact(&broken, ".instruction-clock.txt"),
+        format!("completed_block_only_time=caught\n{error}\n"),
+    )?;
     guest::prepare(
         host.directory,
         "systick",

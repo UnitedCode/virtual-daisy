@@ -70,7 +70,7 @@ For a Rust project, the library can also be used directly:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.9" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.10" }
 ```
 
 ## Checks
@@ -124,6 +124,12 @@ and their negative controls. They still take an ELF for artifact provenance, but
 do not test that application's audio. `run`, `startup`, `settings`, `levels` and
 `autotune` retain the Synthphone regression fixtures and their application-specific
 expectations. See the [Synthphone guide](synthphone.md) for those commands.
+
+The CPU suite includes an ITCM instruction-clock guest. The native adapter reports
+the completed prefix when a peripheral synchronizes time inside a translated
+block, then bills the rest once on completion or unwind. A negative control
+restores completed-block-only reporting. This fixes within-block progress;
+integer-nanosecond quantization and the functional instruction pacing remain.
 
 The writeback and interrupt probes erase their temporary machine's internal flash
 through the modeled controller before installing their fixtures. This keeps their
