@@ -2,8 +2,29 @@
 //! The same unmodified ARM guests run by the Renode reference harness.
 use std::{fs, path::PathBuf, process::Command};
 use virtual_daisy::{board::Board, machine::Machine};
+#[path = "../src/instruction_clock_probe.rs"]
+mod instruction_clock_probe;
 #[path = "../src/systick_probe.rs"]
 mod systick_probe;
+
+#[test]
+#[ignore = "requires rustup target add thumbv7em-none-eabihf"]
+fn instruction_clock_tracks_progress_inside_a_literal_itcm_sequence() {
+    let (directory, image) = guest("instruction_clock");
+    let mut machine = Machine::from_elf_at(Board::Rev5, &image, 0x6000).unwrap();
+    machine.run_until(2_000_000, 1_000_000).unwrap();
+    let data: Vec<_> = (0..32)
+        .flat_map(|i| machine.read32(0x20019000 + i * 4).unwrap().to_le_bytes())
+        .collect();
+    instruction_clock_probe::check(&data).unwrap();
+    if let Some(path) = std::env::var_os("VIRTUAL_DAISY_REFERENCE") {
+        instruction_clock_probe::check(
+            &fs::read(PathBuf::from(path).join("instruction-clock.instruction-clock.bin")).unwrap(),
+        )
+        .unwrap();
+    }
+    fs::remove_dir_all(directory).unwrap();
+}
 
 fn counter(machine: &Machine, key: &str) -> u64 {
     let report = machine.memory_report();

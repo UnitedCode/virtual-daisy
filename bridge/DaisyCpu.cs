@@ -35,6 +35,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         }
         public void DisableLateArrival() { tlibDaisySetLateInterrupt(IntPtr.Zero); }
         public void DisableTailChaining() { tlibDaisySetTailchain(0); }
+        public void DisablePrefixTime() { tlibDaisySetPrefixTime(0); }
         public override ExecutionResult ExecuteInstructions(ulong numberOfInstructionsToExecute,out ulong numberOfExecutedInstructions) {
             architecture.Synchronize();
             var result=base.ExecuteInstructions(numberOfInstructionsToExecute,out numberOfExecutedInstructions);
@@ -102,6 +103,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         [Import] private readonly Action<IntPtr,IntPtr> tlibDaisySetException;
         [Import] private readonly Action<IntPtr> tlibDaisySetLateInterrupt;
         [Import] private readonly Action<uint> tlibDaisySetTailchain;
+        [Import] private readonly Action<uint> tlibDaisySetPrefixTime;
         [Import] private readonly Func<uint> tlibDaisyIrqCanPreempt;
 #pragma warning restore CS0649
         private readonly DaisyArchitecture architecture;
