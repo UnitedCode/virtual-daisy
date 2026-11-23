@@ -18,6 +18,7 @@ mod rounding_oracle;
 mod arithmetic_rounding_oracle;
 mod fused_oracle;
 mod precision_oracle;
+mod accumulate_oracle;
 #[unsafe(no_mangle)]
 extern "C" fn Reset()->!{
  unsafe{core::ptr::write_volatile(0xe000ed88 as *mut u32,0x00f00000);asm!("dsb","isb",options(nostack));}
@@ -88,6 +89,7 @@ extern "C" fn Reset()->!{
  arithmetic_rounding_oracle::run();
  fused_oracle::run();
  precision_oracle::run();
+ accumulate_oracle::run();
  exit(0)
 }
 

@@ -76,6 +76,15 @@ and cover every legal register pairing, including overlapping source/destination
 storage. QEMU 11.1.3 and rustc 1.97.1 reproduce this fixture and all seven earlier
 datasets unchanged. The generator writes `isa_oracle.precision.bin`.
 
+`isa_oracle_accumulate.bin` adds 49,152 nonfused VMLA/VMLS/VNMLS/VNMLA records
+from `accumulate_oracle.rs`. Its thirteen-word layout matches the fused fixture
+with magic `0x414c4d56`; the generator distinguishes their record types by this
+trailer. Both precisions, all rounding/FZ/DN settings, exceptional values and
+seeded/targeted triples are executed independently by QEMU. Tests cover both
+execution paths, native arithmetic on/off and clear/sticky flags. All eight
+earlier datasets regenerate byte-for-byte unchanged. The generator writes
+`isa_oracle.accumulate.bin`.
+
 Regenerate from the repository root:
 
 ```sh
