@@ -91,6 +91,78 @@ pub(super) fn fused(a: u64, b: u64, c: u64, size: usize, control: u32) -> (u64, 
     }
 }
 
+pub(super) fn convert_precision(bits: u64, source_size: usize, control: u32) -> (u64, u32) {
+    let (fraction, exponent, target_fraction, target_exponent, target_size) = if source_size == 32 {
+        (23, 255, 52, 2047, 64)
+    } else {
+        (52, 2047, 23, 255, 32)
+    };
+    let negative = bits >> (source_size - 1) != 0;
+    let sign = u64::from(negative) << (target_size - 1);
+    let field = (bits >> fraction) & exponent;
+    let payload = bits & ((1u64 << fraction) - 1);
+    if field == exponent {
+        if payload == 0 {
+            return (sign | (target_exponent << target_fraction), 0);
+        }
+        let flags = u32::from(payload & (1 << (fraction - 1)) == 0);
+        if control & (1 << 25) != 0 {
+            return (
+                (target_exponent << target_fraction) | (1 << (target_fraction - 1)),
+                flags,
+            );
+        }
+        let payload = if fraction < target_fraction {
+            payload << (target_fraction - fraction)
+        } else {
+            payload >> (fraction - target_fraction)
+        };
+        return (
+            sign | (target_exponent << target_fraction) | payload | (1 << (target_fraction - 1)),
+            flags,
+        );
+    }
+    if field == 0 {
+        if payload == 0 {
+            return (sign, 0);
+        }
+        if control & (1 << 24) != 0 {
+            return (sign, 128);
+        }
+    }
+    let rounding = match (control >> 22) & 3 {
+        0 => Round::NearestTiesToEven,
+        1 => Round::TowardPositive,
+        2 => Round::TowardNegative,
+        _ => Round::TowardZero,
+    };
+    let mut loses_info = false;
+    if source_size == 32 {
+        let result: StatusAnd<Double> =
+            Single::from_bits(u128::from(bits)).convert_r(rounding, &mut loses_info);
+        return (
+            result.value.to_bits() as u64,
+            u32::from(result.status.bits()),
+        );
+    }
+    let source = Double::from_bits(u128::from(bits));
+    let result: StatusAnd<Single> = source.convert_r(rounding, &mut loses_info);
+    let mut flags = u32::from(result.status.bits());
+    let tiny = source.abs() < Double::from_bits(0x3810_0000_0000_0000);
+    if tiny && control & (1 << 24) != 0 {
+        return (sign, (flags & !16) | 8);
+    }
+    if tiny && result.status.contains(Status::INEXACT) {
+        flags |= 8;
+    }
+    if result.status.contains(Status::INEXACT)
+        && source.abs() >= Double::from_bits(0x47f0_0000_0000_0000)
+    {
+        flags |= 4;
+    }
+    (result.value.to_bits() as u64, flags)
+}
+
 fn integer_sqrt(value: u128) -> u128 {
     // Restoring square root, two input bits per iteration; no host float or
     // convergence tolerance. The radicand uses at most 107 bits.
