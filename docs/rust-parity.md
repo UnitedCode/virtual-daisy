@@ -710,3 +710,32 @@ The register fields follow the
 [Cortex-M7 guide, section 4.7.4](https://documentation-service.arm.com/static/61efd8352dd99944d05142d1).
 This fixes exception-state handling; floating-point execution latency remains
 uncalibrated.
+
+### Core encodings and memory hints (v0.2.32)
+
+PLI previously decoded as an undefined instruction. Some unallocated memory
+hints instead reached a data-load path with PC as the destination, where they
+could panic the host. The decoder now classifies the Armv7-M byte/halfword
+memory-hint space first. PLI and unallocated hints execute as NOPs without data
+access, writeback or flag changes. Reserved undefined forms fault. Existing
+PLD decoding is retained; neither hint models measured prefetch traffic.
+
+A bounded decoder/executor audit found forbidden PC destinations in arithmetic
+and doubleword loads that also reached a host panic. Those encodings now fault
+before operand changes. Tests retain legal MOV/ADD/LDR writes to PC and the
+TST/TEQ/CMN/CMP aliases. Register combinations described as UNPREDICTABLE use
+a deterministic undefined-instruction fault here; that is not a claim about
+which permitted outcome a physical processor chooses for invalid software.
+
+The skipped-instruction check exposed an additional defect: UDF faulted even
+when its IT condition failed. UDF now checks that condition. The ARM guest
+executes nine literal hint encodings, including unmapped addresses, and skips
+both 16-bit and 32-bit UDFs under a false condition. It checks unchanged APSR,
+base and offset, and appends four words to its capture, now 116 words. Existing
+fault counts and 144/360 shared-stack counters retain their meaning.
+
+CPU 0.1.21 uses decoder revision 17; native adapter 19 and retirement costs are
+unchanged. The contracts follow the
+[Armv7-M architecture manual](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820),
+the load byte/halfword memory-hint tables, A7.6 and UDF in A7.7.191. Numerical
+coverage and physical timing are separate from the robustness input audit.

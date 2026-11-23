@@ -19,7 +19,7 @@ pub fn check(prefix: &Path, shared_stack: bool, eager: bool) -> Result<()> {
         fs::remove_file(&report)?;
     }
     let data = fs::read(grade::artifact(prefix, ".cpu.bin"))?;
-    if data.len() != 448 {
+    if data.len() != 464 {
         return Err("Truncated ARM CPU capture".into());
     }
     let words: Vec<u32> = data
@@ -57,6 +57,12 @@ pub fn check(prefix: &Path, shared_stack: bool, eager: bool) -> Result<()> {
     equal(words[109] & 7, 0, "M7 basic frame alignment")?;
     equal(words[110] & (1 << 9), 1 << 9, "M7 stacked alignment flag")?;
     equal(words[111], 0, "M7 restored misaligned SP")?;
+    for (i, expected) in [0xa80a0000, 0xfffffff0, 4, 0x48494e54]
+        .into_iter()
+        .enumerate()
+    {
+        equal(words[112 + i], expected, &format!("memory hint case {i}"))?;
+    }
     equal(words[14], 0x24040000, "MPU fault address")?;
     equal(words[19], 0x24040000, "execute-never fault PC")?;
     for phase in 7..=10 {

@@ -169,7 +169,7 @@ unsafe extern "C" fn probe_main() -> ! {
         phase(0xbad0f022);
         loop { asm!("wfi", options(nostack)); }
     }
-    for word in 0..112 {
+    for word in 0..116 {
         record(word, 0);
     }
     // M7 read-only BP/STKALIGN and reserved fields, before later setup writes.
@@ -184,6 +184,21 @@ unsafe extern "C" fn probe_main() -> ! {
     record(108, 1);
     record(111, probe_ccr_stack());
     record(108, 0);
+    let (hint_flags, hint_base, hint_offset): (u32, u32, u32);
+    asm!("msr APSR_nzcvqg, r3",
+        ".inst.n 0xbf08", ".inst.n 0xde00", // False IT EQ skips UDF16.
+        ".inst.n 0xbf08", ".inst.w 0xf7f0a000", // And UDF32.
+        ".inst.w 0xf991f123", ".inst.w 0xf911fc80", ".inst.w 0xf99ff123",
+        ".inst.w 0xf91ff123", ".inst.w 0xf911f012", ".inst.w 0xf8b1f123",
+        ".inst.w 0xf9b1f123", ".inst.w 0xf831f002", ".inst.w 0xf933fc80",
+        "mrs r0, APSR", lateout("r0") hint_flags,
+        inout("r1") 0xfffffff0_u32 => hint_base,
+        inout("r2") 4_u32 => hint_offset, in("r3") 0xa80a0000_u32,
+        options(nostack));
+    record(112, hint_flags);
+    record(113, hint_base);
+    record(114, hint_offset);
+    record(115, 0x48494e54);
     record(2, read(0xe000ed90));
     for address in [0xe000ef40, 0xe000ef44, 0xe000ef48] {
         write(address, u32::MAX);
