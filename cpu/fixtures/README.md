@@ -31,6 +31,20 @@ The initial status includes NZCV and sticky IXC. Tests check ordinary/compiled
 execution with native arithmetic enabled and disabled. The generator writes
 `isa_oracle.minmax.bin`; QEMU 11.1.3 and rustc 1.97.1 generated the fixture.
 
+`isa_oracle_rounding.bin` contains 39,680 nine-word records from
+`rounding_oracle.rs`: magic `0x544e5256`, precision, input low/high, operation,
+initial FPSCR, result low/high, final FPSCR. Operations are VRINT A/N/P/M/Z/R/X
+(0–6), VCVT A/N/P/M signed/unsigned (7–14), truncating signed/unsigned VCVT
+(15–16), and FPSCR-controlled signed/unsigned VCVTR (17–18). Single-word results
+have a zero high word. The fixture covers both precisions, all four FPSCR
+rounding modes where applicable, FZ/DN combinations and clear/preexisting flags.
+Each precision uses 32 boundary/special inputs and 128 deterministic random
+inputs. QEMU 11.1.3 and rustc 1.100.0 generated this companion; the four earlier
+fixtures regenerate byte-for-byte unchanged. The generator writes
+`isa_oracle.rounding.bin`. Tests exercise both execution paths with native
+arithmetic on/off, check untouched registers and APSR, and separately vary all
+legal source/destination pairs, including aliases.
+
 Regenerate from the repository root:
 
 ```sh

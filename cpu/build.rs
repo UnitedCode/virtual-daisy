@@ -107,7 +107,7 @@ fn generate_decode(
         .collect();
 
     if bits == 32 {
-        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 3;")?;
+        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 4;")?;
         let profile = u8::from(cargo_feature_enabled("has-fp"))
             | (u8::from(cargo_feature_enabled("has-dsp-ext")) << 1)
             | (u8::from(cargo_feature_enabled("fpv5-d16")) << 2)
@@ -347,6 +347,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     if cargo_feature_enabled("has-fp") {
         if cargo_feature_enabled("fpv5-d16") || cargo_feature_enabled("fpv5-sp-d16") {
             instructions_thumb32.insert("111111101.00........101....0....", "VMINMAXNM_t1");
+            instructions_thumb32.extend([
+                ("111111101.1110......101.01.0....", "VRINT_directed_t1"),
+                ("111011101.11011.....101.01.0....", "VRINT_current_t1"),
+                ("111011101.110110....101.11.0....", "VRINTZ_t1"),
+                ("111111101.1111......101..1.0....", "VCVT_directed_t1"),
+            ]);
         }
         instructions_thumb32.extend([
             ("111011101.110000....101.11.0....", "VABS_t1"),
@@ -361,7 +367,6 @@ fn main() -> Result<(), Box<dyn Error>> {
             ("111111100...........101..0.0....", "VSEL_t1"),
             ("111011101.110100....101..1.0....", "VCMP_t1"),
             ("111011101.110101....101..1.0....", "VCMP_t2"),
-            ("111011101.110110....101.11.0....", "VRINTZ_t1"),
             ("111011101.110111....101.11.0....", "VCVT_ds_t1"),
             ("111011101.111.......101..1.0....", "VCVT_t1"),
             //("111011101.111.1.....101..1.0....": "VCVT_fx_t1"),

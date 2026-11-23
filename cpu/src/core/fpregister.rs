@@ -4,6 +4,42 @@
 
 use crate::core::bits::Bits;
 
+/// Integral rounding, including the directed mode not encoded in FPSCR.RMode.
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
+pub enum IntegralRounding {
+    /// Nearest integer; halfway values select the even integer.
+    NearestEven,
+    /// Nearest integer; halfway values select away from zero.
+    NearestAway,
+    /// Round toward positive infinity.
+    PlusInfinity,
+    /// Round toward negative infinity.
+    MinusInfinity,
+    /// Discard the fractional part while retaining the sign of zero.
+    TowardZero,
+}
+impl IntegralRounding {
+    /// Resolve the four modes encoded in FPSCR.RMode.
+    pub fn from_fpscr(value: u32) -> Self {
+        match value.get_rounding_mode() {
+            FPSCRRounding::RoundToNearest => Self::NearestEven,
+            FPSCRRounding::RoundTowardsPlusInfinity => Self::PlusInfinity,
+            FPSCRRounding::RoundTowardsMinusInfinity => Self::MinusInfinity,
+            FPSCRRounding::RoundTowardsZero => Self::TowardZero,
+        }
+    }
+    /// Suffix used by directed VRINT and VCVT mnemonics.
+    pub fn suffix(self) -> &'static str {
+        match self {
+            Self::NearestEven => "n",
+            Self::NearestAway => "a",
+            Self::PlusInfinity => "p",
+            Self::MinusInfinity => "m",
+            Self::TowardZero => "z",
+        }
+    }
+}
+
 #[derive(PartialEq, Debug, Copy, Clone)]
 /// Enumeration of supported Floating Point rounding modes
 pub enum FPSCRRounding {

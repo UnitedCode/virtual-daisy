@@ -7,7 +7,7 @@ use crate::{
     core::{
         bits::Bits,
         fault::Fault,
-        fpregister::{FPSCRRounding, Fpscr},
+        fpregister::{FPSCRRounding, Fpscr, IntegralRounding},
         register::{ExtensionRegOperations, SingleReg},
     },
     peripheral::{
@@ -56,6 +56,107 @@ fn round_down(value: BigFloat) -> i128 {
     } else {
         i128::MAX
     })
+}
+
+fn ieee_layout(bits: usize) -> (u32, i32, u64) {
+    if bits == 32 {
+        (23, 127, 0xff)
+    } else {
+        (52, 1023, 0x7ff)
+    }
+}
+
+fn integer_operand(cpu: &mut Processor, bits: u64, size: usize, control: u32) -> (FPType, bool) {
+    let (fraction, _, exponent_mask) = ieee_layout(size);
+    let sign = bits >> (size - 1) != 0;
+    let exponent = (bits >> fraction) & exponent_mask;
+    let mantissa = bits & ((1u64 << fraction) - 1);
+    let kind = if exponent == exponent_mask {
+        if mantissa == 0 {
+            FPType::Infinity
+        } else if mantissa & (1u64 << (fraction - 1)) == 0 {
+            FPType::SNaN
+        } else {
+            FPType::QNaN
+        }
+    } else if exponent == 0 && mantissa == 0 {
+        FPType::Zero
+    } else if exponent == 0 && control.get_fz() {
+        cpu.fp_process_exception(FPExc::InputDenorm, control);
+        FPType::Zero
+    } else {
+        FPType::Nonzero
+    };
+    (kind, sign)
+}
+
+// Work on the IEEE significand directly: tiny binary64 values must not vanish
+// during a generic-real subtraction. The only targets are 32/64-bit integers;
+// a u128::MAX sentinel is already beyond every representable target bound.
+fn rounded_magnitude(
+    bits: u64,
+    size: usize,
+    scale: usize,
+    rounding: IntegralRounding,
+) -> (u128, bool) {
+    let (fraction, bias, exponent_mask) = ieee_layout(size);
+    let exponent = ((bits >> fraction) & exponent_mask) as i32;
+    let significand = u128::from(bits & ((1u64 << fraction) - 1))
+        | if exponent == 0 { 0 } else { 1u128 << fraction };
+    let power = (if exponent == 0 {
+        1 - bias
+    } else {
+        exponent - bias
+    } - fraction as i32)
+        .saturating_add(i32::try_from(scale).unwrap_or(i32::MAX));
+    if power >= 0 {
+        let shift = power as u32;
+        if shift >= 128 || significand > u128::MAX >> shift {
+            return (u128::MAX, false);
+        }
+        return (significand << shift, false);
+    }
+    let shift = (-power) as u32;
+    let (integer, remainder, half) = if shift >= 128 {
+        (0, significand, core::cmp::Ordering::Less)
+    } else {
+        let remainder = significand & ((1u128 << shift) - 1);
+        (
+            significand >> shift,
+            remainder,
+            remainder.cmp(&(1u128 << (shift - 1))),
+        )
+    };
+    let fractional = remainder != 0;
+    let sign = bits >> (size - 1) != 0;
+    let increment = match rounding {
+        IntegralRounding::NearestEven => half.is_gt() || (half.is_eq() && integer & 1 != 0),
+        IntegralRounding::NearestAway => !half.is_lt(),
+        IntegralRounding::PlusInfinity => fractional && !sign,
+        IntegralRounding::MinusInfinity => fractional && sign,
+        IntegralRounding::TowardZero => false,
+    };
+    (integer + u128::from(increment), fractional)
+}
+
+fn saturate_magnitude(magnitude: u128, sign: bool, width: usize, unsigned: bool) -> (u64, bool) {
+    debug_assert!((1..=64).contains(&width));
+    let mask = u64::MAX >> (64 - width);
+    if unsigned && sign {
+        return (0, magnitude != 0);
+    }
+    let bound = if unsigned {
+        u128::from(mask)
+    } else {
+        (1u128 << (width - 1)) - u128::from(!sign)
+    };
+    let clamped = magnitude.min(bound) as u64;
+    let result = if sign {
+        0u64.wrapping_sub(clamped) & mask
+    } else {
+        clamped
+    };
+    (result, magnitude > bound)
 }
 
 /// Trait for floating point operations
@@ -228,12 +329,29 @@ pub trait FloatingPointPublicOperations {
         fpscr_controlled: bool,
     ) -> T::Bits;
 
+    fn fp_round_int_with_rounding<T: FloatOps>(
+        &mut self,
+        op: T::Bits,
+        rounding: Option<IntegralRounding>,
+        exact: bool,
+        fpscr_controlled: bool,
+    ) -> T::Bits;
+
     fn fp_to_fixed<N: FloatOps, M: FloatOps>(
         &mut self,
         op: N::Bits,
         fraction_bits: usize,
         unsigned: bool,
         round_towards_zero: bool,
+        fpscr_controlled: bool,
+    ) -> M::Bits;
+
+    fn fp_to_fixed_with_rounding<N: FloatOps, M: FloatOps>(
+        &mut self,
+        op: N::Bits,
+        fraction_bits: usize,
+        unsigned: bool,
+        rounding: Option<IntegralRounding>,
         fpscr_controlled: bool,
     ) -> M::Bits;
 
@@ -649,33 +767,10 @@ fn standard_fpscr_value(fpscr: u32) -> u32 {
     (u32::from(fpscr.get_bit(26)) << 26) | 0b11_0000_0000_0000_0000_0000_0000
 }
 
-/// saturate i to n bits, return the result and a boolean indicating if saturation occurred (up to 64 bits)
+// Keep the established signed/unsigned bound cases on the production helper.
+#[cfg(test)]
 fn satq(i: i128, n: usize, unsigned: bool) -> (u64, bool) {
-    debug_assert!(n <= 64);
-
-    if unsigned {
-        let max_unsigned = 1u128
-            .checked_shl(n as u32)
-            .unwrap_or(u128::MAX)
-            .saturating_sub(1);
-        let max_unsigned_i128 = i128::try_from(max_unsigned).unwrap_or(i128::MAX);
-
-        let clamped = i.clamp(0, max_unsigned_i128);
-        let saturated = clamped != i;
-        let result = clamped as u128;
-
-        (result.get_bits(0..n) as u64, saturated)
-    } else {
-        let signed_bits = n.saturating_sub(1) as u32;
-        let signed_scale = 1i128.checked_shl(signed_bits).unwrap_or(i128::MAX);
-        let max_signed = signed_scale.saturating_sub(1);
-        let min_signed = signed_scale.saturating_neg();
-
-        let result = i.clamp(min_signed, max_signed);
-        let saturated = result != i;
-
-        ((result as u64).get_bits(0..n), saturated)
-    }
+    saturate_magnitude(i.unsigned_abs(), i < 0, n, unsigned)
 }
 
 impl FloatingPointHiddenOperations for Processor {
@@ -1276,19 +1371,30 @@ impl FloatingPointPublicOperations for Processor {
         exact: bool,
         fpscr_controlled: bool,
     ) -> T::Bits {
+        self.fp_round_int_with_rounding::<T>(
+            op,
+            zero_rounding.then_some(IntegralRounding::TowardZero),
+            exact,
+            fpscr_controlled,
+        )
+    }
+
+    fn fp_round_int_with_rounding<T: FloatOps>(
+        &mut self,
+        op: T::Bits,
+        rounding: Option<IntegralRounding>,
+        exact: bool,
+        fpscr_controlled: bool,
+    ) -> T::Bits {
         let fpscr_val = if fpscr_controlled {
             self.fpscr
         } else {
             standard_fpscr_value(self.fpscr)
         };
 
-        let rounding = if zero_rounding {
-            FPSCRRounding::RoundTowardsZero
-        } else {
-            fpscr_val.get_rounding_mode()
-        };
+        let rounding = rounding.unwrap_or_else(|| IntegralRounding::from_fpscr(fpscr_val));
 
-        let (fptype, sign, value) = self.fp_unpack::<T>(op, fpscr_val);
+        let (fptype, sign) = integer_operand(self, op.into(), T::n(), fpscr_val);
 
         if fptype == FPType::SNaN || fptype == FPType::QNaN {
             return self.fp_process_nan::<T>(fptype, op, fpscr_val);
@@ -1302,34 +1408,27 @@ impl FloatingPointPublicOperations for Processor {
             return T::fp_zero(sign);
         }
 
-        let mut int_result = round_down(value);
-        let error = value - BigFloat::from(int_result);
-
-        let round_up = match rounding {
-            FPSCRRounding::RoundToNearest => {
-                error > BigFloat::from(0.5)
-                    || (error == BigFloat::from(0.5) && int_result.get_bit(0))
-            }
-            FPSCRRounding::RoundTowardsPlusInfinity => error != BigFloat::default(),
-            FPSCRRounding::RoundTowardsMinusInfinity => false,
-            FPSCRRounding::RoundTowardsZero => error != BigFloat::default() && int_result < 0,
-        };
-
-        if round_up {
-            int_result += 1;
+        // Every finite binary32 value at |x| >= 2^23 (binary64: 2^52) is
+        // already integral. Returning its bits also avoids clipping to i128.
+        let bits: u64 = op.into();
+        let (fraction, bias, exponent_mask) = ieee_layout(T::n());
+        if ((bits >> fraction) & exponent_mask) >= (bias as u32 + fraction) as u64 {
+            return op;
         }
-
-        let real_result = BigFloat::from(int_result);
-
-        let result = if real_result == BigFloat::default() {
+        let (magnitude, fractional) = rounded_magnitude(bits, T::n(), 0, rounding);
+        let result = if magnitude == 0 {
             T::fp_zero(sign)
         } else {
-            let mut round_fpscr = fpscr_val;
-            round_fpscr.set_rounding_mode(FPSCRRounding::RoundTowardsZero);
-            self.fp_round::<T>(real_result, round_fpscr)
+            let exponent = 127 - magnitude.leading_zeros();
+            let mantissa = ((magnitude << (fraction - exponent)) as u64) & ((1u64 << fraction) - 1);
+            T::from_integer(
+                (u64::from(sign) << (T::n() - 1))
+                    | ((u64::from(exponent) + bias as u64) << fraction)
+                    | mantissa,
+            )
         };
 
-        if error != BigFloat::default() && exact {
+        if fractional && exact {
             self.fp_process_exception(FPExc::Inexact, fpscr_val);
         }
 
@@ -1401,75 +1500,49 @@ impl FloatingPointPublicOperations for Processor {
         round_towards_zero: bool,
         fpscr_controlled: bool,
     ) -> M::Bits {
-        let mut fpscr_val = if fpscr_controlled {
+        self.fp_to_fixed_with_rounding::<N, M>(
+            op,
+            fraction_bits,
+            unsigned,
+            round_towards_zero.then_some(IntegralRounding::TowardZero),
+            fpscr_controlled,
+        )
+    }
+
+    fn fp_to_fixed_with_rounding<N: FloatOps, M: FloatOps>(
+        &mut self,
+        op: N::Bits,
+        fraction_bits: usize,
+        unsigned: bool,
+        rounding: Option<IntegralRounding>,
+        fpscr_controlled: bool,
+    ) -> M::Bits {
+        let fpscr_val = if fpscr_controlled {
             self.fpscr
         } else {
             standard_fpscr_value(self.fpscr)
         };
 
-        if round_towards_zero {
-            fpscr_val.set_rounding_mode(FPSCRRounding::RoundTowardsZero);
-        }
-        if self.native_float
-            && N::n() == 32
-            && M::n() == 32
-            && fraction_bits == 0
-            && fpscr_val & 0x9f00 == 0
-            && fpscr_val & 0x00c00000 == 0x00c00000
-        {
-            if let Some(bits) = N::as_u32(op) {
-                let value = f32::from_bits(bits);
-                let exact = f64::from(value);
-                let (min, max) = if unsigned {
-                    (0.0, 4294967295.0)
-                } else {
-                    (-2147483648.0, 2147483647.0)
-                };
-                if super::native_float::ordinary(bits) && exact >= min && exact <= max {
-                    let result = if unsigned {
-                        value as u32
-                    } else {
-                        (value as i32) as u32
-                    };
-                    let converted = if unsigned {
-                        f64::from(result)
-                    } else {
-                        f64::from(result as i32)
-                    };
-                    if exact != converted {
-                        self.fpscr |= 16;
-                    }
-                    return M::from_u32(result).unwrap();
-                }
-            }
-        }
-        let (type_t, _sign, mut value) = self.fp_unpack::<N>(op, fpscr_val);
+        let rounding = rounding.unwrap_or_else(|| IntegralRounding::from_fpscr(fpscr_val));
+        let (type_t, sign) = integer_operand(self, op.into(), N::n(), fpscr_val);
         if type_t == FPType::SNaN || type_t == FPType::QNaN {
             self.fp_process_exception(FPExc::InvalidOp, fpscr_val);
+            return M::from_integer(0);
         }
-
-        value *= N::powf2(BigFloat::from(fraction_bits as u32));
-        let mut int_result = round_down(value);
-        let error = value - BigFloat::from(int_result);
-
-        let round_up = match fpscr_val.get_rounding_mode() {
-            FPSCRRounding::RoundToNearest => {
-                error > BigFloat::from(0.5)
-                    || (error == BigFloat::from(0.5) && !int_result.get_bit(0))
-            }
-            FPSCRRounding::RoundTowardsPlusInfinity => error != BigFloat::default(),
-            FPSCRRounding::RoundTowardsMinusInfinity => false,
-            FPSCRRounding::RoundTowardsZero => error != BigFloat::default() && int_result < 0,
-        };
-        if round_up {
-            int_result = int_result.saturating_add(1);
+        if type_t == FPType::Infinity {
+            self.fp_process_exception(FPExc::InvalidOp, fpscr_val);
+            let (result, _) = saturate_magnitude(u128::MAX, sign, M::n(), unsigned);
+            return M::from_integer(result);
         }
-
-        let (result, overflow) = satq(int_result, M::n(), unsigned);
+        if type_t == FPType::Zero {
+            return M::from_integer(0);
+        }
+        let (magnitude, fractional) = rounded_magnitude(op.into(), N::n(), fraction_bits, rounding);
+        let (result, overflow) = saturate_magnitude(magnitude, sign, M::n(), unsigned);
 
         if overflow {
-            self.fp_process_exception(FPExc::Overflow, fpscr_val);
-        } else if error != BigFloat::default() {
+            self.fp_process_exception(FPExc::InvalidOp, fpscr_val);
+        } else if fractional {
             self.fp_process_exception(FPExc::Inexact, fpscr_val);
         }
 

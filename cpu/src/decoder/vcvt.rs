@@ -1,3 +1,5 @@
+#[cfg(any(feature = "fpv5-d16", feature = "fpv5-sp-d16"))]
+use crate::core::fpregister::IntegralRounding;
 use crate::core::{
     bits::Bits,
     instruction::{Instruction, VCVTParams, VCVTParamsF32F64, VCVTParamsF64F32},
@@ -17,6 +19,13 @@ pub fn decode_VCVT_t1(opcode: u32) -> Instruction {
 
     let to_integer = opc2.get_bit(2);
     let dp_operation = sz;
+    if dp_operation && (!cfg!(feature = "fpv5-d16") || if to_integer { M != 0 } else { D != 0 }) {
+        return Instruction::UDF {
+            imm32: 0,
+            opcode: opcode.into(),
+            thumb32: true,
+        };
+    }
     if to_integer {
         let unsigned = !opc2.get_bit(0);
         let round_zero = op;
@@ -77,6 +86,51 @@ pub fn decode_VCVT_t1(opcode: u32) -> Instruction {
                 },
             },
         }
+    }
+}
+
+#[cfg(any(feature = "fpv5-d16", feature = "fpv5-sp-d16"))]
+#[allow(non_snake_case)]
+pub fn decode_VCVT_directed_t1(opcode: u32) -> Instruction {
+    let d = ((opcode >> 22) & 1) as u8;
+    let m = ((opcode >> 5) & 1) as u8;
+    let vd = ((opcode >> 12) & 15) as u8;
+    let vm = (opcode & 15) as u8;
+    let double = opcode & (1 << 8) != 0;
+    if double && (!cfg!(feature = "fpv5-d16") || m != 0) {
+        return Instruction::UDF {
+            imm32: 0,
+            opcode: opcode.into(),
+            thumb32: true,
+        };
+    }
+    let rounding = match (opcode >> 16) & 3 {
+        0 => IntegralRounding::NearestAway,
+        1 => IntegralRounding::NearestEven,
+        2 => IntegralRounding::PlusInfinity,
+        _ => IntegralRounding::MinusInfinity,
+    };
+    Instruction::VCVT_directed {
+        params: VCVTParams {
+            d: ExtensionReg::Single {
+                reg: SingleReg::from(vd << 1 | d),
+            },
+            m: if double {
+                ExtensionReg::Double {
+                    reg: DoubleReg::from(vm),
+                }
+            } else {
+                ExtensionReg::Single {
+                    reg: SingleReg::from(vm << 1 | m),
+                }
+            },
+            to_integer: true,
+            unsigned: opcode & (1 << 7) == 0,
+            dp_operation: double,
+            round_zero: false,
+            round_nearest: false,
+        },
+        rounding,
     }
 }
 
