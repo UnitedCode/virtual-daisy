@@ -19,6 +19,8 @@ mod bfi;
 mod cbz;
 mod clrex;
 mod dbg;
+#[cfg(feature = "has-fp")]
+mod fp_encoding;
 mod sbfx;
 mod ssat;
 mod ubfx;
@@ -381,8 +383,17 @@ fn decode_UDF_t2(opcode: u32) -> Instruction {
 include!(concat!(env!("OUT_DIR"), "/decode_16.rs"));
 
 include!(concat!(env!("OUT_DIR"), "/decode_32.rs"));
+
+fn decode_32(opcode: u32) -> Instruction {
+    let instruction = decode_32_raw(opcode);
+    #[cfg(feature = "has-fp")]
+    if !fp_encoding::valid(opcode, &instruction) {
+        return decode_UDF_t2(opcode);
+    }
+    instruction
+}
 // Reject a stale generated table instead of running firmware with old masks.
-const _: () = assert!(GENERATED_DECODER_REVISION == 4);
+const _: () = assert!(GENERATED_DECODER_REVISION == 5);
 const _: () = assert!(
     GENERATED_DECODER_PROFILE
         == (cfg!(feature = "has-fp") as u8)

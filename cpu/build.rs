@@ -107,7 +107,7 @@ fn generate_decode(
         .collect();
 
     if bits == 32 {
-        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 4;")?;
+        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 5;")?;
         let profile = u8::from(cargo_feature_enabled("has-fp"))
             | (u8::from(cargo_feature_enabled("has-dsp-ext")) << 1)
             | (u8::from(cargo_feature_enabled("fpv5-d16")) << 2)
@@ -506,7 +506,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     generate_decode(
         &dest_path_32,
-        "decode_32(opcode: u32)",
+        "decode_32_raw(opcode: u32)",
         "decode_UDF_t2(opcode)",
         &instructions_thumb32,
         32,

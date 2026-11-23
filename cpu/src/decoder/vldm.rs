@@ -78,7 +78,7 @@ pub fn decode_VLDM_t2(opcode: u32) -> Instruction {
     let first = vd << 1 | d;
     let regs = imm8;
 
-    if (p == u && w) || n == 15 || regs == 0 || (first + regs) > 32 {
+    if (p == u && w) || n == 15 || regs == 0 || u16::from(first) + u16::from(regs) > 32 {
         return Instruction::UDF {
             imm32: 0,
             opcode: opcode.into(),

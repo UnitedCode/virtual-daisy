@@ -153,7 +153,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.2. Generated tables check their revision and
+The vendored CPU is revision 0.1.3. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -209,6 +209,16 @@ encoded IEEE significand directly. Semantics follow
 [ST PM0253 Rev6, sections 3.11.33–35](https://www.st.com/resource/en/programming_manual/DM00237416.pdf).
 This establishes the tested instruction behavior; it does not settle audio
 pacing or the remaining instruction coverage.
+
+Floating-point register-boundary checks also cover every valid single-register
+stack list and actual VPUSH/VPOP memory transfers, including untouched words,
+registers, FPSCR and stack restoration. Oversized counts are rejected without
+integer wraparound in debug and release builds. Raw D16–D31 encodings are
+rejected before register conversion can alias them onto D0–D15. Single-only
+profiles retain doubleword load/store/move operations but reject double-precision
+arithmetic and immediate constants. The register-bank distinction follows
+[PM0253 section 4.7](https://www.st.com/resource/en/programming_manual/DM00237416.pdf)
+and [Arm's VMOV immediate encoding](https://support.arm.com/documentation/ddi0406/c/Application-Level-Architecture/Instruction-Details/Alphabetical-list-of-instructions/VMOV--immediate-).
 
 ## Supported scope and remaining limits
 

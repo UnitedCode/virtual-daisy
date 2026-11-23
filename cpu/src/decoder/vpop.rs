@@ -53,10 +53,10 @@ pub fn decode_VPOP_t2(opcode: u32) -> Instruction {
     let imm32 = opcode.get_bits(0..8) << 2;
     let D = u8::from(opcode.get_bit(22));
     let Vd = opcode.get_bits(12..16) as u8;
-    let d = D | Vd << 4;
+    let d = D | Vd << 1;
     let regs = opcode.get_bits(0..8) as u8;
 
-    if regs == 0 || d + regs > 32 {
+    if regs == 0 || u16::from(d) + u16::from(regs) > 32 {
         return Instruction::UDF {
             imm32: 0,
             opcode: opcode.into(),

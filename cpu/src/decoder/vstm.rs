@@ -11,7 +11,7 @@ pub fn decode_VSTM_t1(opcode: u32) -> Instruction {
     let W = opcode.get_bit(21);
     let U = opcode.get_bit(23);
     let imm8 = opcode.get_bits(0..8) as u8;
-    let imm32 = u32::from(imm8 << 2);
+    let imm32 = u32::from(imm8) << 2;
     let P = opcode.get_bit(24);
 
     let n = opcode.get_bits(16..20) as u8;
@@ -68,7 +68,7 @@ pub fn decode_VSTM_t1(opcode: u32) -> Instruction {
 pub fn decode_VSTM_t2(opcode: u32) -> Instruction {
     let W = opcode.get_bit(21);
     let imm8 = opcode.get_bits(0..8) as u8;
-    let imm32 = u32::from(imm8 << 2);
+    let imm32 = u32::from(imm8) << 2;
     let U = opcode.get_bit(23);
     let P = opcode.get_bit(24);
 
@@ -81,7 +81,7 @@ pub fn decode_VSTM_t2(opcode: u32) -> Instruction {
 
     let regs = imm8;
 
-    if (P == U && W) || n == 15 || regs == 0 || (d + regs) > 32 {
+    if (P == U && W) || n == 15 || regs == 0 || u16::from(d) + u16::from(regs) > 32 {
         return Instruction::UDF {
             imm32: 0,
             opcode: opcode.into(),
