@@ -154,7 +154,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.6. Generated tables check their revision and
+The vendored CPU is revision 0.1.7. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -167,6 +167,12 @@ overflow boundaries, ties and sticky flags. Both execution paths pass with nativ
 arithmetic on/off. Separate checks cover every legal register pair and source/
 destination overlap. The old conversion lost exception flags and ignored the
 configured rounding and flush behavior.
+
+The full CPU suite also runs with FPv4-SP, FPv5-SP and no FPU. Unsupported
+double-precision arithmetic and FPv5-only selection/rounding instructions must
+decode as undefined in the corresponding profiles; the tests keep positive
+expectations where supported. The FPv4 scope follows
+[ST PM0214, floating-point instruction table](https://www.st.com/resource/en/programming_manual/DM00046982-.pdf).
 
 ### Matched current-firmware audio
 

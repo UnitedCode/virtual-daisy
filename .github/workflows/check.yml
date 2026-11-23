@@ -37,6 +37,18 @@ jobs:
       - run: cargo test --locked --test arm_guests -- --ignored
       - run: cargo test --locked --manifest-path cpu/Cargo.toml --no-default-features --features armv7em,fpv5-d16
       - run: cargo check --locked --no-default-features --lib
+  cpu-profiles:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["armv7em", "armv7em,fpv4-sp-d16", "armv7em,fpv5-sp-d16"]
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --locked --manifest-path cpu/Cargo.toml --no-default-features --features "${{ matrix.features }}"
   wasm:
     runs-on: ubuntu-latest
     steps:
