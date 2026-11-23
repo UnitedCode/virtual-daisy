@@ -38,6 +38,7 @@ pub mod memory;
 pub mod peripheral;
 pub mod semihosting;
 pub mod system;
+mod transaction;
 
 use crate::core::exception::Exception;
 use crate::core::fault::{Fault, FaultContext, FaultStatusContext, FaultTrapMode};
@@ -159,6 +160,8 @@ pub struct Processor {
     /// of exception activation rule resolving
     ///
     pub execution_priority: i16,
+    /// Implemented high bits in each interrupt priority byte (1..=8).
+    pub priority_bits: u8,
 
     itstate: u8,
 
@@ -217,6 +220,8 @@ pub struct Processor {
     pub syst_rvr: u32,
     pub syst_cvr: u32,
     pub syst_csr: u32,
+    /// Fractional reference-clock cycles retained by `SysTick`.
+    pub syst_fraction: u32,
 
     ///
     /// file handle to which to write ITM data
@@ -366,6 +371,7 @@ impl Processor {
             exclusive_monitor: None,
             exceptions: make_default_exception_priorities(),
             execution_priority: 0,
+            priority_bits: 8,
             pending_exception_count: 0,
             pending_exceptions: Vec::with_capacity(16),
             pending_choice: None,
@@ -413,6 +419,7 @@ impl Processor {
             syst_rvr: 0,
             syst_cvr: 0,
             syst_csr: 0,
+            syst_fraction: 0,
             instruction_cache: Vec::new(),
             fault_trap_mode: FaultTrapMode::hardfault(),
             pending_fault_trap: None,

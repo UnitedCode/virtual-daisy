@@ -11,7 +11,7 @@ use crate::core::fetch::Fetch;
 use crate::core::instruction::{Imm32Carry, Instruction, SetFlags, instruction_size};
 
 use crate::core::operation::condition_test;
-use crate::core::register::{Apsr, BaseReg, Ipsr};
+use crate::core::register::{Apsr, BaseReg, Ipsr, Reg};
 use crate::decoder::Decoder;
 use crate::memory::map::MapMemory;
 use crate::peripheral::{dwt::Dwt, systick::SysTick};
@@ -264,7 +264,7 @@ impl Processor {
         if self.syst_csr & 1 != 0 {
             self.syst_step(cycles);
         }
-        if self.pending_exception_count != 0 || self.sleeping {
+        if !self.transactional_bus() && (self.pending_exception_count != 0 || self.sleeping) {
             self.check_exceptions();
         }
     }
@@ -388,6 +388,9 @@ impl Processor {
         fault_pc: u32,
         status: FaultStatusContext,
     ) -> u32 {
+        if self.bus_stalled() {
+            return 0;
+        }
         let exception = self.fault_delivery_exception(fault);
         let active_exception = self.active_exception();
 
@@ -419,6 +422,9 @@ impl Processor {
                 }
             }
             Err(entry_fault) => {
+                if self.bus_stalled() {
+                    return 0;
+                }
                 self.record_fault_status(entry_fault, FaultStatusContext::default());
                 self.set_hfsr_forced();
                 let trap_reason = if exception == Exception::HardFault
@@ -472,7 +478,7 @@ impl ExecutorHelper for Processor {
         self.itstate.get_bits(0..4) == 0b1000
     }
     fn integer_zero_divide_trapping_enabled(&self) -> bool {
-        true
+        self.ccr & (1 << 4) != 0
     }
 
     #[inline(always)]
@@ -894,6 +900,8 @@ impl ExecutorHelper for Processor {
             // --------------------------------------------
             #[cfg(feature = "has-fp")]
             Instruction::VMRS { rt } => self.exec_vmrs(*rt),
+            #[cfg(feature = "has-fp")]
+            Instruction::VMSR { rt } => self.exec_vmsr(*rt),
 
             // --------------------------------------------
             //
@@ -1002,6 +1010,26 @@ impl Executor for Processor {
     #[cfg_attr(not(target_arch = "wasm32"), inline(always))]
     fn step(&mut self) {
         let pc = self.get_pc();
+        let saved = self.transactional_bus().then(|| self.checkpoint());
+        if saved.is_some() {
+            let interrupt = self.get_pending_exception().is_some()
+                && self.device.as_ref().is_none_or(|bus| bus.can_preempt());
+            if let Some(bus) = &self.device {
+                bus.begin_instruction(pc, self.get_r(Reg::SP), interrupt);
+            }
+            if interrupt {
+                self.check_exceptions();
+                if self.bus_stalled() {
+                    self.restore_checkpoint(saved.expect("transaction snapshot"));
+                } else {
+                    if let Some(bus) = &self.device {
+                        bus.finish_instruction();
+                    }
+                    self.advance_wait_cycles(12);
+                }
+                return;
+            }
+        }
         let mapped_pc = if self.mem_map.is_some() {
             (self.map_address(pc) >> 1) as usize
         } else {
@@ -1037,6 +1065,13 @@ impl Executor for Processor {
             },
         };
         self.retire_decoded(count);
+        if let Some(saved) = saved {
+            if self.bus_stalled() {
+                self.restore_checkpoint(saved);
+            } else if let Some(bus) = &self.device {
+                bus.finish_instruction();
+            }
+        }
         //TODO exception entry also burns cycles that should be accounted for
         //DWT and SYST ticking
     }
@@ -1583,7 +1618,7 @@ mod tests {
 
     #[test]
     #[cfg(not(feature = "armv6m"))]
-    fn test_step_latches_mmfar_for_instruction_access_violation() {
+    fn test_instruction_access_violation_does_not_latch_mmfar() {
         let mut core = Processor::new();
         core.fault_trap_mode(FaultTrapMode::none());
         core.set_msp(0x2000_0100);
@@ -1596,8 +1631,8 @@ mod tests {
             core.psr.get_isr_number(),
             Exception::MemoryManagementFault.into()
         );
-        assert_eq!(core.cfsr, CFSR_IACCVIOL | CFSR_MMARVALID);
-        assert_eq!(core.mmfar, 0x6000_0000);
+        assert_eq!(core.cfsr, CFSR_IACCVIOL);
+        assert_eq!(core.mmfar, 0);
     }
 
     #[test]

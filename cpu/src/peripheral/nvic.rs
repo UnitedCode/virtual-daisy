@@ -96,6 +96,7 @@ pub trait NVIC {
 }
 
 trait NVICHelper {
+    fn implemented_interrupts(&self, index: usize) -> u32;
     fn nvic_set_pending_exceptions(&mut self, index: usize);
     fn nvic_clear_unpended_exceptions(&mut self, index: usize);
 }
@@ -117,6 +118,17 @@ fn clear_bits_array(array: &mut [u32; 16], index: usize, value: u32) {
 }
 
 impl NVICHelper for Processor {
+    fn implemented_interrupts(&self, index: usize) -> u32 {
+        (0..32).fold(0, |mask, bit| {
+            mask | if self.exceptions.contains_key(&usize::from(Interrupt {
+                n: index * 32 + bit,
+            })) {
+                1 << bit
+            } else {
+                0
+            }
+        })
+    }
     fn nvic_set_pending_exceptions(&mut self, index: usize) {
         let mut active = self.nvic_interrupt_pending[index] & self.nvic_interrupt_enabled[index];
         let mut irqn = index * 32;
@@ -142,6 +154,7 @@ impl NVICHelper for Processor {
 
 impl NVIC for Processor {
     fn nvic_write_iser(&mut self, index: usize, value: u32) {
+        let value = value & self.implemented_interrupts(index);
         set_bits_array(&mut self.nvic_interrupt_enabled, index, value);
         self.nvic_set_pending_exceptions(index);
     }
@@ -162,10 +175,11 @@ impl NVIC for Processor {
     }
 
     fn nvic_read_icer(&self, index: usize) -> u32 {
-        self.nvic_interrupt_enabled[index] ^ 0xFFFF_FFFF
+        self.nvic_interrupt_enabled[index]
     }
 
     fn nvic_write_ispr(&mut self, index: usize, value: u32) {
+        let value = value & self.implemented_interrupts(index);
         set_bits_array(&mut self.nvic_interrupt_pending, index, value);
         self.nvic_set_pending_exceptions(index);
     }
@@ -180,7 +194,7 @@ impl NVIC for Processor {
     }
 
     fn nvic_read_icpr(&self, index: usize) -> u32 {
-        self.nvic_interrupt_pending[index] ^ 0xFFFF_FFFF
+        self.nvic_interrupt_pending[index]
     }
 
     fn nvic_read_iabr(&self, index: usize) -> u32 {
@@ -245,35 +259,35 @@ mod tests {
         let mut processor = Processor::new();
 
         assert_eq!(processor.nvic_read_iser(0), 0);
-        assert_eq!(processor.nvic_read_icer(0), 0xffff_ffff);
+        assert_eq!(processor.nvic_read_icer(0), 0);
 
         // Act
         processor.nvic_write_iser(0, 0xffff_ffff);
 
         // Assert
         assert_eq!(processor.nvic_read_iser(0), 0xffff_ffff);
-        assert_eq!(processor.nvic_read_icer(0), 0);
+        assert_eq!(processor.nvic_read_icer(0), 0xffff_ffff);
 
         // Act
         processor.nvic_write_iser(0, 0);
 
         // Assert
         assert_eq!(processor.nvic_read_iser(0), 0xffff_ffff);
-        assert_eq!(processor.nvic_read_icer(0), 0);
+        assert_eq!(processor.nvic_read_icer(0), 0xffff_ffff);
 
         // Act
         processor.nvic_write_icer(0, 0);
 
         // Assert
         assert_eq!(processor.nvic_read_iser(0), 0xffff_ffff);
-        assert_eq!(processor.nvic_read_icer(0), 0);
+        assert_eq!(processor.nvic_read_icer(0), 0xffff_ffff);
 
         // Act
         processor.nvic_write_icer(0, 0xffff_ffff);
 
         // Assert
         assert_eq!(processor.nvic_read_iser(0), 0);
-        assert_eq!(processor.nvic_read_icer(0), 0xffff_ffff);
+        assert_eq!(processor.nvic_read_icer(0), 0);
     }
 
     #[test]
@@ -282,35 +296,35 @@ mod tests {
         let mut processor = Processor::new();
 
         assert_eq!(processor.nvic_read_ispr(0), 0);
-        assert_eq!(processor.nvic_read_icpr(0), 0xffff_ffff);
+        assert_eq!(processor.nvic_read_icpr(0), 0);
 
         // Act
         processor.nvic_write_ispr(0, 0xffff_ffff);
 
         // Assert
         assert_eq!(processor.nvic_read_ispr(0), 0xffff_ffff);
-        assert_eq!(processor.nvic_read_icpr(0), 0);
+        assert_eq!(processor.nvic_read_icpr(0), 0xffff_ffff);
 
         // Act
         processor.nvic_write_ispr(0, 0);
 
         // Assert
         assert_eq!(processor.nvic_read_ispr(0), 0xffff_ffff);
-        assert_eq!(processor.nvic_read_icpr(0), 0);
+        assert_eq!(processor.nvic_read_icpr(0), 0xffff_ffff);
 
         // Act
         processor.nvic_write_icpr(0, 0);
 
         // Assert
         assert_eq!(processor.nvic_read_ispr(0), 0xffff_ffff);
-        assert_eq!(processor.nvic_read_icpr(0), 0);
+        assert_eq!(processor.nvic_read_icpr(0), 0xffff_ffff);
 
         // Act
         processor.nvic_write_icpr(0, 0xffff_ffff);
 
         // Assert
         assert_eq!(processor.nvic_read_ispr(0), 0);
-        assert_eq!(processor.nvic_read_icpr(0), 0xffff_ffff);
+        assert_eq!(processor.nvic_read_icpr(0), 0);
     }
 
     #[test]

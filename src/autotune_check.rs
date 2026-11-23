@@ -49,7 +49,9 @@ pub fn run(
     super::wav_input_limit(input, &out.join("source.f32le"), (RATE as usize * 41) / 10)?;
     let source = fs::read(out.join("source.f32le"))?;
     let samples: Vec<_> = source
-        .chunks_exact(8)
+        .as_chunks::<8>()
+        .0
+        .iter()
         .map(|s| f32::from_le_bytes(s[..4].try_into().unwrap()))
         .collect();
     if samples.len() < RATE as usize * 4 {
@@ -193,7 +195,7 @@ fn read_capture(out: &Path, label: &str, expected_hash: &str) -> Result<Vec<f32>
         return Err(format!("{label}: truncated/misclocked PCM").into());
     }
     let mut mono = Vec::with_capacity(frames);
-    for pair in samples.chunks_exact(2) {
+    for pair in samples.as_chunks::<2>().0 {
         if !pair[0].is_finite() || pair[0] != pair[1] || pair[0].abs() >= 0.79999 {
             return Err(format!("{label}: nonfinite, stereo mismatch or ceiling hit").into());
         }

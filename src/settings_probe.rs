@@ -31,12 +31,14 @@ pub fn run(host: &Host<'_>, silence: &Path) -> Result<()> {
     if spec.channels != 2
         || audio.len() % 2 != 0
         || audio
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .any(|x| !x[0].is_finite() || x[0] != x[1] || x[0].abs() > 0.80001)
     {
         return Err("Invalid settings capture".into());
     }
-    let mono: Vec<_> = audio.chunks_exact(2).map(|x| x[0]).collect();
+    let mono: Vec<_> = audio.as_chunks::<2>().0.iter().map(|x| x[0]).collect();
     if mono.len() < (f64::from(spec.sample_rate) * 2.95) as usize
         || mono.len() != grade::stat(&capture, "frames")? as usize
     {

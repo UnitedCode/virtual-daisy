@@ -291,7 +291,7 @@ impl ExtensionRegOperations for Processor {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 ///
 /// Processor Status Registers
 /// A combination of multiple sub registers: APSR, IPSR, EPSR
@@ -1209,7 +1209,7 @@ impl fmt::Display for SpecialReg {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 /// CONTROL register parts
 pub struct Control {
     /// Thread mode priviledge level

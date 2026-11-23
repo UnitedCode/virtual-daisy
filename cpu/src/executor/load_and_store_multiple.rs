@@ -27,6 +27,7 @@ impl IsaLoadAndStoreMultiple for Processor {
             let regs_size = 4 * (params.registers.len() as u32);
 
             let mut address = self.get_r(params.rn);
+            self.require_alignment(address, 4)?;
 
             for reg in &params.registers {
                 let r = self.get_r(reg);
@@ -49,6 +50,7 @@ impl IsaLoadAndStoreMultiple for Processor {
             let regs_size = 4 * (params.registers.len() as u32);
 
             let mut address = self.get_r(params.rn) - regs_size;
+            self.require_alignment(address, 4)?;
 
             for reg in &params.registers {
                 let r = self.get_r(reg);
@@ -71,6 +73,7 @@ impl IsaLoadAndStoreMultiple for Processor {
             let regs_size = 4 * (params.registers.len() as u32);
 
             let mut address = self.get_r(params.rn);
+            self.require_alignment(address, 4)?;
 
             let mut loaded_pc = None;
             for reg in &params.registers {
@@ -103,6 +106,7 @@ impl IsaLoadAndStoreMultiple for Processor {
             let regs_size = 4 * (registers.len() as u32);
             let sp = self.get_r(Reg::SP);
             let mut address = sp - regs_size;
+            self.require_alignment(address, 4)?;
 
             for reg in &registers {
                 let value = self.get_r(reg);
@@ -123,6 +127,7 @@ impl IsaLoadAndStoreMultiple for Processor {
             let regs_size = 4 * (registers.len() as u32);
             let sp = self.get_r(Reg::SP);
             let mut address = sp;
+            self.require_alignment(address, 4)?;
 
             self.set_r(Reg::SP, sp + regs_size);
 

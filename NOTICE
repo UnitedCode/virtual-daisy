@@ -1,0 +1,9 @@
+Virtual Daisy's original code is licensed under the MIT License. See LICENSE.
+
+The CPU interpreter in cpu/ is derived from zmu by Jarmo Torvinen and is
+licensed under Apache-2.0. Its license and source attribution are retained in
+cpu/LICENSE and cpu/UPSTREAM.md.
+
+The optional Renode runner downloads upstream Renode infrastructure and tlib.
+Their licenses remain with the downloaded sources and runtime. The MIT license
+for Virtual Daisy does not replace those licenses.

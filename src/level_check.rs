@@ -86,7 +86,9 @@ pub fn run(
     )?;
     let source = fs::read(out.join("source.f32le"))?;
     let samples: Vec<f32> = source
-        .chunks_exact(8)
+        .as_chunks::<8>()
+        .0
+        .iter()
         .map(|x| f32::from_le_bytes(x[..4].try_into().unwrap()))
         .collect();
     if samples.len() < RATE as usize * 3 {
@@ -352,7 +354,7 @@ fn capture_rms(out: &Path, label: &str) -> Result<f64> {
     let samples = reader
         .into_samples::<f32>()
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    let mono: Vec<_> = samples.chunks_exact(2).map(|x| x[0]).collect();
+    let mono: Vec<_> = samples.as_chunks::<2>().0.iter().map(|x| x[0]).collect();
     Ok(virtual_daisy::audio::metrics(&mono[(rate * 0.65) as usize..(rate * 0.95) as usize]).rms)
 }
 
@@ -475,7 +477,7 @@ pub fn analyze(out: &Path) -> Result<()> {
         {
             return Err(format!("{label}: WAV length/rate disagrees with SAI evidence").into());
         }
-        for pair in samples.chunks_exact(2) {
+        for pair in samples.as_chunks::<2>().0 {
             if !pair[0].is_finite() || pair[0] != pair[1] {
                 return Err(format!("{label}: nonfinite/stereo mismatch").into());
             }

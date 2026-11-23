@@ -8,6 +8,11 @@ use crate::core::{
 #[inline(always)]
 pub fn decode_VMRS(opcode: u32) -> Instruction {
     let target = opcode.get_bits(12..16) as u8;
+    if opcode & (1 << 20) == 0 {
+        return Instruction::VMSR {
+            rt: Reg::from(target),
+        };
+    }
 
     let rt = if target == 15 {
         VMRSTarget::APSRNZCV

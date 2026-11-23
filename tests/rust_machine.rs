@@ -1,0 +1,238 @@
+#![cfg(feature = "rust-host")]
+use virtual_daisy::{board::Board, machine::Machine};
+
+fn firmware() -> Vec<u8> {
+    let mut code = vec![0; 0x98];
+    code[..4].copy_from_slice(&0x20010000u32.to_le_bytes());
+    code[4..8].copy_from_slice(&0x08000081u32.to_le_bytes());
+    code[0x80..0x88].copy_from_slice(&[3, 0x48, 4, 0x49, 1, 0x60, 0xfe, 0xe7]);
+    code[0x90..0x94].copy_from_slice(&0x20000000u32.to_le_bytes());
+    code[0x94..0x98].copy_from_slice(&0x12345678u32.to_le_bytes());
+    code
+}
+#[test]
+fn actual_arm_loads_and_stores_complete_through_the_shared_memory_path() {
+    let mut m = Machine::from_binary(Board::Rev5, &firmware()).unwrap();
+    m.run_until(10_000, 2000).unwrap();
+    assert_eq!(m.read32(0x20000000).unwrap(), 0x12345678);
+}
+#[test]
+fn board_profiles_present_the_physical_revision_straps() {
+    for board in Board::ALL {
+        let mut m = Machine::from_binary(board, &firmware()).unwrap();
+        m.write32(0x580244e0, 1 << 3).unwrap();
+        m.write32(0x58020c00, !((3 << 6) | (3 << 8) | (3 << 10)))
+            .unwrap();
+        m.write32(0x58020c0c, (1 << 6) | (1 << 8) | (1 << 10))
+            .unwrap();
+        assert_eq!(
+            m.read32(0x58020c10).unwrap() & 0x38,
+            0x38 & !(board.grounded_straps() << 3)
+        );
+    }
+}
+#[test]
+fn malformed_and_foreign_elfs_are_rejected_before_execution() {
+    for bytes in [vec![], b"not an ELF".to_vec(), vec![0; 64]] {
+        assert!(Machine::from_elf(Board::Rev5, &bytes).is_err());
+    }
+}
+
+#[test]
+fn clocks_resets_and_timer_update_are_visible_through_real_mmio() {
+    let mut m = Machine::from_binary(Board::Rev5, &firmware()).unwrap();
+    m.write32(0x4000002c, 9).unwrap(); // Gate off: ignored.
+    assert_eq!(m.read32(0x4000002c).unwrap(), 0);
+    m.write32(0x580244e8, 1).unwrap();
+    assert_eq!(m.read32(0x4000002c).unwrap(), u32::MAX);
+    for (offset, value) in [
+        (0x28, 63),
+        (0x2c, 9),
+        (0x14, 1),
+        (0x10, 0),
+        (0xc, 1),
+        (0, 1),
+    ] {
+        m.write32(0x40000000 + offset, value).unwrap();
+    }
+    m.run_until(9000, 3000).unwrap();
+    assert_eq!(m.read32(0x40000010).unwrap() & 1, 0);
+    m.run_until(10_100, 3000).unwrap();
+    assert_eq!(m.read32(0x40000010).unwrap() & 1, 1);
+    assert_ne!(m.read32(0xe000e200).unwrap() & (1 << 28), 0);
+    m.write32(0x58024490, 1).unwrap();
+    m.write32(0x58024490, 0).unwrap();
+    assert_eq!(m.read32(0x4000002c).unwrap(), u32::MAX);
+    assert_eq!(m.read32(0x40000000).unwrap(), 0);
+}
+
+#[test]
+fn serial_frames_are_baud_paced_and_rx_overrun_does_not_invent_bytes() {
+    let mut m = Machine::from_binary(Board::Rev5, &firmware()).unwrap();
+    m.write32(0x580244f0, 1 << 4).unwrap();
+    m.write32(0x4001100c, 2048).unwrap(); // 64 MHz / 2048 = 31,250 baud.
+    m.write32(0x40011000, 13 | (1 << 5)).unwrap();
+    m.write32(0x40011028, 0x90).unwrap();
+    m.run_until(319_000, 100_000).unwrap();
+    assert!(m.take_serial().is_empty());
+    m.run_until(321_000, 100_000).unwrap();
+    assert_eq!(m.take_serial(), vec![(320_000, 0x90)]);
+    m.receive_serial(&[0x12, 0x34]).unwrap();
+    m.run_until(962_000, 100_000).unwrap();
+    assert_eq!(m.read32(0x4001101c).unwrap() & 0x28, 0x28);
+    assert_eq!(m.read32(0x40011024).unwrap(), 0x12);
+    m.write32(0x40011020, 8).unwrap();
+    assert_eq!(m.read32(0x4001101c).unwrap() & 0x28, 0);
+}
+
+#[test]
+fn systick_uses_the_selected_reference_clock_and_clear_on_read_flag() {
+    for (source, flag) in [(0, 0), (4, 1 << 16)] {
+        let mut m = Machine::from_binary(Board::Rev5, &firmware()).unwrap();
+        m.write32(0xe000e014, 9).unwrap();
+        m.write32(0xe000e018, 0).unwrap();
+        m.write32(0xe000e010, source | 1).unwrap();
+        m.run_until(1000, 3000).unwrap();
+        assert_eq!(m.read32(0xe000e010).unwrap() & (1 << 16), flag);
+        assert_eq!(m.read32(0xe000e010).unwrap() & (1 << 16), 0);
+    }
+}
+
+#[test]
+fn h750_priorities_and_icsr_pending_fields_follow_the_st_register_contract() {
+    let mut m = Machine::from_binary(Board::Rev5, &firmware()).unwrap();
+    m.write32(0xe000e400, 0x12345678).unwrap();
+    assert_eq!(m.read32(0xe000e400).unwrap(), 0x10305070);
+    m.pend_interrupt(0).unwrap();
+    assert_ne!(m.read32(0xe000ed04).unwrap() & (1 << 22), 0);
+    m.write32(0xe000e100, 1).unwrap();
+    assert_eq!(m.read32(0xe000ed04).unwrap() & 0x1ff800, 0x10800);
+    for bank in [5, 15] {
+        m.write32(0xe000e100 + bank * 4, u32::MAX).unwrap();
+        m.write32(0xe000e200 + bank * 4, u32::MAX).unwrap();
+        assert_eq!(m.read32(0xe000e100 + bank * 4).unwrap(), 0);
+        assert_eq!(m.read32(0xe000e200 + bank * 4).unwrap(), 0);
+    }
+}
+
+#[test]
+fn guest_sysreset_reboots_the_cpu_and_keeps_ram_and_external_flash() {
+    let mut code = vec![0; 0xac];
+    code[..4].copy_from_slice(&0x20010000u32.to_le_bytes());
+    code[4..8].copy_from_slice(&0x08000081u32.to_le_bytes());
+    code[0x80..0x94].copy_from_slice(&[
+        7, 0x48, 1, 0x68, 1, 0x31, 1, 0x60, 1, 0x29, 2, 0xd1, 5, 0x48, 6, 0x49, 1, 0x60, 0xfe, 0xe7,
+    ]);
+    for (offset, value) in [
+        (0xa0, 0x20000000u32),
+        (0xa4, 0xe000ed0c),
+        (0xa8, 0x05fa0004),
+    ] {
+        code[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    let mut m = Machine::from_binary(Board::Rev5, &code).unwrap();
+    let mut chip = virtual_daisy::nor::NorFlash::default();
+    chip.transact(6, 0, &[], 0, false).unwrap();
+    chip.transact(2, 0, &[0xa5], 0, false).unwrap();
+    chip.advance_time(1_000_000).unwrap();
+    let flash = chip.nonvolatile_image();
+    m.restore_nonvolatile_image(&flash).unwrap();
+    m.write32(0xe000ed0c, 0x12340004).unwrap(); // Wrong key has no effect.
+    m.write32(0xe000ed0c, 0x05fa0500).unwrap(); // Priority grouping, no reset.
+    assert_eq!(m.read32(0xe000ed0c).unwrap(), 0xfa050500);
+    m.run_until(10_000, 5000).unwrap();
+    assert_eq!(m.resets(), 1);
+    assert_eq!(m.read32(0x20000000).unwrap(), 2);
+    assert_eq!(m.read32(0xe000ed0c).unwrap(), 0xfa050000);
+    assert_eq!(m.nonvolatile_image(), flash);
+    assert!(m.restore_nonvolatile_image(&flash).is_err());
+}
+
+fn codec_register(m: &mut Machine, register: u32, value: u32) {
+    m.write32(0x580244e8, 1 << 22).unwrap();
+    m.write32(0x40005800, 1).unwrap();
+    m.write32(0x40005804, (0x1a << 1) | (2 << 16) | (1 << 25) | (1 << 13))
+        .unwrap();
+    m.write32(0x40005828, (register << 1) | ((value >> 8) & 1))
+        .unwrap();
+    m.write32(0x40005828, value & 255).unwrap();
+}
+
+#[test]
+fn physical_codec_profiles_preserve_stereo_and_clock_frames() {
+    for board in Board::ALL {
+        let mut m = Machine::from_binary(board, &firmware()).unwrap();
+        if board == Board::Rev5 {
+            for (reg, value) in [
+                (0, 23),
+                (1, 23),
+                (4, 0x12),
+                (5, 0),
+                (6, 0x42),
+                (7, 9 | (1 << 5)),
+                (8, 0),
+                (9, 1),
+            ] {
+                codec_register(&mut m, reg, value);
+            }
+        } else if board == Board::Rev4 {
+            m.write32(0x580244e0, 1 << 1).unwrap();
+            m.write32(0x58020400, 1 << 22).unwrap();
+            m.write32(0x58020418, 1 << 11).unwrap();
+        }
+        m.write32(0x580244f0, 1 << 22).unwrap();
+        m.write32(0x58024450, 4).unwrap();
+        let rx = board.rx_channel();
+        for channel in 0..2 {
+            let base = 0x40015800 + channel * 32;
+            m.write32(base + 0xc, 63 | (31 << 8) | (1 << 16) | (1 << 18))
+                .unwrap();
+            m.write32(base + 0x10, 0x30180).unwrap();
+            m.write32(
+                base + 4,
+                (4 << 20)
+                    | (6 << 5)
+                    | (channel << 1)
+                    | u32::from(channel == rx)
+                    | if channel == 1 { 1 << 10 } else { 0 },
+            )
+            .unwrap();
+        }
+        let tx = 0x40015820 + (1 - rx) * 32;
+        m.write32(tx, 0x00100000).unwrap();
+        m.write32(tx, 0x00e00000).unwrap();
+        m.input(&[[0.5, -0.75]]).unwrap();
+        for channel in [1, 0] {
+            let cr = 0x40015804 + channel * 32;
+            let value = m.read32(cr).unwrap();
+            m.write32(cr, value | (1 << 16)).unwrap();
+        }
+        m.run_until(16_000, 5000).unwrap();
+        assert_eq!(m.sample_rate().unwrap().hz(), 62_500.0);
+        assert_eq!(
+            m.take_audio(),
+            if board == Board::Rev5 {
+                vec![[-0.25, 0.125]]
+            } else {
+                vec![[0.125, -0.25]]
+            }
+        );
+        let dr = 0x40015820 + rx * 32;
+        assert_eq!(m.read32(dr).unwrap(), 0x00400000);
+        assert_eq!(m.read32(dr).unwrap(), 0xffa00000);
+    }
+}
+
+#[test]
+fn a_stalled_thumb32_flash_fetch_does_not_restart_its_first_half_forever() {
+    let mut bytes = firmware();
+    // BL to the existing marker-writing sequence; the return is never taken.
+    bytes[0x80..0x84].copy_from_slice(&[0x00, 0xf0, 0x0e, 0xf8]);
+    bytes.resize(0xb8, 0);
+    bytes[0xa0..0xa8].copy_from_slice(&[3, 0x48, 4, 0x49, 1, 0x60, 0xfe, 0xe7]);
+    bytes[0xb0..0xb4].copy_from_slice(&0x20000000u32.to_le_bytes());
+    bytes[0xb4..0xb8].copy_from_slice(&0x12345678u32.to_le_bytes());
+    let mut m = Machine::from_binary(Board::Rev5, &bytes).unwrap();
+    m.run_until(10_000, 2000).unwrap();
+    assert_eq!(m.read32(0x20000000).unwrap(), 0x12345678);
+}

@@ -262,6 +262,76 @@ impl SystemMemory {
             _ => Err("SCB read delegated to NVIC"),
         }
     }
+    /// Check MPU permissions and report whether the selected memory is Device.
+    /// Cache policy remains separate: a permitted access can still need bus time.
+    pub fn cpu_permission(
+        &self,
+        address: u32,
+        write: bool,
+        execute: bool,
+        privileged: bool,
+        bypass: bool,
+    ) -> Result<(bool, bool)> {
+        let default_device =
+            (0x4000_0000..0x6000_0000).contains(&address) || address >= 0xa000_0000;
+        if address >= 0xe000_0000 {
+            return Ok((privileged && !execute, true));
+        }
+        if self.mpu_ctrl & 1 == 0 || bypass && self.mpu_ctrl & 2 == 0 {
+            return Ok((!execute || !default_device, default_device));
+        }
+        for &(base, attributes) in self.regions.iter().rev() {
+            if attributes & 1 == 0 {
+                continue;
+            }
+            let bits = ((attributes >> 1) & 31) + 1;
+            if bits < 5 {
+                return Err("MPU region size is smaller than 32 bytes");
+            }
+            let size = 1u64 << bits;
+            let base = u64::from(base) & !(size - 1);
+            let offset = u64::from(address).wrapping_sub(base);
+            if offset >= size {
+                continue;
+            }
+            if size >= 256 && attributes & (1 << (8 + offset * 8 / size)) != 0 {
+                continue;
+            }
+            let tex = (attributes >> 19) & 7;
+            let cb = (attributes >> 16) & 3;
+            let device = matches!((tex, cb), (0, 0 | 1) | (2, 0));
+            let allowed = match (attributes >> 24) & 7 {
+                0 => false,
+                1 => privileged,
+                2 => privileged || !write,
+                3 => true,
+                4 => return Err("reserved MPU access permission"),
+                5 => privileged && !write,
+                6 | 7 => !write,
+                _ => unreachable!(),
+            };
+            return Ok((
+                allowed && (!execute || !device && attributes & (1 << 28) == 0),
+                device,
+            ));
+        }
+        Ok((
+            privileged && self.mpu_ctrl & 4 != 0 && (!execute || !default_device),
+            default_device,
+        ))
+    }
+    /// Read the MPU registers shared by the CPU and memory-policy model.
+    pub fn read_mpu(&self, offset: u64) -> Result<u32> {
+        match offset {
+            0xd94 => Ok(self.mpu_ctrl),
+            0xd98 => Ok(self.region_number as u32),
+            0xd9c | 0xda4 | 0xdac | 0xdb4 => {
+                Ok(self.regions[self.region_number].0 | self.region_number as u32)
+            }
+            0xda0 | 0xda8 | 0xdb0 | 0xdb8 => Ok(self.regions[self.region_number].1),
+            _ => Err("unsupported MPU register"),
+        }
+    }
     pub fn is_ram(address: u32, width: usize) -> bool {
         let end = u64::from(address) + width as u64;
         [

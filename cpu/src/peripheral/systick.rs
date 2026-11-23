@@ -64,12 +64,16 @@ impl SysTick for Processor {
 
     fn syst_write_cvr(&mut self, _value: u32) {
         self.syst_cvr = 0;
+        self.syst_fraction = 0;
 
         // writing to CVR always clears countflag
         self.syst_csr &= !SYST_CSR_COUNTFLAG;
     }
 
     fn syst_write_csr(&mut self, value: u32) {
+        if (self.syst_csr ^ value) & 4 != 0 {
+            self.syst_fraction = 0;
+        }
         self.syst_csr.set_bits(0..3, value.get_bits(0..3));
     }
 
@@ -97,6 +101,10 @@ impl SysTick for Processor {
             return;
         }
 
+        let divider = self.systick_divider();
+        let total = u64::from(cycles) + u64::from(self.syst_fraction);
+        let cycles = (total / u64::from(divider)) as u32;
+        self.syst_fraction = (total % u64::from(divider)) as u32;
         let reload = self.syst_rvr & 0x00ff_ffff;
         if cycles == 0 || (reload == 0 && self.syst_cvr == 0) {
             return;
@@ -124,6 +132,33 @@ impl SysTick for Processor {
         if self.syst_csr & SYST_CSR_TICKINT != 0 {
             self.set_exception_pending(Exception::SysTick);
         }
+    }
+}
+
+impl Processor {
+    fn systick_divider(&self) -> u32 {
+        if self.syst_csr & 4 != 0 {
+            1
+        } else {
+            self.device
+                .as_ref()
+                .map_or(1, |bus| bus.systick_reference_divider().max(1))
+        }
+    }
+    /// Core cycles until the next enabled `SysTick` interrupt, including a divided reference clock.
+    pub fn next_systick_cycles(&self) -> Option<u32> {
+        if self.syst_csr & 3 != 3 || self.syst_rvr == 0 && self.syst_cvr == 0 {
+            return None;
+        }
+        let ticks = if self.syst_cvr == 0 {
+            self.syst_rvr + 1
+        } else {
+            self.syst_cvr
+        };
+        Some(
+            (u64::from(ticks) * u64::from(self.systick_divider()) - u64::from(self.syst_fraction))
+                .min(u64::from(u32::MAX)) as u32,
+        )
     }
 }
 

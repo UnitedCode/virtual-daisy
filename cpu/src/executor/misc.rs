@@ -25,18 +25,27 @@ pub trait IsaMisc {
 impl IsaMisc for Processor {
     fn exec_dmb(&self) -> ExecuteResult {
         if self.condition_passed() {
+            if let Some(bus) = &self.device {
+                bus.memory_barrier(0)?;
+            }
             return Ok(ExecuteSuccess::Taken { cycles: 4 });
         }
         Ok(ExecuteSuccess::NotTaken)
     }
     fn exec_dsb(&self) -> ExecuteResult {
         if self.condition_passed() {
+            if let Some(bus) = &self.device {
+                bus.memory_barrier(1)?;
+            }
             return Ok(ExecuteSuccess::Taken { cycles: 4 });
         }
         Ok(ExecuteSuccess::NotTaken)
     }
     fn exec_isb(&self) -> ExecuteResult {
         if self.condition_passed() {
+            if let Some(bus) = &self.device {
+                bus.memory_barrier(2)?;
+            }
             return Ok(ExecuteSuccess::Taken { cycles: 4 });
         }
         Ok(ExecuteSuccess::NotTaken)

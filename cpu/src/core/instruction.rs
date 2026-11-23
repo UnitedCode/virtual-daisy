@@ -1523,6 +1523,10 @@ pub enum Instruction {
     VMRS {
         rt: VMRSTarget,
     },
+    #[cfg(feature = "has-fp")]
+    VMSR {
+        rt: Reg,
+    },
 
     // --------------------------------------------
     //
@@ -2815,6 +2819,8 @@ impl fmt::Display for Instruction {
             #[cfg(feature = "has-fp")]
             Self::VMRS { rt } => write!(f, "vmrs {rt}, fpscr"),
             #[cfg(feature = "has-fp")]
+            Self::VMSR { rt } => write!(f, "vmsr fpscr, {rt:?}"),
+            #[cfg(feature = "has-fp")]
             Self::VCMP_f32 { params } => write!(
                 f,
                 "vcmp.f32 {}, {}",
@@ -3302,7 +3308,8 @@ pub fn instruction_size(instruction: &Instruction) -> usize {
 
         #[cfg(feature = "has-fp")]
         Instruction::VMRS { .. } => 4,
-        //VMSR
+        #[cfg(feature = "has-fp")]
+        Instruction::VMSR { .. } => 4,
         #[cfg(feature = "has-fp")]
         Instruction::VMLA_f32 { .. } | Instruction::VMLA_f64 { .. } => 4,
         #[cfg(feature = "has-fp")]

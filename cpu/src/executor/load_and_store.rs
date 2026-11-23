@@ -22,6 +22,13 @@ use crate::{
 };
 
 impl Processor {
+    pub(crate) fn require_alignment(&self, address: u32, alignment: u32) -> Result<(), Fault> {
+        if address & (alignment - 1) == 0 {
+            Ok(())
+        } else {
+            Err(Fault::Unaligned)
+        }
+    }
     fn read8_data(&mut self, address: u32) -> Result<u8, Fault> {
         self.read8(address).map_err(|fault| {
             self.fault_with_status(fault, FaultStatusContext::with_fault_address(address))
@@ -446,6 +453,7 @@ impl IsaLoadAndStore for Processor {
     fn exec_ldrex(&mut self, params: Reg2RtRnImm32Params) -> ExecuteResult {
         if self.condition_passed() {
             let (address, _) = resolve_addressing(self.get_r(params.rn), params.imm32, true, true);
+            self.require_alignment(address, 4)?;
 
             self.set_exclusive_monitors(address, 4);
 
@@ -478,6 +486,7 @@ impl IsaLoadAndStore for Processor {
     fn exec_ldrexh(&mut self, params: Reg2RtRnParams) -> ExecuteResult {
         if self.condition_passed() {
             let address = self.get_r(params.rn);
+            self.require_alignment(address, 2)?;
             self.set_exclusive_monitors(address, 2);
 
             let data = self.read16_data(address)?;
@@ -495,6 +504,7 @@ impl IsaLoadAndStore for Processor {
     fn exec_strex(&mut self, params: Reg3RdRtRnImm32Params) -> ExecuteResult {
         if self.condition_passed() {
             let (address, _) = resolve_addressing(self.get_r(params.rn), params.imm32, true, true);
+            self.require_alignment(address, 4)?;
 
             if self.exclusive_monitors_pass(address, 4) {
                 self.write32_data(address, self.get_r(params.rt))?;
@@ -535,6 +545,7 @@ impl IsaLoadAndStore for Processor {
                 return Err(Fault::UndefInstr);
             }
             let address = self.get_r(params.rn);
+            self.require_alignment(address, 2)?;
 
             if self.exclusive_monitors_pass(address, 2) {
                 self.write16_data(address, self.get_r(params.rt) as u16)?;
@@ -557,6 +568,7 @@ impl IsaLoadAndStore for Processor {
                 params.index,
             );
 
+            self.require_alignment(address, 4)?;
             let data = self.read32_data(address)?;
             self.set_r(params.rt, data);
             let data2 = self.read32_data(address + 4)?;
@@ -581,6 +593,7 @@ impl IsaLoadAndStore for Processor {
                 params.index,
             );
 
+            self.require_alignment(address, 4)?;
             let value1 = self.get_r(params.rt);
             self.write32_data(address, value1)?;
             let value2 = self.get_r(params.rt2);

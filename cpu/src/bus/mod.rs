@@ -5,6 +5,7 @@
 
 use crate::Processor;
 
+use crate::core::exception::ExceptionHandling;
 use crate::core::fault::Fault;
 use crate::memory::map::MapMemory;
 use crate::peripheral::dwt::Dwt;
@@ -17,6 +18,52 @@ use crate::peripheral::systick::SysTick;
 /// Trait for reading and writing via a memory bus.
 ///
 pub trait Bus {
+    /// Validate a CPU access before any data or peripheral side effect.
+    /// `kind` is 0 for read, 1 for write, and 2 for instruction fetch.
+    fn validate_access(
+        &self,
+        _address: u32,
+        _width: usize,
+        _kind: u8,
+        _privileged: bool,
+        _mpu_bypass: bool,
+    ) -> Result<(), Fault> {
+        Ok(())
+    }
+    /// Board reference-clock divider when `SysTick` CLKSOURCE is clear.
+    fn systick_reference_divider(&self) -> u32 {
+        1
+    }
+    /// Opt into restartable instructions. The bus must own mutable guest memory
+    /// and replay completed accesses when an instruction is retried.
+    fn transactional(&self) -> bool {
+        false
+    }
+    /// Begin one instruction or exception-entry transaction.
+    fn begin_instruction(&self, _pc: u32, _sp: u32, _exception: bool) {}
+    /// A deferred access, rather than an architectural bus fault, stopped execution.
+    fn instruction_stalled(&self) -> bool {
+        false
+    }
+    /// Whether an eligible exception may abandon the current deferred access.
+    fn can_preempt(&self) -> bool {
+        true
+    }
+    /// Commit a completed instruction and release its replay log.
+    fn finish_instruction(&self) {}
+    /// Fetch through an instruction view distinct from ordinary data reads.
+    fn fetch16_at(&self, address: u32, cycles: u64) -> Result<(u16, bool), Fault> {
+        self.read16_at(address, cycles)
+    }
+    /// Architectural DMB (0), DSB (1), or ISB (2).
+    fn memory_barrier(&self, _kind: u32) -> Result<(), Fault> {
+        Ok(())
+    }
+    /// Exception bus phases: stack (0), vector (1), entry complete (2),
+    /// unstack preparation (3), and return complete (4).
+    fn exception_phase(&self, _phase: u8, _address: u32, _bytes: u32) -> Result<(), Fault> {
+        Ok(())
+    }
     /// A clocked board can synchronize MMIO against the executing core.
     fn observes_core_cycles(&self) -> bool {
         false
@@ -58,6 +105,11 @@ pub trait Bus {
     fn core_config_changed(&mut self, _address: u32, _value: u32) -> Result<(), Fault> {
         Ok(())
     }
+    /// Notify a clocked board of DEMCR changes without extending the older
+    /// cache-configuration callback's register contract.
+    fn trace_config_changed(&mut self, _value: u32) -> Result<(), Fault> {
+        Ok(())
+    }
     /// Reads a 32 bit value via the bus from the given address.
     ///
     fn read32(&mut self, addr: u32) -> Result<u32, Fault>;
@@ -90,6 +142,7 @@ pub trait Bus {
 impl Bus for Processor {
     #[inline(always)]
     fn read8(&self, bus_addr: u32) -> Result<u8, Fault> {
+        self.validate_bus_access(bus_addr, 1, 0)?;
         let addr = self.map_address(bus_addr);
 
         if self.sram.in_range(addr) {
@@ -123,6 +176,7 @@ impl Bus for Processor {
 
     #[inline(always)]
     fn read16(&self, bus_addr: u32) -> Result<u16, Fault> {
+        self.validate_bus_access(bus_addr, 2, 0)?;
         let addr = self.map_address(bus_addr);
 
         if self.sram.in_range(addr) {
@@ -163,6 +217,7 @@ impl Bus for Processor {
 
     #[inline(always)]
     fn read32(&mut self, bus_addr: u32) -> Result<u32, Fault> {
+        self.validate_bus_access(bus_addr, 4, 0)?;
         let addr = self.map_address(bus_addr);
 
         if self.sram.in_range(addr) {
@@ -202,7 +257,7 @@ impl Bus for Processor {
             0xE000_ED00 => self.cpuid,
             0xE000_ED04 => self.read_icsr(),
             0xE000_ED08 => self.read_vtor(),
-            0xE000_ED0C => self.aircr,
+            0xE000_ED0C => 0xfa05_0000 | (self.aircr & 0x700),
             0xE000_ED10 => self.read_scr(),
             0xE000_ED14 => self.ccr,
             #[cfg(any(feature = "armv7m", feature = "armv7em"))]
@@ -253,6 +308,7 @@ impl Bus for Processor {
 
     #[inline(always)]
     fn write32(&mut self, bus_addr: u32, value: u32) -> Result<(), Fault> {
+        self.validate_bus_access(bus_addr, 4, 1)?;
         let addr = self.map_address(bus_addr);
 
         if self.sram.in_range(addr) {
@@ -283,6 +339,15 @@ impl Bus for Processor {
 
             0xE000_ED04 => self.write_icsr(value),
             0xE000_ED08 => self.write_vtor(value),
+            0xE000_ED0C => {
+                if value >> 16 == 0x05fa {
+                    self.aircr = value & 0x700;
+                    self.execution_priority = self.get_execution_priority();
+                    if let Some(device) = self.device.as_mut().filter(|bus| bus.transactional()) {
+                        device.core_config_changed(addr, value)?;
+                    }
+                }
+            }
             0xE000_ED10 => self.write_scr(value),
             0xE000_ED14 => {
                 self.ccr = value;
@@ -309,8 +374,15 @@ impl Bus for Processor {
             0xE000_EF38 => self.write_fpcar(value)?,
             #[cfg(feature = "has-fp")]
             0xE000_EF3C => self.write_fpdscr(value)?,
+            #[cfg(feature = "has-fp")]
+            0xE000_EF40 | 0xE000_EF44 | 0xE000_EF48 => {} // Read-only identification.
 
-            0xE000_EDFC => self.write_demcr(value),
+            0xE000_EDFC => {
+                self.write_demcr(value);
+                if let Some(device) = self.device.as_mut() {
+                    device.trace_config_changed(value)?;
+                }
+            }
 
             0xE000_E010 => self.syst_write_csr(value),
             0xE000_E014 => self.syst_write_rvr(value),
@@ -340,6 +412,7 @@ impl Bus for Processor {
 
     #[inline(always)]
     fn write16(&mut self, bus_addr: u32, value: u16) -> Result<(), Fault> {
+        self.validate_bus_access(bus_addr, 2, 1)?;
         let addr = self.map_address(bus_addr);
 
         if self.sram.in_range(addr) {
@@ -384,6 +457,7 @@ impl Bus for Processor {
 
     #[inline(always)]
     fn write8(&mut self, bus_addr: u32, value: u8) -> Result<(), Fault> {
+        self.validate_bus_access(bus_addr, 1, 1)?;
         let addr = self.map_address(bus_addr);
 
         if self.sram.in_range(addr) {
