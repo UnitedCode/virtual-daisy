@@ -77,6 +77,8 @@ fn main() {
     let mut psr = Vec::new();
     let mut qadd = Vec::new();
     let mut parallel = Vec::new();
+    let mut dsp_multiply = Vec::new();
+    let mut smull = Vec::new();
     for line in hex.lines() {
         assert!(matches!(line.len(), 40 | 48 | 56 | 64 | 72 | 80 | 88 | 104));
         let destination = if line.len() == 48 && line.ends_with("53534154") {
@@ -91,6 +93,10 @@ fn main() {
             &mut qadd
         } else if line.len() == 56 {
             &mut precision
+        } else if line.len() == 64 && line.ends_with("4c4f4e47") {
+            &mut smull
+        } else if line.len() == 64 && line.ends_with("4d554c50") {
+            &mut dsp_multiply
         } else if line.len() == 64 && line.ends_with("41505352") {
             &mut psr
         } else if line.len() == 64 && line.ends_with("46495844") {
@@ -171,6 +177,39 @@ fn main() {
     }
     source.push_str("];\n");
     fs::write(output.with_extension("parallel-probe.rs"), source).unwrap();
+    assert_eq!(dsp_multiply.len(), 229_376 * 8 * 4);
+    fs::write(output.with_extension("dsp-multiply.bin"), &dsp_multiply).unwrap();
+    let mut cases = std::collections::BTreeMap::new();
+    for record in dsp_multiply.as_chunks::<32>().0 {
+        let words: [u32; 8] = core::array::from_fn(|i| {
+            u32::from_le_bytes(record[4 * i..4 * i + 4].try_into().unwrap())
+        });
+        if words[1] == 0x80000000
+            && words[2] == words[1]
+            && words[3] == words[1]
+            && words[4] == 0xa80a0000
+        {
+            cases.insert(words[0], words);
+        }
+    }
+    assert_eq!(cases.len(), 28);
+    let mut source = String::from(
+        "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const DSP_MULTIPLY_CASES: [[u32; 5]; 28] = [\n",
+    );
+    for words in cases.values() {
+        source.push_str(&format!(
+            "    [0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x}, 0x{:08x}],\n",
+            (words[0] & !0x000f000f) | 0x00020001,
+            words[1],
+            words[4],
+            words[5],
+            words[6]
+        ));
+    }
+    source.push_str("];\n");
+    fs::write(output.with_extension("dsp-multiply-probe.rs"), source).unwrap();
+    assert_eq!(smull.len(), 2048 * 8 * 4);
+    fs::write(output.with_extension("smull.bin"), &smull).unwrap();
     let opcodes = [0xfa82f081, 0xfa82f0a1, 0xfa82f091, 0xfa82f0b1];
     let mut word_source = String::from(
         "// Generated from independent QEMU records by cpu/examples/qemu_isa.rs.\npub const WORD_CASES: [[u32; 5]; 4] = [\n",
@@ -331,5 +370,13 @@ fn main() {
     println!(
         "73728 QEMU packed DSP arithmetic cases; {} bytes",
         parallel.len()
+    );
+    println!(
+        "229376 QEMU DSP multiply/absolute-difference cases; {} bytes",
+        dsp_multiply.len()
+    );
+    println!(
+        "2048 QEMU signed long multiply cases; {} bytes",
+        smull.len()
     );
 }

@@ -11,6 +11,7 @@ const REGISTERS: [u32; 14] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14];
 // SATURATION_CASES
 // WORD_CASES
 // PARALLEL_CASES
+// DSP_MULTIPLY_CASES
 global_asm!(
     r#"
 .syntax unified
@@ -86,23 +87,25 @@ unsafe fn matrix() -> bool {
     let mut hash = 0xcbf29ce484222325u64;
     for (case, ([base, input, control, result, status], binary)) in CASES
         .into_iter()
-        .map(|row| (row, false))
-        .chain(WORD_CASES.into_iter().map(|row| (row, true)))
-        .chain(PARALLEL_CASES.into_iter().map(|row| (row, true)))
+        .map(|row| (row, 0u8))
+        .chain(WORD_CASES.into_iter().map(|row| (row, 1u8)))
+        .chain(PARALLEL_CASES.into_iter().map(|row| (row, 1u8)))
+        .chain(DSP_MULTIPLY_CASES.into_iter().map(|row| (row, 2u8)))
         .enumerate()
     {
         for destination in 0..14 {
             for source in 0..14 {
-                let opcode = if binary {
+                let opcode = if binary != 0 {
                     (base & !0x00000f0f) | REGISTERS[source] | (REGISTERS[destination] << 8)
                 } else {
                     (base & !0x000f0f00) | (REGISTERS[source] << 16) | (REGISTERS[destination] << 8)
                 };
                 let mut expected: [u32; 14] =
                     core::array::from_fn(|i| 0xdeadbeef ^ (REGISTERS[i] * 0x01010101));
-                if binary {
+                if binary != 0 {
                     expected[2] = input;
                 }
+                if binary == 2 { expected[3] = input; }
                 expected[source] = input;
                 for (i, word) in expected.into_iter().enumerate() {
                     write_volatile(DATA.add(i), word);

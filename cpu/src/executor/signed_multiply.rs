@@ -9,6 +9,7 @@ use crate::core::instruction::{Reg3HighParams, Reg4HighParams};
 #[cfg(feature = "has-dsp-ext")]
 use crate::core::register::Apsr;
 use crate::core::{bits::Bits, register::BaseReg};
+use crate::core::{fault::Fault, register::Reg};
 
 /// Multiply operations
 pub trait IsaSignedMultiply {
@@ -42,8 +43,15 @@ impl IsaSignedMultiply for Processor {
 
     fn exec_smull(&mut self, params: &Reg643232Params) -> ExecuteResult {
         if self.condition_passed() {
-            let rn = i64::from(self.get_r(params.rn));
-            let rm = i64::from(self.get_r(params.rm));
+            if params.rdlo == params.rdhi
+                || [params.rdlo, params.rdhi, params.rn, params.rm]
+                    .iter()
+                    .any(|r| matches!(r, Reg::SP | Reg::PC))
+            {
+                return Err(Fault::UndefInstr);
+            }
+            let rn = i64::from(self.get_r(params.rn) as i32);
+            let rm = i64::from(self.get_r(params.rm) as i32);
             let result = rn.wrapping_mul(rm) as u64;
 
             self.set_r(params.rdlo, result.get_bits(0..32) as u32);
@@ -56,6 +64,12 @@ impl IsaSignedMultiply for Processor {
     #[cfg(feature = "has-dsp-ext")]
     fn exec_smul(&mut self, params: &Reg3HighParams) -> ExecuteResult {
         if self.condition_passed() {
+            if [params.rd, params.rn, params.rm]
+                .iter()
+                .any(|r| matches!(r, Reg::SP | Reg::PC))
+            {
+                return Err(Fault::UndefInstr);
+            }
             let operand1 = i32::from(if params.n_high {
                 let op = self.get_r(params.rn).get_bits(16..32);
                 op as i16
@@ -83,6 +97,12 @@ impl IsaSignedMultiply for Processor {
     #[cfg(feature = "has-dsp-ext")]
     fn exec_smla(&mut self, params: &Reg4HighParams) -> ExecuteResult {
         if self.condition_passed() {
+            if [params.rd, params.rn, params.rm, params.ra]
+                .iter()
+                .any(|r| matches!(r, Reg::SP | Reg::PC))
+            {
+                return Err(Fault::UndefInstr);
+            }
             let operand1 = i32::from(if params.n_high {
                 let op: u32 = self.get_r(params.rn).get_bits(16..32);
                 op as i16
@@ -116,6 +136,35 @@ impl IsaSignedMultiply for Processor {
 mod tests {
     use super::*;
     use crate::core::{instruction::Instruction, register::Reg};
+    #[test]
+    fn smull_invalid_outputs_and_registers_raise_undefined() {
+        let valid = Reg643232Params {
+            rdlo: Reg::R0,
+            rdhi: Reg::R3,
+            rn: Reg::R1,
+            rm: Reg::R2,
+        };
+        let mut cpu = Processor::new();
+        cpu.r0_12.fill(0xdeadbeef);
+        for bad in [Reg::SP, Reg::PC] {
+            for params in [
+                Reg643232Params { rdlo: bad, ..valid },
+                Reg643232Params { rdhi: bad, ..valid },
+                Reg643232Params { rn: bad, ..valid },
+                Reg643232Params { rm: bad, ..valid },
+            ] {
+                assert_eq!(cpu.exec_smull(&params), Err(Fault::UndefInstr));
+                assert_eq!(cpu.r0_12, [0xdeadbeef; 13]);
+            }
+        }
+        assert_eq!(
+            cpu.exec_smull(&Reg643232Params {
+                rdhi: Reg::R0,
+                ..valid
+            }),
+            Err(Fault::UndefInstr)
+        );
+    }
 
     #[cfg(feature = "has-dsp-ext")]
     #[test]

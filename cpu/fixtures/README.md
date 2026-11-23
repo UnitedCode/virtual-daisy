@@ -169,6 +169,24 @@ slot 14: actual `0xa8000000` instead of the QEMU-pinned GE result. Revision 16
 repairs unsigned halfword operand representation and exchange GE lane packing
 in the independent native implementation. The saved capture must still fail.
 
+`isa_oracle_dsp_multiply.bin` adds 229,376 eight-word records from
+`dsp_multiply_oracle.rs`: literal opcode, two inputs, accumulator, initial APSR,
+result, final APSR and magic `0x504c554d`. The 28 scalar multiply/absolute-difference
+forms use 512 boundary/seeded operand pairs, four accumulators and four flag
+states. The guest reads the assembler's actual opcodes. The generator writes
+`isa_oracle.dsp-multiply.bin` and extracts 28 cases in
+`isa_oracle.dsp-multiply-probe.rs` for `dsp_multiply_probe_cases.rs`.
+The standalone ARM matrix includes 15,680 executions. All fifteen earlier
+binary datasets remain unchanged.
+
+`isa_oracle_smull.bin` contains 2,048 eight-word records from `smull_oracle.rs`:
+opcode, two inputs, initial APSR, result low/high, final APSR, magic `0x474e4f4c`.
+The literal SMULL instruction tests 512 boundary/seeded pairs under four flag
+states, including negative-by-positive and negative-by-negative products.
+The generator writes `isa_oracle.smull.bin`. Both execution paths check every
+legal output/source assignment, aliases and unchanged general registers/flags.
+The architectural ARM guest also requires `MIN * MAX = 0xc000000080000000`.
+
 Regenerate from the repository root:
 
 ```sh

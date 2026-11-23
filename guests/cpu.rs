@@ -141,6 +141,15 @@ unsafe extern "C" fn probe_svc(frame: *mut u32, return_code: u32) {
 }
 #[no_mangle]
 unsafe extern "C" fn probe_main() -> ! {
+    // QEMU-pinned signed long product: MIN * MAX = 0xc000000080000000.
+    // Check it before the fault probes; a wrong upper word must never pass.
+    let (lo, hi): (u32, u32);
+    asm!("smull r0,r3,r1,r2", in("r1") 0x80000000u32,
+        in("r2") 0x7fffffffu32, out("r0") lo, out("r3") hi, options(nostack));
+    if (lo, hi) != (0x80000000, 0xc0000000) {
+        phase(0xbad0f022);
+        loop { asm!("wfi", options(nostack)); }
+    }
     for word in 0..100 {
         record(word, 0);
     }

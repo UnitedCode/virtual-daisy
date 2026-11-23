@@ -46,7 +46,7 @@ fn saturation_guest_executes_all_register_pairs_including_lr() {
     let (directory, image) = guest("saturation");
     let mut machine = Machine::from_elf_at(Board::Rev5, &image, 0x6000).unwrap();
     // The packed-DSP additions more than triple the register matrix.
-    machine.run_until(400_000_000, 48_000_000).unwrap();
+    machine.run_until(600_000_000, 72_000_000).unwrap();
     let data: Vec<_> = (0..32)
         .flat_map(|i| machine.read32(0x20018400 + i * 4).unwrap().to_le_bytes())
         .collect();
@@ -158,6 +158,10 @@ fn guest(name: &str) -> (PathBuf, Vec<u8>) {
     fs::write(
         &source,
         content
+            .replace(
+                "// DSP_MULTIPLY_CASES",
+                include_str!("../cpu/fixtures/dsp_multiply_probe_cases.rs"),
+            )
             .replace(
                 "// PARALLEL_CASES",
                 include_str!("../cpu/fixtures/parallel_probe_cases.rs"),

@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.12. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.13. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
@@ -48,7 +48,7 @@ That adapter comparison checks integration; QEMU supplies independent math.
 
 USAT, SSAT16 and USAT16 now execute, alongside the existing SSAT. A 520,192-record
 QEMU oracle checks every saturation width and legal scalar shift, both lanes,
-sticky Q and preserved NZCV/GE. A separate ARM guest checks 10,192 register pairs,
+sticky Q and preserved NZCV/GE. A separate ARM guest checks 15,680 register pairs,
 including LR and aliased operands. An integration failure also exposed the
 MSR decoder's missing field-mask forms and LDR-literal-to-PC advancing four bytes
 past its branch target. EPSR MRS reads no longer leak GE bits.
@@ -72,6 +72,14 @@ typed decoder representation is preserved. A 73,728-record independent QEMU
 oracle checks results and GE/unchanged flags; both execution paths check every
 legal register triple and aliases. Packed saturating operations preserve Q.
 The standalone ARM guest includes all forms, with raw-register and APSR checks.
+
+The scalar DSP multiply/absolute-difference families have 229,376 independent
+QEMU records covering 28 forms. Eighteen missing forms now execute, including
+dual and word-halfword multiplies, accumulates, rounded high words and USAD8.
+All legal register/accumulator aliases are checked through both execution paths.
+SMULL now sign-extends negative operands before widening; another 2,048 QEMU
+records and every legal output/source assignment check the full 64-bit product.
+The architectural ARM guest includes a pinned negative SMULL result.
 
 Fixed-point VCVT now has its own decoder rather than falling through to integer
 conversion and reading an immediate field as a register number. Every legal

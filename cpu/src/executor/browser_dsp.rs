@@ -12,6 +12,9 @@ impl Processor {
         if !self.condition_passed() {
             return Ok(ExecuteSuccess::NotTaken);
         }
+        if opcode & 0xff800000 == 0xfb000000 && matches!((opcode >> 20) & 15, 2..=7) {
+            return self.exec_dsp_multiply(opcode);
+        }
         if opcode & 0xff80f080 == 0xfa80f000 {
             return self.exec_parallel_dsp(opcode);
         }
@@ -65,9 +68,6 @@ impl Processor {
                 };
                 (a & 0xffff0000) | (shifted & 0xffff)
             }
-        } else if opcode & 0xfff0f0e0 == 0xfb50f000 {
-            let product = i64::from(a as i32) * i64::from(b as i32);
-            ((product + if opcode & 16 != 0 { 0x80000000 } else { 0 }) >> 32) as u32
         } else if opcode & 0xfff0f0c0 == 0xfa10f080 {
             a.wrapping_add(b.rotate_right(((opcode >> 4) & 3) * 8) & 0xffff)
         } else if key == 0xfa90f0a0 {
