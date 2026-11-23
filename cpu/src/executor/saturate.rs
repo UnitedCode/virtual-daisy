@@ -10,6 +10,16 @@ use crate::{
     },
 };
 pub trait IsaSaturate {
+    fn exec_usat(
+        &mut self,
+        rd: Reg,
+        rn: Reg,
+        bits: u32,
+        shift_t: SRType,
+        amount: usize,
+    ) -> ExecuteResult;
+    #[cfg(feature = "has-dsp-ext")]
+    fn exec_sat16(&mut self, rd: Reg, rn: Reg, bits: u32, unsigned: bool) -> ExecuteResult;
     fn exec_ssat(
         &mut self,
         rd: Reg,
@@ -19,7 +29,54 @@ pub trait IsaSaturate {
         amount: usize,
     ) -> ExecuteResult;
 }
+fn saturate(value: i64, bits: u32, unsigned: bool) -> (u32, bool) {
+    let (low, high) = if unsigned {
+        (0, (1i64 << bits) - 1)
+    } else {
+        let limit = 1i64 << (bits - 1);
+        (-limit, limit - 1)
+    };
+    let result = value.clamp(low, high);
+    (result as u32, result != value)
+}
 impl IsaSaturate for Processor {
+    fn exec_usat(
+        &mut self,
+        rd: Reg,
+        rn: Reg,
+        bits: u32,
+        shift_t: SRType,
+        amount: usize,
+    ) -> ExecuteResult {
+        if !self.condition_passed() {
+            return Ok(ExecuteSuccess::NotTaken);
+        }
+        let value = i64::from(shift(self.get_r(rn), shift_t, amount, self.psr.get_c()) as i32);
+        let (result, clipped) = saturate(value, bits, true);
+        if clipped {
+            self.psr.set_q(true);
+        }
+        self.set_r(rd, result);
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
+    #[cfg(feature = "has-dsp-ext")]
+    fn exec_sat16(&mut self, rd: Reg, rn: Reg, bits: u32, unsigned: bool) -> ExecuteResult {
+        if !self.condition_passed() {
+            return Ok(ExecuteSuccess::NotTaken);
+        }
+        let source = self.get_r(rn);
+        let mut result = 0;
+        for offset in [0, 16] {
+            let value = i64::from((source >> offset) as i16);
+            let (lane, clipped) = saturate(value, bits, unsigned);
+            result |= (lane & 0xffff) << offset;
+            if clipped {
+                self.psr.set_q(true);
+            }
+        }
+        self.set_r(rd, result);
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
     fn exec_ssat(
         &mut self,
         rd: Reg,
@@ -32,12 +89,11 @@ impl IsaSaturate for Processor {
             return Ok(ExecuteSuccess::NotTaken);
         }
         let value = i64::from(shift(self.get_r(rn), shift_t, amount, self.psr.get_c()) as i32);
-        let limit = 1i64 << (bits - 1);
-        let result = value.clamp(-limit, limit - 1);
-        if result != value {
+        let (result, clipped) = saturate(value, bits, false);
+        if clipped {
             self.psr.set_q(true);
         }
-        self.set_r(rd, result as i32 as u32);
+        self.set_r(rd, result);
         Ok(ExecuteSuccess::Taken { cycles: 1 })
     }
 }
@@ -100,7 +156,13 @@ mod tests {
             p.exec_ssat(Reg::R1, Reg::R0, bits, kind, n).unwrap();
             assert_eq!(p.get_r(Reg::R1), expected as u32);
         }
+        #[cfg(not(feature = "has-dsp-ext"))]
         assert!(matches!(decode(0xf321_0107), Instruction::UDF { .. }));
+        #[cfg(feature = "has-dsp-ext")]
+        assert!(matches!(
+            decode(0xf321_0107),
+            Instruction::SSAT16 { saturate_to: 8, .. }
+        ));
         assert!(matches!(decode(0xf301_0f17), Instruction::UDF { .. }));
         assert!(matches!(
             decode(0xf301_2117),

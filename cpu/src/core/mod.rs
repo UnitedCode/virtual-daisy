@@ -12,6 +12,7 @@ pub mod monitor;
 pub mod operation;
 pub mod register;
 pub mod reset;
+pub mod status;
 pub mod thumb;
 
 // FP extension registers

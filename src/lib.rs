@@ -57,6 +57,39 @@ pub unsafe extern "C" fn daisy_fp_half(
     }
 }
 
+/// PSR field service for the optional reference adapter.
+/// The low word is the result; a nonzero high word reports unsupported input.
+/// `write` is 0 for MRS or 1 for MSR; `sysm` and `mask` are encoded fields.
+/// Libraries built without `rust-host` report the service as unsupported.
+#[no_mangle]
+pub extern "C" fn daisy_psr_bits(
+    current: u32,
+    input: u32,
+    sysm: u32,
+    mask: u32,
+    write: u32,
+) -> u64 {
+    #[cfg(feature = "rust-host")]
+    {
+        if sysm > 7 || mask > 3 || write > 1 {
+            return 1u64 << 32;
+        }
+        let result = if write == 0 {
+            zmu_cortex_m::core::status::read_psr_bits(current, sysm as u8)
+        } else if sysm < 4 {
+            zmu_cortex_m::core::status::write_apsr_bits(current, input, mask as u8)
+        } else {
+            None
+        };
+        result.map_or(1u64 << 32, u64::from)
+    }
+    #[cfg(not(feature = "rust-host"))]
+    {
+        let _ = (current, input, sysm, mask, write);
+        1u64 << 32
+    }
+}
+
 pub struct Peripheral {
     kind: u32,
     registers: BTreeMap<u64, u32>,

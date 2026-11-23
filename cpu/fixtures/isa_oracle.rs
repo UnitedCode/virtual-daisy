@@ -2,10 +2,17 @@
 #![no_main]
 use core::arch::asm;
 #[repr(C)]
-union Vector{stack:u32,handler:extern "C" fn()->!}
+union Vector{stack:u32,handler:unsafe extern "C" fn()->!}
 #[used]
 #[unsafe(link_section=".vector_table")]
-static VECTORS:[Vector;2]=[Vector{stack:0x20020000},Vector{handler:Reset}];
+static VECTORS:[Vector;12]=[
+ Vector{stack:0x20020000}, Vector{handler:Reset},
+ Vector{handler:unexpected}, Vector{handler:unexpected}, Vector{handler:unexpected},
+ Vector{handler:unexpected}, Vector{handler:unexpected}, Vector{handler:unexpected},
+ Vector{handler:unexpected}, Vector{handler:unexpected}, Vector{handler:unexpected},
+ Vector{handler:psr_oracle::restore_privilege},
+];
+extern "C" fn unexpected()->! {exit(2)}
 unsafe fn call(op:u32,arg:u32)->u32{let mut r0=op;unsafe{asm!("bkpt #0xab",inout("r0")r0,in("r1")arg,options(nostack));}r0}
 fn exit(code:u32)->!{let args=[0x20026,code];unsafe{call(0x20,args.as_ptr()as u32);}loop{}}
 #[panic_handler]
@@ -21,6 +28,8 @@ mod precision_oracle;
 mod accumulate_oracle;
 mod half_oracle;
 mod fixed_oracle;
+mod saturate_oracle;
+mod psr_oracle;
 #[unsafe(no_mangle)]
 extern "C" fn Reset()->!{
  unsafe{core::ptr::write_volatile(0xe000ed88 as *mut u32,0x00f00000);asm!("dsb","isb",options(nostack));}
@@ -94,6 +103,8 @@ extern "C" fn Reset()->!{
  accumulate_oracle::run();
  half_oracle::run();
  fixed_oracle::run();
+ saturate_oracle::run();
+ psr_oracle::run();
  exit(0)
 }
 

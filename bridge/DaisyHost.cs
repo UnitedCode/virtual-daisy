@@ -128,7 +128,7 @@ public static class DaisyHost
         ((DaisyGpio)machine["sysbus.gpioPortD"]).ConfigureStraps(uint.Parse(args[7]));
         Console.WriteLine("Board: " + args[6]);
         var cpu = (CortexM)machine["sysbus.cpu"];
-        if(((DaisyCortexM)cpu).FetchTagVersion!=14) throw new InvalidOperationException("Missing native instruction-fetch/runtime adapter");
+        if(((DaisyCortexM)cpu).FetchTagVersion!=15) throw new InvalidOperationException("Missing native instruction-fetch/runtime adapter");
         Console.WriteLine("Native instruction-fetch tag verified");
         cpu.VectorTableOffset = 0x08000000;
         cpu.SP = bus.ReadDoubleWord(0x08000000);
@@ -137,6 +137,21 @@ public static class DaisyHost
             cpu.PerformanceInMips=checked((uint)Math.Max(1UL,(hz+500000UL)/1000000UL));
         });
         emulation.MasterTimeSource.Quantum = TimeInterval.FromMicroseconds(1);
+        if(args[5]=="psr") {
+            bus.LoadELF(Path.Combine(Path.GetDirectoryName(args[3]),"psr-probe.elf"));
+            cpu.VectorTableOffset=0x6000;cpu.SP=bus.ReadDoubleWord(0x6000);cpu.PC=bus.ReadDoubleWord(0x6004);
+            emulation.RunFor(TimeInterval.FromMilliseconds(10));
+            File.WriteAllBytes(args[3]+".psr.bin",bus.ReadBytes(0x20018000UL,128));
+            emulation.Dispose();return;
+        }
+        if(args[5]=="saturation" || args[5]=="saturation-psr-control") {
+            if(args[5]=="saturation-psr-control") ((DaisyCortexM)cpu).DisablePsr();
+            bus.LoadELF(Path.Combine(Path.GetDirectoryName(args[3]),"saturation-probe.elf"));
+            cpu.VectorTableOffset=0x6000;cpu.SP=bus.ReadDoubleWord(0x6000);cpu.PC=bus.ReadDoubleWord(0x6004);
+            emulation.RunFor(TimeInterval.FromMilliseconds(100));
+            File.WriteAllBytes(args[3]+".saturation.bin",bus.ReadBytes(0x20018400UL,128));
+            emulation.Dispose();return;
+        }
         if(args[5]=="fixed") {
             bus.LoadELF(Path.Combine(Path.GetDirectoryName(args[3]),"fixed-probe.elf"));
             cpu.VectorTableOffset=0x6000;cpu.SP=bus.ReadDoubleWord(0x6000);cpu.PC=bus.ReadDoubleWord(0x6004);

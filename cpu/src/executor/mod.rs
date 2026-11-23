@@ -754,6 +754,25 @@ impl ExecutorHelper for Processor {
                 shift_t,
                 shift_n,
             } => self.exec_ssat(*rd, *rn, *saturate_to, *shift_t, *shift_n),
+            Instruction::USAT {
+                rd,
+                rn,
+                saturate_to,
+                shift_t,
+                shift_n,
+            } => self.exec_usat(*rd, *rn, *saturate_to, *shift_t, *shift_n),
+            #[cfg(feature = "has-dsp-ext")]
+            Instruction::SSAT16 {
+                rd,
+                rn,
+                saturate_to,
+            } => self.exec_sat16(*rd, *rn, *saturate_to, false),
+            #[cfg(feature = "has-dsp-ext")]
+            Instruction::USAT16 {
+                rd,
+                rn,
+                saturate_to,
+            } => self.exec_sat16(*rd, *rn, *saturate_to, true),
             Instruction::UBFX { params } => self.exec_ubfx(params),
             Instruction::SBFX { params } => self.exec_sbfx(params),
 

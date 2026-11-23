@@ -27,6 +27,8 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             tlibDaisySetLateInterrupt(Marshal.GetFunctionPointerForDelegate(lateInterrupt));
             tlibDaisySetTailchain(1);
             tlibDaisySetHalf(architecture.HalfConversionPointer);
+            tlibDaisySetPsr(architecture.PsrAccessPointer);
+            tlibDaisyPsrEnabled(1);
             tlibDaisyHalfDouble(1);
         }
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint LateInterrupt(uint active);
@@ -40,6 +42,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public void DisableTailChaining() { tlibDaisySetTailchain(0); }
         public void DisablePrefixTime() { tlibDaisySetPrefixTime(0); }
         public void DisableHalfDouble() {tlibDaisyHalfDouble(0);ClearTranslationCache();}
+        public void DisablePsr() {tlibDaisyPsrEnabled(0);ClearTranslationCache();}
         public bool CoarseProgress {get;set;}
         // Called by the guarded BaseCPU ReportProgress adapter. Only the Rust
         // fractional accumulator owns timing arithmetic for Daisy CPUs.
@@ -118,6 +121,8 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         [Import] private readonly Action<IntPtr> tlibDaisySetLateInterrupt;
         [Import] private readonly Action<uint> tlibDaisySetTailchain;
         [Import] private readonly Action<IntPtr> tlibDaisySetHalf;
+        [Import] private readonly Action<IntPtr> tlibDaisySetPsr;
+        [Import] private readonly Action<uint> tlibDaisyPsrEnabled;
         [Import] private readonly Action<uint> tlibDaisyHalfDouble;
         [Import] private readonly Action<uint> tlibDaisySetPrefixTime;
         [Import] private readonly Func<uint> tlibDaisyIrqCanPreempt;
