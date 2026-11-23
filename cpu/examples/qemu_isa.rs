@@ -66,14 +66,17 @@ fn main() {
     let mut doubles = Vec::new();
     let mut controlled = Vec::new();
     let mut minmax = Vec::new();
+    let mut rounding = Vec::new();
     for line in hex.lines() {
-        assert!(matches!(line.len(), 40 | 48 | 64 | 80));
+        assert!(matches!(line.len(), 40 | 48 | 64 | 72 | 80));
         let destination = if line.len() == 40 {
             &mut bytes
         } else if line.len() == 64 {
             &mut doubles
         } else if line.len() == 80 {
             &mut minmax
+        } else if line.len() == 72 {
+            &mut rounding
         } else {
             &mut controlled
         };
@@ -89,6 +92,8 @@ fn main() {
     fs::write(output.with_extension("control.bin"), &controlled).unwrap();
     assert_eq!(minmax.len(), 456 * 4 * 2 * 2 * 10 * 4);
     fs::write(output.with_extension("minmax.bin"), &minmax).unwrap();
+    assert_eq!(rounding.len(), 39_680 * 9 * 4);
+    fs::write(output.with_extension("rounding.bin"), &rounding).unwrap();
     fs::remove_file(&elf).unwrap();
     fs::remove_file(&capture).unwrap();
     println!("1050 QEMU ARM-ISA reference cases; {} bytes", bytes.len());
@@ -103,5 +108,9 @@ fn main() {
     println!(
         "7296 QEMU FPv5 minimum/maximum reference cases; {} bytes",
         minmax.len()
+    );
+    println!(
+        "39680 QEMU FPv5 rounding/conversion cases; {} bytes",
+        rounding.len()
     );
 }

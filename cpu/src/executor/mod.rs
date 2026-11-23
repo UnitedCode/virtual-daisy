@@ -980,11 +980,27 @@ impl ExecutorHelper for Processor {
             #[cfg(feature = "has-fp")]
             Instruction::VRINTZ_f64 { params } => self.exec_vrintz_f64(*params),
             #[cfg(feature = "has-fp")]
+            Instruction::VRINT_f32 {
+                params,
+                rounding,
+                exact,
+            } => self.exec_vrint_f32(*params, *rounding, *exact),
+            #[cfg(feature = "has-fp")]
+            Instruction::VRINT_f64 {
+                params,
+                rounding,
+                exact,
+            } => self.exec_vrint_f64(*params, *rounding, *exact),
+            #[cfg(feature = "has-fp")]
             Instruction::VSUB_f32 { params } => self.exec_vsub_f32(params),
             #[cfg(feature = "has-fp")]
             Instruction::VSUB_f64 { params } => self.exec_vsub_f64(params),
             #[cfg(feature = "has-fp")]
             Instruction::VCVT { params } => self.exec_vcvt(params),
+            #[cfg(feature = "has-fp")]
+            Instruction::VCVT_directed { params, rounding } => {
+                self.exec_vcvt_directed(*params, *rounding)
+            }
             #[cfg(feature = "has-fp")]
             Instruction::VCVT_f64_f32 { params } => self.exec_vcvt_f64_f32(*params),
             #[cfg(feature = "has-fp")]

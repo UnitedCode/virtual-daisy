@@ -1,6 +1,6 @@
 // Modified for Virtual Daisy's browser backend; see UPSTREAM.md.
 use crate::Processor;
-use crate::core::fpregister::Fpscr;
+use crate::core::fpregister::{Fpscr, IntegralRounding};
 use crate::core::instruction::{
     VAddSubParamsf32, VAddSubParamsf64, VCVTParams, VCVTParamsF32F64, VCVTParamsF64F32,
     VCmpParamsf32, VCmpParamsf64, VMovRegParamsf32, VMovRegParamsf64, VSelParamsf32, VSelParamsf64,
@@ -14,6 +14,23 @@ use crate::core::register::ExtensionRegOperations;
 use crate::executor::ExecutorHelper;
 
 pub trait IsaFloatingPointDataProcessing {
+    fn exec_vrint_f32(
+        &mut self,
+        params: VMovRegParamsf32,
+        rounding: Option<IntegralRounding>,
+        exact: bool,
+    ) -> ExecuteResult;
+    fn exec_vrint_f64(
+        &mut self,
+        params: VMovRegParamsf64,
+        rounding: Option<IntegralRounding>,
+        exact: bool,
+    ) -> ExecuteResult;
+    fn exec_vcvt_directed(
+        &mut self,
+        params: VCVTParams,
+        rounding: IntegralRounding,
+    ) -> ExecuteResult;
     fn exec_vminmaxnm_f32(&mut self, params: VAddSubParamsf32, maximum: bool) -> ExecuteResult;
     fn exec_vminmaxnm_f64(&mut self, params: VAddSubParamsf64, maximum: bool) -> ExecuteResult;
     fn exec_vmla_f32(
@@ -190,6 +207,82 @@ impl IsaFloatingPointDataProcessing for Processor {
             return Ok(ExecuteSuccess::Taken { cycles: 1 });
         }
         Ok(ExecuteSuccess::NotTaken)
+    }
+
+    fn exec_vrint_f32(
+        &mut self,
+        params: VMovRegParamsf32,
+        rounding: Option<IntegralRounding>,
+        exact: bool,
+    ) -> ExecuteResult {
+        if !self.condition_passed() {
+            return Ok(ExecuteSuccess::NotTaken);
+        }
+        self.execute_fp_check()?;
+        let operand = self.get_sr(params.sm);
+        let result = self.fp_round_int_with_rounding::<u32>(operand, rounding, exact, true);
+        self.set_sr(params.sd, result);
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
+
+    fn exec_vrint_f64(
+        &mut self,
+        params: VMovRegParamsf64,
+        rounding: Option<IntegralRounding>,
+        exact: bool,
+    ) -> ExecuteResult {
+        if !self.condition_passed() {
+            return Ok(ExecuteSuccess::NotTaken);
+        }
+        self.execute_fp_check()?;
+        let (lo, hi) = self.get_dr(params.dm);
+        let result = self.fp_round_int_with_rounding::<u64>(
+            u64::from(lo) | (u64::from(hi) << 32),
+            rounding,
+            exact,
+            true,
+        );
+        self.set_dr(params.dd, result as u32, (result >> 32) as u32);
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
+
+    fn exec_vcvt_directed(
+        &mut self,
+        params: VCVTParams,
+        rounding: IntegralRounding,
+    ) -> ExecuteResult {
+        use crate::core::register::ExtensionReg;
+        if !self.condition_passed() {
+            return Ok(ExecuteSuccess::NotTaken);
+        }
+        self.execute_fp_check()?;
+        let ExtensionReg::Single { reg: destination } = params.d else {
+            return Err(crate::core::fault::Fault::UndefInstr);
+        };
+        let result = match params.m {
+            ExtensionReg::Single { reg } => {
+                let operand = self.get_sr(reg);
+                self.fp_to_fixed_with_rounding::<u32, u32>(
+                    operand,
+                    0,
+                    params.unsigned,
+                    Some(rounding),
+                    true,
+                )
+            }
+            ExtensionReg::Double { reg } => {
+                let (lo, hi) = self.get_dr(reg);
+                self.fp_to_fixed_with_rounding::<u64, u32>(
+                    u64::from(lo) | (u64::from(hi) << 32),
+                    0,
+                    params.unsigned,
+                    Some(rounding),
+                    true,
+                )
+            }
+        };
+        self.set_sr(destination, result);
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
     }
 
     #[inline(always)]

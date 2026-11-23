@@ -153,7 +153,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.1. Generated tables check their revision and
+The vendored CPU is revision 0.1.2. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -183,8 +183,32 @@ with a -256-frame right offset. A later window reaches 0.018752754 at +1,494
 frames. These short-window searches do not establish a unique delay for a
 periodic tone or explain every difference. They are not parity passes. The clock
 regression is fixed; exact DSP output and instruction/interrupt pacing still need
-further comparison. The earlier one-cycle experiment establishes a timing
-contribution for its own ELF, not a complete explanation for this newer build.
+further comparison.
+
+A second unshipped one-cycle diagnostic used this exact newer ELF and input.
+It produced 47,565 frames, onset at frame 487, and 0.019424766 unshifted RMS
+error (0.054696441 peak). Fault and FIFO flags remained clear. This independently
+confirms a material pacing contribution for the current firmware. Production
+retains its instruction costs; the diagnostic is not a calibrated M7 model or
+a waveform parity pass.
+
+### FPv5 rounding and integer conversions
+
+An independent Cortex-M7 QEMU guest adds 39,680 bit-exact result/FPSCR records
+for VRINT A/N/P/M/Z/R/X, VCVT A/N/P/M, and existing VCVT/VCVTR integer
+conversions. The tests cover both precisions, signed/unsigned destinations,
+ties, integer bounds, very large integral values, tiny binary64 inputs, NaNs,
+infinities, all applicable FPSCR rounding modes, FZ/DN and sticky exceptions.
+Both execution paths pass with native arithmetic on/off. Separate register
+tests cover all source/destination pairs, aliasing and the D16 register limit.
+
+These checks found missing instruction decodes, inverted nearest-even integer
+ties, overflow reported as OFC instead of IOC, and large/tiny operand errors
+in the older generic integral conversion. The implementation now rounds the
+encoded IEEE significand directly. Semantics follow
+[ST PM0253 Rev6, sections 3.11.33–35](https://www.st.com/resource/en/programming_manual/DM00237416.pdf).
+This establishes the tested instruction behavior; it does not settle audio
+pacing or the remaining instruction coverage.
 
 ## Supported scope and remaining limits
 

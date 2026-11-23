@@ -4,6 +4,8 @@
 //!
 
 use crate::core::condition::Condition;
+#[cfg(feature = "has-fp")]
+use crate::core::fpregister::IntegralRounding;
 use crate::core::register::{DoubleReg, ExtensionReg, Reg, SingleReg};
 use crate::core::thumb::ThumbCode;
 use enum_set::EnumSet;
@@ -1594,6 +1596,11 @@ pub enum Instruction {
         params: VCVTParams,
     },
     #[cfg(feature = "has-fp")]
+    VCVT_directed {
+        params: VCVTParams,
+        rounding: IntegralRounding,
+    },
+    #[cfg(feature = "has-fp")]
     VCVT_f64_f32 {
         params: VCVTParamsF64F32,
     },
@@ -1660,7 +1667,18 @@ pub enum Instruction {
         params: VAddSubParamsf64,
     },
     //VNMLA
-    //VRINTA
+    #[cfg(feature = "has-fp")]
+    VRINT_f32 {
+        params: VMovRegParamsf32,
+        rounding: Option<IntegralRounding>,
+        exact: bool,
+    },
+    #[cfg(feature = "has-fp")]
+    VRINT_f64 {
+        params: VMovRegParamsf64,
+        rounding: Option<IntegralRounding>,
+        exact: bool,
+    },
     #[cfg(feature = "has-fp")]
     VRINTZ_f32 {
         params: VMovRegParamsf32,
@@ -2911,6 +2929,30 @@ impl fmt::Display for Instruction {
             #[cfg(feature = "has-fp")]
             Self::VRINTZ_f64 { params } => write!(f, "vrintz.f64 {}, {}", params.dd, params.dm),
             #[cfg(feature = "has-fp")]
+            Self::VRINT_f32 {
+                params,
+                rounding,
+                exact,
+            } => write!(
+                f,
+                "vrint{}.f32 {}, {}",
+                rounding.map_or(if exact { "x" } else { "r" }, IntegralRounding::suffix),
+                params.sd,
+                params.sm
+            ),
+            #[cfg(feature = "has-fp")]
+            Self::VRINT_f64 {
+                params,
+                rounding,
+                exact,
+            } => write!(
+                f,
+                "vrint{}.f64 {}, {}",
+                rounding.map_or(if exact { "x" } else { "r" }, IntegralRounding::suffix),
+                params.dd,
+                params.dm
+            ),
+            #[cfg(feature = "has-fp")]
             Self::VSUB_f32 { params } => {
                 write!(f, "vsub.f32 {}, {}, {}", params.sd, params.sn, params.sm,)
             }
@@ -2920,6 +2962,16 @@ impl fmt::Display for Instruction {
             }
             #[cfg(feature = "has-fp")]
             Self::VCVT { params } => write!(f, "{}", fmt_vcvt(params)),
+            #[cfg(feature = "has-fp")]
+            Self::VCVT_directed { params, rounding } => write!(
+                f,
+                "vcvt{}.{}32.f{} {}, {}",
+                rounding.suffix(),
+                if params.unsigned { "u" } else { "s" },
+                if params.dp_operation { 64 } else { 32 },
+                params.d,
+                params.m
+            ),
             #[cfg(feature = "has-fp")]
             Self::VCVT_f64_f32 { params } => write!(f, "vcvt.f64.f32 {}, {}", params.dd, params.sm),
             #[cfg(feature = "has-fp")]
@@ -3352,8 +3404,10 @@ pub fn instruction_size(instruction: &Instruction) -> usize {
         Instruction::VPUSH { .. } => 4,
         #[cfg(feature = "has-fp")]
         Instruction::VPOP { .. } => 4,
-        //VRINTA, VRINTN, VRINTP, VRiNTM
-        //VRINTX,
+        #[cfg(feature = "has-fp")]
+        Instruction::VRINT_f32 { .. }
+        | Instruction::VRINT_f64 { .. }
+        | Instruction::VCVT_directed { .. } => 4,
         #[cfg(feature = "has-fp")]
         Instruction::VRINTZ_f32 { .. } => 4,
         #[cfg(feature = "has-fp")]

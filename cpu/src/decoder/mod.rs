@@ -148,7 +148,7 @@ mod vneg;
 mod vpop;
 #[cfg(feature = "has-fp")]
 mod vpush;
-#[cfg(feature = "has-fp")]
+#[cfg(any(feature = "fpv5-d16", feature = "fpv5-sp-d16"))]
 mod vrint;
 #[cfg(feature = "has-fp")]
 mod vsel;
@@ -296,7 +296,11 @@ use self::{
 use crate::Processor;
 use crate::core::thumb::ThumbCode;
 #[cfg(any(feature = "fpv5-d16", feature = "fpv5-sp-d16"))]
-use vminmaxnm::decode_VMINMAXNM_t1;
+use {
+    vcvt::decode_VCVT_directed_t1,
+    vminmaxnm::decode_VMINMAXNM_t1,
+    vrint::{decode_VRINT_current_t1, decode_VRINT_directed_t1, decode_VRINTZ_t1},
+};
 
 #[cfg(feature = "has-fp")]
 use {
@@ -321,7 +325,6 @@ use {
     vpop::decode_VPOP_t2,
     vpush::decode_VPUSH_t1,
     vpush::decode_VPUSH_t2,
-    vrint::decode_VRINTZ_t1,
     vsel::decode_VSEL_t1,
     vsqrt::decode_VSQRT_t1,
     vstm::{decode_VSTM_t1, decode_VSTM_t2},
@@ -379,7 +382,7 @@ include!(concat!(env!("OUT_DIR"), "/decode_16.rs"));
 
 include!(concat!(env!("OUT_DIR"), "/decode_32.rs"));
 // Reject a stale generated table instead of running firmware with old masks.
-const _: () = assert!(GENERATED_DECODER_REVISION == 3);
+const _: () = assert!(GENERATED_DECODER_REVISION == 4);
 const _: () = assert!(
     GENERATED_DECODER_PROFILE
         == (cfg!(feature = "has-fp") as u8)
