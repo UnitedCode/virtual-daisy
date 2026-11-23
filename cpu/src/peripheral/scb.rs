@@ -10,8 +10,6 @@ use crate::core::fault::{Fault, FaultStatusContext};
 #[cfg(feature = "has-fp")]
 use crate::{FP_MVFR0_RESET, FP_MVFR1_RESET, FP_MVFR2_RESET};
 
-use crate::core::register::Ipsr;
-
 // Configuration Control Register bit positions
 #[allow(dead_code)]
 const CCR_NONBASETHRDENA: usize = 0;
@@ -297,9 +295,6 @@ impl Processor {
         match fault {
             Fault::IAccViol => {
                 self.cfsr |= CFSR_IACCVIOL;
-                if let Some(address) = status.fault_address {
-                    self.latch_mmfar(address);
-                }
             }
             Fault::DAccViol => {
                 self.cfsr |= CFSR_DACCVIOL;
@@ -311,9 +306,6 @@ impl Processor {
             Fault::Mstkerr => self.cfsr |= CFSR_MSTKERR,
             Fault::IBusErr => {
                 self.cfsr |= CFSR_IBUSERR;
-                if let Some(address) = status.fault_address {
-                    self.latch_bfar(address);
-                }
             }
             Fault::Preciserr => {
                 self.cfsr |= CFSR_PRECISERR;
@@ -323,6 +315,9 @@ impl Processor {
             }
             Fault::Stkerr => self.cfsr |= CFSR_STKERR,
             Fault::UndefInstr => self.cfsr |= CFSR_UNDEFINSTR,
+            Fault::Unaligned => self.cfsr |= 1 << 24,
+            Fault::DivByZero => self.cfsr |= 1 << 25,
+            Fault::Nocp => self.cfsr |= 1 << 19,
             Fault::Invstate => self.cfsr |= CFSR_INVSTATE,
             Fault::InvPc => self.cfsr |= CFSR_INVPC,
             Fault::Forced => self.set_hfsr_forced(),
@@ -513,15 +508,7 @@ pub trait SystemControlBlock {
 
 impl SystemControlBlock for Processor {
     fn read_icsr(&self) -> u32 {
-        let mut value: u32 = 0;
-
-        value.set_bits(0..9, self.psr.get_isr_number() as u32);
-
-        if let Some(exception) = self.get_pending_exception() {
-            value.set_bits(12..21, usize::from(exception) as u32);
-        }
-
-        value
+        self.icsr_state()
     }
 
     fn write_icsr(&mut self, value: u32) {

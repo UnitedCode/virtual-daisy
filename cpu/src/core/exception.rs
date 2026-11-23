@@ -52,6 +52,44 @@ impl ExceptionState {
 }
 
 impl Processor {
+    pub(crate) fn icsr_state(&self) -> u32 {
+        let mut value = self.psr.get_isr_number() as u32;
+        if self.exceptions.values().filter(|e| e.active).count() <= 1 {
+            value |= 1 << 11;
+        }
+        let mut threshold = 256;
+        #[cfg(not(feature = "armv6m"))]
+        {
+            if self.basepri != 0 {
+                let group = 1_i16 << (((self.aircr >> 8) & 7) + 1);
+                threshold = i16::from(self.basepri) & !(group - 1);
+            }
+            if self.faultmask {
+                threshold = -1;
+            }
+        }
+        if let Some(pending) = self.pending_choice.filter(|e| e.priority < threshold) {
+            value |= (pending.exception_number as u32) << 12;
+        }
+        if self.nvic_interrupt_pending.iter().any(|bits| *bits != 0)
+            || self
+                .exceptions
+                .values()
+                .any(|e| e.pending && e.exception_number >= 11)
+        {
+            value |= 1 << 22;
+        }
+        for (exception, bit) in [
+            (Exception::SysTick, 26),
+            (Exception::PendSV, 28),
+            (Exception::NMI, 31),
+        ] {
+            if self.exception_pending(exception) {
+                value |= 1 << bit;
+            }
+        }
+        value
+    }
     fn refresh_pending_choice(&mut self) {
         self.pending_choice = self
             .pending_exceptions
@@ -285,7 +323,24 @@ impl ExceptionHandlingHelpers for Processor {
     fn exception_taken(&mut self, exception: Exception) -> Result<(), Fault> {
         let vtor = self.vtor;
         let offset: u32 = usize::from(exception) as u32 * 4;
-        let start = self.read32(vtor + offset).map_err(Fault::on_vector_read)?;
+        self.device_exception_phase(1, vtor + offset, 4)?;
+        let start = match self.read32(vtor + offset).map_err(Fault::on_vector_read) {
+            Ok(start) => start,
+            Err(fault)
+                if !self.bus_stalled()
+                    && exception != Exception::HardFault
+                    && fault == Fault::VectorTable =>
+            {
+                self.hfsr |= 2;
+                // A failed activation leaves the original IRQ pending. Reuse
+                // its already-stacked frame when taking the HardFault vector.
+                if let Exception::Interrupt { n } = exception {
+                    self.nvic_write_ispr(n / 32, 1 << (n % 32));
+                }
+                return self.exception_taken(Exception::HardFault);
+            }
+            Err(fault) => return Err(fault),
+        };
         self.blx_write_pc(start);
 
         self.mode = ProcessorMode::HandlerMode;
@@ -299,6 +354,8 @@ impl ExceptionHandlingHelpers for Processor {
         self.exceptions.get_mut(&exception.into()).unwrap().active = true;
         self.set_shcsr_exception_active(exception, true);
         self.execution_priority = self.get_execution_priority();
+
+        self.device_exception_phase(2, vtor + offset, 4)?;
 
         // ClearExclusiveLocal(;)
         // SetEventRegister();
@@ -354,8 +411,8 @@ impl ExceptionHandlingHelpers for Processor {
             | Exception::DebugMonitor
             | Exception::PendSV
             | Exception::SysTick
+            | Exception::UsageFault
             | Exception::Interrupt { .. } => return_address,
-            Exception::UsageFault => return_address - 4,
             _ => unreachable!("return address requested for unsupported exception type"),
         }
     }
@@ -416,6 +473,9 @@ impl ExceptionHandlingHelpers for Processor {
                 }
                 // write FPSCR:
                 self.write32(frameptr.wrapping_add(0x60), self.fpscr)?;
+                // Give the architecturally reserved frame word a deterministic
+                // value, matching the reference host's complete frame stores.
+                self.write32(frameptr.wrapping_add(0x64), 0)?;
             } else {
                 self.update_fpccr(frameptr)?;
             }
@@ -616,20 +676,29 @@ impl ExceptionHandling for Processor {
         }
     }
     fn exception_active(&self, exception: Exception) -> bool {
-        self.exceptions[&usize::from(exception)].active
+        self.exceptions
+            .get(&usize::from(exception))
+            .is_some_and(|e| e.active)
     }
 
     fn exception_pending(&self, exception: Exception) -> bool {
-        self.exceptions[&usize::from(exception)].pending
+        self.exceptions
+            .get(&usize::from(exception))
+            .is_some_and(|e| e.pending)
     }
 
     fn set_exception_priority(&mut self, exception: Exception, priority: u8) {
-        self.exceptions.get_mut(&exception.into()).unwrap().priority = i16::from(priority);
+        let mask = u8::MAX << (8 - self.priority_bits.clamp(1, 8));
+        if let Some(state) = self.exceptions.get_mut(&exception.into()) {
+            state.priority = i16::from(priority & mask);
+        }
         self.refresh_pending_choice();
     }
 
     fn get_exception_priority(&self, exception: Exception) -> i16 {
-        self.exceptions[&exception.into()].priority
+        self.exceptions
+            .get(&exception.into())
+            .map_or(0, |e| e.priority)
     }
 
     fn get_execution_priority(&self) -> i16 {
@@ -637,7 +706,9 @@ impl ExceptionHandling for Processor {
     }
 
     fn set_exception_pending(&mut self, exception: Exception) {
-        let exp = self.exceptions.get_mut(&exception.into()).unwrap();
+        let Some(exp) = self.exceptions.get_mut(&exception.into()) else {
+            return;
+        };
 
         if !exp.pending {
             exp.pending = true;
@@ -654,7 +725,9 @@ impl ExceptionHandling for Processor {
     }
 
     fn clear_pending_exception(&mut self, exception: Exception) {
-        let exp = self.exceptions.get_mut(&exception.into()).unwrap();
+        let Some(exp) = self.exceptions.get_mut(&exception.into()) else {
+            return;
+        };
         if exp.pending {
             exp.pending = false;
             self.pending_exception_count -= 1;
@@ -675,6 +748,7 @@ impl ExceptionHandling for Processor {
         if exception == Exception::Reset {
             self.reset()
         } else {
+            self.device_exception_phase(0, self.get_msp(), 0)?;
             if let Exception::Interrupt { n } = exception {
                 self.nvic_unpend_interrupt(n);
             }
@@ -736,7 +810,19 @@ impl ExceptionHandling for Processor {
             }
 
             self.deactivate(returning_exception_number);
+            if self.transactional_bus() {
+                if let Some(next) = self.get_pending_exception() {
+                    self.clear_pending_exception(next);
+                    if let Exception::Interrupt { n } = next {
+                        self.nvic_unpend_interrupt(n);
+                    }
+                    self.lr = 0xf000_0000 | exc_return;
+                    return self.exception_taken(next);
+                }
+            }
+            self.device_exception_phase(3, frameptr, if exc_return & 16 == 0 { 104 } else { 32 })?;
             self.pop_stack(frameptr, exc_return)?;
+            self.device_exception_phase(4, frameptr, 0)?;
 
             if self.mode == ProcessorMode::ThreadMode
                 && nested_activation == 1 // deactivate() reduced one
@@ -758,6 +844,9 @@ impl ExceptionHandling for Processor {
             self.clear_pending_exception(exception);
             let pc = self.get_pc();
             if let Err(fault) = self.exception_entry(exception, pc) {
+                if self.bus_stalled() {
+                    return;
+                }
                 let active_exception = match self.psr.get_isr_number() {
                     0 => None,
                     n => Some(Exception::from(n)),

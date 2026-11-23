@@ -11,7 +11,7 @@ use crate::executor::ExecutorHelper;
 use crate::executor::fp_generic::FloatingPointChecks;
 
 use super::ExecuteResult;
-use crate::core::register::{Apsr, BaseReg, ExtensionRegOperations};
+use crate::core::register::{Apsr, BaseReg, ExtensionRegOperations, Reg};
 
 pub trait IsaFloatingPointRegisterTransfer {
     fn exec_vmov_cr_sp(&mut self, params: &VMovCrSpParams) -> ExecuteResult;
@@ -24,9 +24,21 @@ pub trait IsaFloatingPointRegisterTransfer {
     fn exec_vmov_imm_64(&mut self, params: VMovImmParams64) -> ExecuteResult;
 
     fn exec_vmrs(&mut self, params: VMRSTarget) -> ExecuteResult;
+    fn exec_vmsr(&mut self, source: Reg) -> ExecuteResult;
 }
 
 impl IsaFloatingPointRegisterTransfer for Processor {
+    fn exec_vmsr(&mut self, source: Reg) -> ExecuteResult {
+        if !self.condition_passed() {
+            return Ok(ExecuteSuccess::NotTaken);
+        }
+        if matches!(source, Reg::SP | Reg::PC) {
+            return Err(crate::core::fault::Fault::UndefInstr);
+        }
+        self.execute_fp_check()?;
+        self.fpscr = self.get_r(source) & 0xf7c0_009f;
+        Ok(ExecuteSuccess::Taken { cycles: 1 })
+    }
     #[inline(always)]
     fn exec_vmov_cr_sp(&mut self, params: &VMovCrSpParams) -> ExecuteResult {
         if !self.condition_passed() {

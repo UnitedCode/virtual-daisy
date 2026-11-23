@@ -57,4 +57,8 @@ impl Transmitter {
     pub fn take_completed(&mut self) -> Vec<(u64, u8)> {
         std::mem::take(&mut self.completed)
     }
+    /// Absolute virtual time when the next transmitted frame completes.
+    pub fn next_completion(&self) -> Option<u64> {
+        self.pending.front().map(|v| v.0)
+    }
 }

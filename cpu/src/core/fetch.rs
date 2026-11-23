@@ -11,10 +11,22 @@ use crate::{Processor, decoder::is_thumb32};
 impl Processor {
     /// Read instruction halfwords without mutating fault-status side channels.
     pub fn fetch_code(&self, pc: u32) -> Result<ThumbCode, Fault> {
-        let hw = self.read16(pc).map_err(Fault::on_instruction_fetch)?;
+        let read = |address| {
+            self.validate_bus_access(address, 2, 2)?;
+            if let Some(bus) = self.device.as_ref().filter(|bus| bus.in_range(address)) {
+                let (value, boundary) = bus.fetch16_at(address, self.cycle_count)?;
+                if boundary {
+                    self.device_boundary.set(true);
+                }
+                Ok(value)
+            } else {
+                self.read16(address)
+            }
+        };
+        let hw = read(pc).map_err(Fault::on_instruction_fetch)?;
 
         if is_thumb32(hw) {
-            let hw2 = self.read16(pc + 2).map_err(Fault::on_instruction_fetch)?;
+            let hw2 = read(pc + 2).map_err(Fault::on_instruction_fetch)?;
             Ok(ThumbCode::Thumb32 {
                 opcode: (u32::from(hw) << 16) + u32::from(hw2),
             })

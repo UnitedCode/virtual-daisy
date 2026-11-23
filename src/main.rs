@@ -4,6 +4,8 @@ mod bus_probe;
 mod conformance;
 mod core;
 mod cpu_probe;
+#[cfg(feature = "rust-host")]
+mod emulate;
 mod fetch_probe;
 mod grade;
 mod guest;
@@ -551,6 +553,7 @@ fn run(
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).canonicalize()?;
     let dotnet = env::var_os("VIRTUAL_DAISY_DOTNET").unwrap_or_else(|| "dotnet".into());
+    let dotnet_build = env::var_os("VIRTUAL_DAISY_DOTNET_BUILD").unwrap_or_else(|| dotnet.clone());
     let host_info = Command::new("rustc").arg("-vV").output()?;
     let host_info = String::from_utf8(host_info.stdout)?;
     let host = host_info
@@ -619,7 +622,7 @@ fn run(
     let managed = directory.join("managed");
     fs::create_dir_all(&managed)?;
     checked(
-        Command::new(&dotnet)
+        Command::new(&dotnet_build)
             .current_dir(&root)
             .args(["build"])
             .arg(root.join("bridge/DaisyHost.csproj"))
@@ -1032,8 +1035,22 @@ fn run(
     Ok(())
 }
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(error) = cli_main() {
+        eprintln!("virtual-daisy: {error}");
+        std::process::exit(1);
+    }
+}
+fn cli_main() -> Result<()> {
     let args: Vec<_> = env::args_os().skip(1).collect();
+    if args.is_empty() || args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
+        println!("Virtual Daisy — run unchanged Daisy Seed firmware\n\nRust host (no Renode or .NET):\n  virtual-daisy demo --board rev5 --out results/demo\n  virtual-daisy emulate --elf firmware.elf --board rev5 --out results/capture\n  virtual-daisy emulate --help\n\n  virtual-daisy profiles\n\nReference backend and advanced checks: docs/reference-runner.md");
+        return Ok(());
+    }
+    #[cfg(feature = "rust-host")]
+    if args.first().is_some_and(|s| s == "emulate" || s == "demo") {
+        return emulate::run(&args);
+    }
     if args.len() == 2 && args[0] == "autotune-analyze" {
         return autotune_check::analyze(Path::new(&args[1]));
     }

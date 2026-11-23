@@ -11,6 +11,8 @@ mod flash;
 mod gpio;
 pub mod host;
 pub mod keyboard;
+#[cfg(feature = "rust-host")]
+pub mod machine;
 pub mod memory;
 pub mod nor;
 pub mod qspi;
@@ -56,6 +58,36 @@ impl Peripheral {
         self.sai.tick_sample(codec_mask, sample);
         Ok(())
     }
+    /// Clock one stereo frame through the selected codec's digital routing.
+    /// `ideal_line` additionally enables the documented WM8731 line surrogate.
+    pub fn audio_frame_with_codec(
+        &mut self,
+        codec: &mut Peripheral,
+        sample: [f32; 2],
+        ideal_line: bool,
+    ) -> Result<(), &'static str> {
+        let mask = codec.read(0x100)?;
+        let input = if ideal_line {
+            codec.nominal_adc_passband(sample)?
+        } else {
+            sample
+        };
+        let previous = self.sai.output.len();
+        self.audio_frame(mask, input)?;
+        if self.sai.output.len() != previous {
+            if let Some(frame) = self.sai.output.last_mut() {
+                if codec.kind == 4 && codec.registers.get(&7).copied().unwrap_or(0) & (1 << 5) != 0
+                {
+                    frame.swap(0, 1);
+                }
+                if ideal_line {
+                    let delayed = codec.nominal_dac_passband(*frame)?;
+                    *frame = if mask & 2 != 0 { delayed } else { [0.; 2] };
+                }
+            }
+        }
+        Ok(())
+    }
     /// Drain captured frames, permitting bounded streaming in a browser.
     pub fn take_audio(&mut self) -> Result<Vec<[f32; 2]>, &'static str> {
         if self.kind != 7 {
@@ -94,6 +126,10 @@ impl Peripheral {
     /// Asserted DMA interrupt lines (stream order).
     pub fn dma_interrupts(&self) -> u32 {
         self.dma.irqs()
+    }
+    /// Complete a documented DMA bus error without changing the transfer count.
+    pub fn dma_bus_error(&mut self, stream: usize) -> Result<(), &'static str> {
+        self.dma.bus_error(stream)
     }
     /// Functional core clock after RCC selection/dividers.
     pub fn core_hz(&self) -> Result<f64, &'static str> {
@@ -159,6 +195,26 @@ impl Peripheral {
     /// QSPI kernel clock from RCC selection and gates.
     pub fn qspi_clock(&self) -> Result<Option<clock::Rate>, &'static str> {
         self.clock.qspi_rate()
+    }
+    /// Clock-tree access for hosts that schedule the same models directly.
+    pub fn clocks(&self) -> &clock::ClockTree {
+        &self.clock
+    }
+    /// Advance or configure the RCC-backed debug cycle counter.
+    pub fn dwt(&mut self, offset: u64, value: Option<u32>, now: u64) -> Result<u32, &'static str> {
+        self.clock.dwt(offset, value, now)
+    }
+    /// Apply DEMCR.TRCENA at the exact current board time.
+    pub fn trace_enable(&mut self, enabled: bool, now: u64) -> Result<(), &'static str> {
+        self.clock.trace_enable(enabled, now)
+    }
+    /// Release an externally driven GPIO input.
+    pub fn release_pin(&mut self, pin: u32) -> Result<(), &'static str> {
+        if self.kind < 100 || pin >= 16 {
+            return Err("not a GPIO input");
+        }
+        self.gpio.release(pin);
+        Ok(())
     }
     /// Advance the QSPI service and flash-chip deadlines on the virtual clock.
     pub fn advance_qspi(
@@ -748,35 +804,49 @@ pub unsafe extern "C" fn daisy_bus_sync(
     fmc: *mut Peripheral,
     now: u64,
 ) -> u32 {
-    let result = (|| -> Result<(), &'static str> {
-        let hclk = (*clock).clock.domain_rate(1)?.ok_or("HCLK stopped")?;
-        let pclk = (*clock).clock.domain_rate(3)?.ok_or("PCLK2 stopped")?;
-        let reg = |offset| (*fmc).registers.get(&offset).copied().unwrap_or(0);
-        let enabled = (*clock).clock.read(0xd4) & (1 << 12) != 0
-            && (*clock).clock.read(0x7c) & (1 << 12) == 0;
-        let timing = if enabled {
-            (*clock)
-                .clock
-                .fmc_rate()?
-                .and_then(|r| bus::SdramTiming::decode(reg(0x140), reg(0x148), reg(0x154), r).ok())
-        } else {
-            None
-        };
-        let mut memory = (*state).memory.lock().unwrap();
-        let now = now.max(memory.now());
-        memory.advance_time(now)?;
-        memory.configure_bus(hclk, pclk, timing);
-        if (*fmc).registers.remove(&0x10000).is_some() {
-            memory.fabric.clear_sdram_refresh_error();
-        }
-        while let Some(command) = (*fmc).fmc_commands.pop_front() {
-            memory.fabric.sdram_command(command)?;
-        }
-        memory.advance_time(now)?;
-        (*fmc).registers.insert(0x158, memory.fabric.sdram_status());
-        Ok(())
-    })();
-    u32::from(result.is_err())
+    u32::from(
+        synchronize_memory(
+            &mut (*state).memory.lock().unwrap(),
+            &*clock,
+            &mut *fmc,
+            now,
+        )
+        .is_err(),
+    )
+}
+/// Synchronize shared memory, SDRAM commands and refresh status with RCC/FMC.
+/// Both native and Rust hosts use this single implementation.
+pub fn synchronize_memory(
+    memory: &mut memory::SystemMemory,
+    clock: &Peripheral,
+    fmc: &mut Peripheral,
+    now: u64,
+) -> Result<(), &'static str> {
+    let hclk = clock.clock.domain_rate(1)?.ok_or("HCLK stopped")?;
+    let pclk = clock.clock.domain_rate(3)?.ok_or("PCLK2 stopped")?;
+    let reg = |offset| fmc.registers.get(&offset).copied().unwrap_or(0);
+    let enabled =
+        clock.clock.read(0xd4) & (1 << 12) != 0 && clock.clock.read(0x7c) & (1 << 12) == 0;
+    let timing = if enabled {
+        clock
+            .clock
+            .fmc_rate()?
+            .and_then(|r| bus::SdramTiming::decode(reg(0x140), reg(0x148), reg(0x154), r).ok())
+    } else {
+        None
+    };
+    let now = now.max(memory.now());
+    memory.advance_time(now)?;
+    memory.configure_bus(hclk, pclk, timing);
+    if fmc.registers.remove(&0x10000).is_some() {
+        memory.fabric.clear_sdram_refresh_error();
+    }
+    while let Some(command) = fmc.fmc_commands.pop_front() {
+        memory.fabric.sdram_command(command)?;
+    }
+    memory.advance_time(now)?;
+    fmc.registers.insert(0x158, memory.fabric.sdram_status());
+    Ok(())
 }
 
 /// # Safety
@@ -1194,39 +1264,12 @@ pub unsafe extern "C" fn daisy_sai_tick_codec(
     codec: *mut Peripheral,
     ideal_line: u32,
 ) -> u32 {
-    let Ok(mask) = (*codec).read(0x100) else {
-        return 1;
-    };
     let sample = (*state).sai.input_sample();
-    let sample = if ideal_line != 0 {
-        match (*codec).nominal_adc_passband(sample) {
-            Ok(sample) => sample,
-            Err(_) => return 1,
-        }
-    } else {
-        sample
-    };
-    let previous_frames = (*state).sai.output.len();
-    (*state).sai.tick_sample(mask, sample);
-    if (*state).sai.output.len() != previous_frames {
-        if let Some(frame) = (*state).sai.output.last_mut() {
-            // WM8731 Table 15: LRSWAP routes DAC data only. ADC ordering and
-            // the AK4556/PCM3060 hardware-mode interfaces remain independent.
-            if (*codec).kind == 4
-                && (*codec).registers.get(&7).copied().unwrap_or(0) & (1 << 5) != 0
-            {
-                frame.swap(0, 1);
-            }
-            if ideal_line == 0 {
-                return 0;
-            }
-            let Ok(delayed) = (*codec).nominal_dac_passband(*frame) else {
-                return 1;
-            };
-            *frame = if mask & 2 != 0 { delayed } else { [0.0; 2] };
-        }
-    }
-    0
+    u32::from(
+        (*state)
+            .audio_frame_with_codec(&mut *codec, sample, ideal_line != 0)
+            .is_err(),
+    )
 }
 
 /// # Safety

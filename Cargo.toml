@@ -1,18 +1,29 @@
 [package]
 name = "virtual-daisy"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 publish = false
 authors = ["Nathan Bradshaw", "Enoch Bradshaw"]
 description = "Daisy Seed peripheral models and firmware runner"
 repository = "https://github.com/UnitedCode/virtual-daisy"
 readme = "README.md"
+license = "MIT"
 
 [workspace]
+exclude = ["cpu"]
+
+[features]
+default = ["rust-host"]
+rust-host = ["dep:zmu_cortex_m"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[[example]]
+name = "record_i2c"
+required-features = ["rust-host"]
+
 [dependencies]
 hound = "3.5"
 sha2 = "0.10.9"
+zmu_cortex_m = { path = "cpu", optional = true, default-features = false, features = ["armv7em", "fpv5-d16"] }

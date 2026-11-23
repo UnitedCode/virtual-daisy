@@ -1,4 +1,4 @@
-//! Physical Seed variants. Sources and evidence limits: docs/daisy-conformance.md.
+//! Physical Seed variants. Sources and evidence limits: docs/conformance.md.
 use std::str::FromStr;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

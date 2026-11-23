@@ -43,6 +43,7 @@ impl IsaFloatingPointLoadAndStore for Processor {
             } else {
                 base - params.imm32
             };
+            self.require_alignment(address, 4)?;
             match params.dd {
                 ExtensionReg::Single { reg } => {
                     let data = self.read32(address)?;
@@ -72,6 +73,7 @@ impl IsaFloatingPointLoadAndStore for Processor {
             } else {
                 base - params.imm32
             };
+            self.require_alignment(address, 4)?;
             match params.dd {
                 ExtensionReg::Single { reg } => {
                     let value = self.get_sr(reg);
@@ -94,6 +96,7 @@ impl IsaFloatingPointLoadAndStore for Processor {
         if self.condition_passed() {
             self.execute_fp_check()?;
             let base = self.get_r(params.rn);
+            self.require_alignment(base, 4)?;
             let mut address = if params.mode == AddressingMode::IncrementAfter {
                 base
             } else {
@@ -130,6 +133,7 @@ impl IsaFloatingPointLoadAndStore for Processor {
         if self.condition_passed() {
             self.execute_fp_check()?;
             let base = self.get_r(params.rn);
+            self.require_alignment(base, 4)?;
             let mut address = if params.mode == AddressingMode::IncrementAfter {
                 base
             } else {
@@ -163,6 +167,7 @@ impl IsaFloatingPointLoadAndStore for Processor {
 
             let sp = self.get_r(Reg::SP);
             let mut address = sp - params.imm32;
+            self.require_alignment(address, 4)?;
             self.set_r(Reg::SP, address);
 
             if params.single_regs {
@@ -197,6 +202,7 @@ impl IsaFloatingPointLoadAndStore for Processor {
 
             let sp = self.get_r(Reg::SP);
             let mut address = sp;
+            self.require_alignment(address, 4)?;
             self.set_r(Reg::SP, sp + params.imm32);
             if params.single_regs {
                 for reg in &params.single_precision_registers {
@@ -233,6 +239,7 @@ impl IsaFloatingPointLoadAndStore for Processor {
                 self.get_r(params.rn) - params.imm32
             };
 
+            self.require_alignment(address, 4)?;
             if params.write_back {
                 let write_back_value = if params.mode == AddressingMode::IncrementAfter {
                     self.get_r(params.rn) + params.imm32
@@ -270,6 +277,7 @@ impl IsaFloatingPointLoadAndStore for Processor {
                 self.get_r(params.rn) - params.imm32
             };
 
+            self.require_alignment(address, 4)?;
             if params.write_back {
                 let write_back_value = if params.mode == AddressingMode::IncrementAfter {
                     self.get_r(params.rn) + params.imm32
