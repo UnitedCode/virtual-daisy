@@ -18,6 +18,7 @@ mod bfc;
 mod bfi;
 mod cbz;
 mod clrex;
+mod core_encoding;
 mod dbg;
 #[cfg(feature = "has-fp")]
 mod fp_encoding;
@@ -82,7 +83,6 @@ mod orn;
 mod orr;
 
 mod pld;
-mod pli;
 mod pop;
 mod push;
 
@@ -251,7 +251,6 @@ use {
     orn::{decode_ORN_imm_t1, decode_ORN_reg_t1},
     orr::{decode_ORR_imm_t1, decode_ORR_reg_t1, decode_ORR_reg_t2},
     pld::{decode_PLD_imm_t1, decode_PLD_imm_t2, decode_PLD_lit_t1, decode_PLD_reg_t1},
-    pli::{decode_PLI_lit_imm_t1, decode_PLI_lit_imm_t2, decode_PLI_lit_imm_t3, decode_PLI_reg_t1},
     pop::{decode_POP_reg_t1, decode_POP_t2, decode_POP_t3},
     push::{decode_PUSH_t1, decode_PUSH_t2, decode_PUSH_t3},
     rbit::decode_RBIT_t1,
@@ -389,7 +388,22 @@ include!(concat!(env!("OUT_DIR"), "/decode_16.rs"));
 include!(concat!(env!("OUT_DIR"), "/decode_32.rs"));
 
 fn decode_32(opcode: u32) -> Instruction {
+    let hint = core_encoding::memory_hint(opcode);
+    if hint == Some(false) {
+        return decode_UDF_t2(opcode);
+    }
     let instruction = decode_32_raw(opcode);
+    if hint == Some(true)
+        && !matches!(
+            instruction,
+            Instruction::PLD_imm { .. } | Instruction::PLD_lit { .. } | Instruction::PLD_reg { .. }
+        )
+    {
+        return Instruction::NOP { thumb32: true };
+    }
+    if core_encoding::invalid_pc_write(&instruction) {
+        return decode_UDF_t2(opcode);
+    }
     #[cfg(feature = "has-fp")]
     if !fp_encoding::valid(opcode, &instruction) {
         return decode_UDF_t2(opcode);
@@ -399,7 +413,7 @@ fn decode_32(opcode: u32) -> Instruction {
 // Reject a stale generated table instead of running firmware with old masks.
 #[cfg(feature = "has-dsp-ext")]
 use self::{uxt::decode_UXTB16_t1, uxtab::decode_UXTAB_t1};
-const _: () = assert!(GENERATED_DECODER_REVISION == 16);
+const _: () = assert!(GENERATED_DECODER_REVISION == 17);
 const _: () = assert!(
     GENERATED_DECODER_PROFILE
         == (cfg!(feature = "has-fp") as u8)

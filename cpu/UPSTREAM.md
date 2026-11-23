@@ -173,3 +173,12 @@ Cortex-M FP exception helper accumulates status rather than reaching an
 unimplemented host trap. The architectural guest writes every reserved FPSCR
 bit into the saved frame and checks restored state on both backends, including
 lazy/eager preservation and shared SRAM. The capture remains 112 words.
+
+The decoder now classifies the Armv7-M byte/halfword memory-hint space before
+dispatching loads. PLI and unallocated hints act as NOPs; undefined forms fault.
+The old PLI-as-UDF placeholders are removed. Forbidden PC destinations and
+writeback bases are rejected before execution, retaining valid narrow MOV/ADD
+and word LDR writes to PC and the compare/test aliases. UDF now respects a
+failed IT condition. The architectural guest checks nine hints and skipped
+16/32-bit UDFs, preserving APSR/base/offset and capturing 116 words. Decoder
+revision is 17. The reference adapter remains 19.

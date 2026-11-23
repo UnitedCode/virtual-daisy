@@ -1072,7 +1072,13 @@ impl ExecutorHelper for Processor {
             // Fallback: unknown instruction
             //
             // --------------------------------------------
-            Instruction::UDF { .. } => Err(Fault::UndefInstr),
+            Instruction::UDF { .. } => {
+                if self.condition_passed() {
+                    Err(Fault::UndefInstr)
+                } else {
+                    Ok(ExecuteSuccess::NotTaken)
+                }
+            }
         }
     }
 }
