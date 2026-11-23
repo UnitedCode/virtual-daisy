@@ -72,7 +72,7 @@ impl IsaFloatingPointRegisterTransfer for Processor {
             return Err(crate::core::fault::Fault::UndefInstr);
         }
         self.execute_fp_check()?;
-        self.fpscr = self.get_r(source) & 0xf7c0_009f;
+        self.fpscr = self.get_r(source) & crate::peripheral::scb::FPSCR_WRITABLE_MASK;
         Ok(ExecuteSuccess::Taken { cycles: 1 })
     }
     #[inline(always)]

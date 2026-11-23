@@ -1509,27 +1509,38 @@ impl FloatingPointChecks for Processor {
         Ok(())
     }
 
-    fn fp_process_exception(&mut self, exc: FPExc, fpscr_val: u32) {
-        let (enable, cumul) = match exc {
-            FPExc::InvalidOp => (8, 0),
-            FPExc::DivideByZero => (9, 1),
-            FPExc::Overflow => (10, 2),
-            FPExc::Underflow => (11, 3),
-            FPExc::Inexact => (12, 4),
-            FPExc::InputDenorm => (15, 7),
+    fn fp_process_exception(&mut self, exc: FPExc, _fpscr_val: u32) {
+        // Cortex-M implements cumulative status, not FP exception enables.
+        let cumul = match exc {
+            FPExc::InvalidOp => 0,
+            FPExc::DivideByZero => 1,
+            FPExc::Overflow => 2,
+            FPExc::Underflow => 3,
+            FPExc::Inexact => 4,
+            FPExc::InputDenorm => 7,
         };
-        if fpscr_val.get_bit(enable) {
-            // implementation defined trap handling
-            todo!()
-        } else {
-            self.fpscr.set_bit(cumul, true);
-        }
+        self.fpscr.set_bit(cumul, true);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reserved_exception_enable_bits_do_not_trap_on_cortex_m() {
+        let mut cpu = Processor::new();
+        for exception in [
+            FPExc::InvalidOp,
+            FPExc::DivideByZero,
+            FPExc::Overflow,
+            FPExc::Underflow,
+            FPExc::Inexact,
+            FPExc::InputDenorm,
+        ] {
+            cpu.fp_process_exception(exception, 0x00009f00);
+        }
+        assert_eq!(cpu.fpscr, 0x9f);
+    }
     use crate::Processor;
     use crate::bus::Bus;
     use crate::core::bits::Bits;

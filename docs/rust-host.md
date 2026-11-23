@@ -25,7 +25,7 @@ development. Pin the Git revision or a release tag in shared projects:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.30" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.31" }
 ```
 
 `rust-host` is enabled by default. Projects using only the peripheral models or

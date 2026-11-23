@@ -155,6 +155,8 @@ unsafe extern "C" fn probe_svc(frame: *mut u32, return_code: u32) {
     }
     record(46, read(0xe000ef34) & 1);
     record(49, read_volatile(frame.add(8)));
+    // Reserved FPSCR bits must not become exception enables on unstacking.
+    write_volatile(frame.add(24), read_volatile(frame.add(24)) | 0x083fff60);
 }
 #[no_mangle]
 unsafe extern "C" fn probe_main() -> ! {

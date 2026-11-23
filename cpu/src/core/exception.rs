@@ -611,7 +611,8 @@ impl ExceptionHandlingHelpers for Processor {
                         let reg = SingleReg::from(i as u8);
                         self.set_sr(reg, value);
                     }
-                    self.fpscr = self.read32(frameptr.wrapping_add(0x60))?;
+                    self.fpscr = self.read32(frameptr.wrapping_add(0x60))?
+                        & crate::peripheral::scb::FPSCR_WRITABLE_MASK;
                 }
             }
             self.control.fpca = !exc_return.get_bit(4);
@@ -1265,7 +1266,7 @@ mod tests {
         for i in 0..16 {
             assert_eq!(core.get_sr(SingleReg::from(i as u8)), 0x2222_0000 + i);
         }
-        assert_eq!(core.fpscr, 0xabcd_1234);
+        assert_eq!(core.fpscr, 0xa3c0_0014);
         assert!(core.control.fpca);
         assert_eq!(core.get_msp(), FRAMEPTR + 0x68);
     }
