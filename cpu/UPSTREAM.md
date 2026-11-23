@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.22. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.23. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 VSEL is decoded only by FPv5 profiles. Decoder tests assert undefined instructions
 when a profile lacks double precision or FPv5 rounding/selection instructions.
@@ -192,3 +192,14 @@ their address arithmetic rather than panicking in debug builds. The ARM guest
 checks both literal pools and wrapped table accesses against the independent
 reference, bringing its capture to 128 words. Decoder revision is 18; reference
 adapter 19 and instruction retirement costs are unchanged.
+
+Wide REV/REV16/REVSH now decode to the existing byte-reversal operations.
+Their repeated source fields must agree, and SP/PC operands are rejected.
+Negative wide ADR now decodes, with an explicit add/subtract field shared by
+all ADR forms and wrapping PC-relative arithmetic. Both signs reject SP/PC
+destinations. Tests cover every wide ADR immediate/destination at both PC
+alignments and address wrap boundaries, all reversal register pairs/aliases,
+all low halfwords for REVSH, flags and skipped conditions. The architectural
+guest checks both ADR directions and all three reversals against Renode without
+enlarging its 128-word capture. Decoder revision is 19; reference adapter 19
+and instruction retirement costs remain unchanged.

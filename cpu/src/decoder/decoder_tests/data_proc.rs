@@ -149,7 +149,12 @@ fn test_decode_adds_w() {
 fn test_decode_adr() {
     // ADR R0, PC, #(7<<2)
     match decode_16(0xa007) {
-        Instruction::ADR { params, thumb32 } => {
+        Instruction::ADR {
+            params,
+            add,
+            thumb32,
+        } => {
+            assert!(add);
             assert!(params.r == Reg::R0);
             assert!(params.imm32 == 7 << 2);
             assert!(!thumb32);

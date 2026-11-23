@@ -21,7 +21,7 @@ pub trait IsaStandardDataProcessing {
     fn exec_adc_reg(&mut self, params: &Reg3ShiftParams) -> ExecuteResult;
     fn exec_adc_imm(&mut self, params: &Reg2ImmParams) -> ExecuteResult;
 
-    fn exec_adr(&mut self, params: RegImmParams) -> ExecuteResult;
+    fn exec_adr(&mut self, params: RegImmParams, add: bool) -> ExecuteResult;
 
     fn exec_and_imm(&mut self, params: &Reg2ImmCarryParams) -> ExecuteResult;
     fn exec_and_reg(&mut self, params: &Reg3ShiftParams) -> ExecuteResult;
@@ -160,9 +160,14 @@ impl IsaStandardDataProcessing for Processor {
         Ok(ExecuteSuccess::NotTaken)
     }
     #[inline(always)]
-    fn exec_adr(&mut self, params: RegImmParams) -> ExecuteResult {
+    fn exec_adr(&mut self, params: RegImmParams, add: bool) -> ExecuteResult {
         if self.condition_passed() {
-            let result = (self.get_r(Reg::PC) & 0xffff_fffc) + params.imm32;
+            let base = self.get_r(Reg::PC) & !3;
+            let result = if add {
+                base.wrapping_add(params.imm32)
+            } else {
+                base.wrapping_sub(params.imm32)
+            };
             self.set_r(params.r, result);
             return Ok(ExecuteSuccess::Taken { cycles: 1 });
         }

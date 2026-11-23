@@ -7,7 +7,7 @@ interpreter, not a Rust port of Renode.
 **Functional comparisons pass for the cases below. Full physical-device or
 cycle-for-cycle equivalence has not been established.**
 
-## Compared on 22 November 2026
+## Comparison coverage, updated 23 November 2026
 
 Consumer firmware attachment exposed two additional missing paths. Keyboard
 Keyboard's unchanged main ELF reaches `UQADD16`/`UQSUB16` in its drift clamp;
@@ -32,7 +32,7 @@ Guests were built with Rust 1.97.1 for `thumbv7em-none-eabihf`, Cortex-M7,
 
 | Executed firmware | Comparison |
 | --- | --- |
-| CPU faults and FPU | All 104 result words match for DTCM/shared SRAM stacks and lazy/eager FP saves. Includes divide-by-zero, normal/forced alignment, MPU denied/XN access, NOCP, f64 arithmetic, FP identifiers, scalar/paired VMOV bit transfers and precise fault PCs. |
+| CPU faults and FPU | All 128 result words match for DTCM/shared SRAM stacks and lazy/eager FP saves. Includes division, alignment, MPU denied/XN access, NOCP, f64 arithmetic, FP identifiers/state, scalar/paired VMOV bit transfers, memory hints, literal loads and precise fault PCs. |
 | Half-precision storage conversion | VCVTB/VCVTT convert directly between FP16 and binary32/binary64, preserving the other packed half. An ARM guest checks 6,144 register pairs, aliases and FPSCR. Restoring the reference's old double-half rejection must fault at the expected instruction. Numerical independence comes from the separate QEMU oracle below. |
 | Fixed-point conversion | An ARM guest checks 40 QEMU-pinned boundary cases across all populated registers: 960 executions, including signed extension, unsigned saturation and fractional scaling. The separate 401,408-record oracle covers every legal fractional-bit count. |
 | SysTick source selection | An ARM guest compares both CLKSOURCE settings against DWT cycles. The reference suite also restores the old core-only behavior as a required negative control. |
@@ -767,3 +767,26 @@ The fixed 200 ms production captures retain their v0.2.32 hashes: Rust produces
 These fixes add instruction coverage without establishing audio equivalence.
 Literal addressing follows the load definitions in the
 [Armv7-M architecture manual](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820).
+
+### Wide address and byte-reversal instructions (v0.2.34)
+
+Negative wide ADR and wide REV/REV16/REVSH previously decoded as undefined.
+ADR now carries an explicit add/subtract direction and wraps its word-aligned
+PC calculation at 32 bits. Both wide directions reject SP/PC destinations.
+The three reversals use the existing operations, with checks for forbidden
+registers and inconsistent duplicated source fields.
+
+Five regressions cover every ADR immediate and general-register destination,
+both PC alignments, positive/negative offsets and address wrapping. Reversal
+checks cover all general-register pairs and aliases, every low-halfword value
+for REVSH, unchanged registers/flags and failed IT conditions. They pass in
+debug builds as well as the ordinary and compiled release paths.
+
+The architectural guest checks forward/backward ADR and each wide reversal,
+including negative REVSH and an aliased high register. Its completion marker
+requires those checks to pass; the result capture remains 128 words. CPU 0.1.23
+uses decoder revision 19; native adapter 19 and retirement costs are unchanged.
+The instruction contracts follow ADR and REV/REV16/REVSH in the
+[Armv7-M architecture manual](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820),
+sections A7.7.7 and A7.7.111–113. These are functional checks, not calibrated
+instruction timing.
