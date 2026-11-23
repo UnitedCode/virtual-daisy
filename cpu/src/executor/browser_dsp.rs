@@ -29,6 +29,19 @@ impl Processor {
                 self.psr.value |= 1 << 27;
             }
             value as u32
+        } else if key == 0xfa90f050 || key == 0xfad0f050 {
+            if [rd, rn, rm].iter().any(|r| matches!(r, Reg::SP | Reg::PC)) {
+                return Err(Fault::UndefInstr);
+            }
+            // UQADD16/UQSUB16 saturate each unsigned lane without modifying any APSR flag.
+            let mut out = 0;
+            for shift in [0, 16] {
+                let x = ((a >> shift) & 0xffff) as i32;
+                let y = ((b >> shift) & 0xffff) as i32;
+                let z = if key == 0xfa90f050 { x + y } else { x - y };
+                out |= (z.clamp(0, 0xffff) as u32) << shift;
+            }
+            out
         } else if key == 0xfa80f050 || key == 0xfac0f050 {
             let mut out = 0;
             for lane in 0..4 {

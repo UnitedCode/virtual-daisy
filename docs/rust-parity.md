@@ -9,6 +9,21 @@ cycle-for-cycle equivalence has not been established.**
 
 ## Compared on 22 November 2026
 
+Consumer firmware attachment exposed two additional missing paths. Keyboard
+Keyboard's unchanged main ELF reaches `UQADD16`/`UQSUB16` in its drift clamp;
+Synthphone's unchanged MIDI receiver uses byte reads of USART1 RDR. The Rust
+host now executes the two saturating halfword operations and accepts byte and
+halfword RDR/TDR accesses at their exact data-register addresses. Narrow control
+register accesses remain outside the implemented contract.
+
+`cpu/tests/device_dsp.rs` runs literal Thumb encodings, checks independent lane
+results and unchanged NZCVQ/GE flags. `tests/rust_machine.rs` runs actual ARM
+LDRB/LDRH/STRB/STRH instructions, checks receive consumption and verifies two
+transmitted bytes remain 320 us apart at 31,250 baud. These tests establish the
+emulator paths; complete device acceptance belongs to the project circuit labs.
+Sources: [Arm instruction guide, UQADD16/UQSUB16](https://documentation-service.arm.com/static/5e7b6a6216d2907d594035c4),
+[ST RM0433 USART registers](https://www.st.com/resource/en/reference_manual/rm0433-stm32h742-stm32h743-753-and-stm32h750-value-line-advanced-armbased-32bit-mcus-stmicroelectronics.pdf).
+
 Reference: Renode 1.17.0 macOS arm64 runtime, with the repository's pinned native
 adapter. Infrastructure commit `066a7f13c052215632d469c995c89aea37c573b1`;
 tlib commit `167decf9129758829762e582939128c0694e90d6`. Downloads are checksum-checked.

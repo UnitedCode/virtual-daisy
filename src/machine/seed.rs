@@ -548,6 +548,13 @@ impl Seed {
             self.update_carrier()?;
             return self.gpio[p].read(u64::from((a - 0x58020000) % 0x400));
         }
+        // The HAL reads RDR as u8/u16. Each access consumes exactly one received character.
+        if (w == 1 || w == 2) && a == 0x40011024 {
+            return self
+                .serial
+                .read(0x24, self.now)
+                .map(|value| value & if w == 1 { 0xff } else { 0xffff });
+        }
         if w != 4 && !(0x52005000..0x52005034).contains(&a) {
             return Err("unsupported peripheral access width");
         }
@@ -605,6 +612,15 @@ impl Seed {
                 self.codec.codec_control(high)?;
             }
             return Ok(());
+        }
+        // TDR accepts the same byte/halfword accesses used by embedded-hal's serial Tx.
+        if (w == 1 || w == 2) && a == 0x40011028 {
+            return self.serial.write(
+                0x28,
+                v & if w == 1 { 0xff } else { 0xffff },
+                self.now,
+                self.clock.domain_hz(3)? as u64,
+            );
         }
         if w != 4 && !(0x52005000..0x52005034).contains(&a) {
             return Err("unsupported peripheral access width");
