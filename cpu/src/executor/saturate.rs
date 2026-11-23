@@ -44,10 +44,13 @@ impl IsaSaturate for Processor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{core::instruction::Instruction, decoder::decode_32};
+    use crate::{core::instruction::Instruction, decoder::Decoder};
+    fn decode(opcode: u32) -> Instruction {
+        Processor::new().decode(opcode.into())
+    }
     #[test]
     fn ssat_decodes_and_executes_the_compiled_overdub_opcode_with_sticky_q() {
-        let ins = decode_32(0xf301_0117);
+        let ins = decode(0xf301_0117);
         assert_eq!(
             ins,
             Instruction::SSAT {
@@ -97,14 +100,14 @@ mod tests {
             p.exec_ssat(Reg::R1, Reg::R0, bits, kind, n).unwrap();
             assert_eq!(p.get_r(Reg::R1), expected as u32);
         }
-        assert!(matches!(decode_32(0xf321_0107), Instruction::UDF { .. }));
-        assert!(matches!(decode_32(0xf301_0f17), Instruction::UDF { .. }));
+        assert!(matches!(decode(0xf321_0107), Instruction::UDF { .. }));
+        assert!(matches!(decode(0xf301_0f17), Instruction::UDF { .. }));
         assert!(matches!(
-            decode_32(0xf301_2117),
+            decode(0xf301_2117),
             Instruction::SSAT { shift_n: 8, .. }
         ));
         assert!(matches!(
-            decode_32(0xf321_0157),
+            decode(0xf321_0157),
             Instruction::SSAT {
                 shift_t: SRType::ASR,
                 shift_n: 1,
