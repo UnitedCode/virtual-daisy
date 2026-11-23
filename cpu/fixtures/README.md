@@ -66,6 +66,16 @@ by the addend and tiny products perturbing the normal/subnormal boundary.
 QEMU 11.1.3 and rustc 1.97.1 reproduce the fixture and the six earlier datasets
 unchanged. The generator writes `isa_oracle.fused.bin`.
 
+`isa_oracle_precision.bin` adds 32,768 seven-word records from
+`precision_oracle.rs`: direction (0=binary32 to binary64, 1=reverse), input
+low/high, initial FPSCR, result low/high and final FPSCR. Each direction uses
+1,024 boundary/seeded inputs under all rounding and FZ/DN combinations. Cases
+include NaN signs/payloads, overflow, exact subnormals, ties and values immediately
+around the binary32 normal/subnormal boundary. Tests also replay sticky flags
+and cover every legal register pairing, including overlapping source/destination
+storage. QEMU 11.1.3 and rustc 1.97.1 reproduce this fixture and all seven earlier
+datasets unchanged. The generator writes `isa_oracle.precision.bin`.
+
 Regenerate from the repository root:
 
 ```sh

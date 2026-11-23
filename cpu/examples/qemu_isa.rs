@@ -69,10 +69,13 @@ fn main() {
     let mut rounding = Vec::new();
     let mut arithmetic = Vec::new();
     let mut fused = Vec::new();
+    let mut precision = Vec::new();
     for line in hex.lines() {
-        assert!(matches!(line.len(), 40 | 48 | 64 | 72 | 80 | 88 | 104));
+        assert!(matches!(line.len(), 40 | 48 | 56 | 64 | 72 | 80 | 88 | 104));
         let destination = if line.len() == 40 {
             &mut bytes
+        } else if line.len() == 56 {
+            &mut precision
         } else if line.len() == 64 {
             &mut doubles
         } else if line.len() == 80 {
@@ -104,6 +107,8 @@ fn main() {
     fs::write(output.with_extension("arithmetic.bin"), &arithmetic).unwrap();
     assert_eq!(fused.len(), 49_152 * 13 * 4);
     fs::write(output.with_extension("fused.bin"), &fused).unwrap();
+    assert_eq!(precision.len(), 32_768 * 7 * 4);
+    fs::write(output.with_extension("precision.bin"), &precision).unwrap();
     fs::remove_file(&elf).unwrap();
     fs::remove_file(&capture).unwrap();
     println!("1050 QEMU ARM-ISA reference cases; {} bytes", bytes.len());
@@ -128,4 +133,8 @@ fn main() {
         arithmetic.len()
     );
     println!("49152 QEMU fused arithmetic cases; {} bytes", fused.len());
+    println!(
+        "32768 QEMU precision conversion cases; {} bytes",
+        precision.len()
+    );
 }

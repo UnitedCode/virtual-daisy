@@ -30,7 +30,7 @@ single stack lists, exact memory transfers, malformed counts in debug/release,
 and double-bank boundaries. Single-only profiles keep doubleword storage moves
 while rejecting double-precision arithmetic.
 
-The local CPU revision is 0.1.5. Generated decoder tables have a checked revision
+The local CPU revision is 0.1.6. Generated decoder tables have a checked revision
 and deterministic ordering so stale build output cannot quietly omit new masks.
 
 Changes are checked against the upstream instruction suite, executed ARM guests,
@@ -42,6 +42,10 @@ Software binary arithmetic uses rustc_apfloat 0.2.3+llvm-462a31f5a5ab
 LLVM-exception. ARM-specific NaN priority, input/output flush-to-zero, tininess
 before rounding and finite-overflow flags are applied around its IEEE arithmetic.
 Square root uses a restoring integer algorithm with exact remainder rounding.
+Binary32/binary64 precision conversion also uses APFloat, with ARM NaN payload
+conversion, FPSCR rounding, flush controls and sticky exception flags. Its
+independent 32,768-record oracle covers both instruction execution paths and
+every legal source/destination pairing, including overlapping register storage.
 Guarded native arithmetic remains available. The independent arithmetic oracle
 checks all rounding modes on both execution paths with native arithmetic on/off.
 

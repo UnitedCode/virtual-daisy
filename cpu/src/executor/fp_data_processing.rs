@@ -714,8 +714,12 @@ impl IsaFloatingPointDataProcessing for Processor {
     fn exec_vcvt_f64_f32(&mut self, params: VCVTParamsF64F32) -> ExecuteResult {
         if self.condition_passed() {
             self.execute_fp_check()?;
-            let source = f32::from_bits(self.get_sr(params.sm));
-            let result = f64::from(source).to_bits();
+            let (result, flags) = super::fp_ieee::convert_precision(
+                u64::from(self.get_sr(params.sm)),
+                32,
+                self.fpscr,
+            );
+            self.fpscr |= flags;
             self.set_dr(params.dd, result as u32, (result >> 32) as u32);
             return Ok(ExecuteSuccess::Taken { cycles: 1 });
         }
@@ -727,9 +731,13 @@ impl IsaFloatingPointDataProcessing for Processor {
         if self.condition_passed() {
             self.execute_fp_check()?;
             let (lower, upper) = self.get_dr(params.dm);
-            let source = f64::from_bits((u64::from(upper) << 32) | u64::from(lower));
-            let result = (source as f32).to_bits();
-            self.set_sr(params.sd, result);
+            let (result, flags) = super::fp_ieee::convert_precision(
+                (u64::from(upper) << 32) | u64::from(lower),
+                64,
+                self.fpscr,
+            );
+            self.fpscr |= flags;
+            self.set_sr(params.sd, result as u32);
             return Ok(ExecuteSuccess::Taken { cycles: 1 });
         }
         Ok(ExecuteSuccess::NotTaken)
