@@ -1046,7 +1046,8 @@ in 80 ms. This fixture checks service ordering within the models. Firmware
 that reads a receive ring from a transmit interrupt can still observe an
 older word if the receive transfer is pending.
 
-The unchanged Synthphone ELF produces the same 80 ms reference WAV before
-and after this change. Its comparison with Rust still has three fewer Rust
-frames and a PCM difference. The receive DMA words matched through the
-200 ms overlap on the earlier reference build, while transmit words differed.
+The unchanged Synthphone ELF produces 3,241 Renode frames in 80 ms before
+and after this change. The clean comparison between those versions has
+0.004943 RMS error. Rust produces 3,238 frames and still differs from the new
+reference by 0.071121 RMS on the overlap. Earlier 200 ms traces matched all
+overlapping receive DMA words while transmit words differed.
