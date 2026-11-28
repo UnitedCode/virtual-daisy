@@ -16,7 +16,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint RateNative(IntPtr state, uint cr1, uint frcr, out ulong numerator, out ulong denominator);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate ulong DomainNative(IntPtr state,uint domain);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate ulong DwtNative(IntPtr state, ulong offset, uint value, uint write, ulong now);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint SaveNative(IntPtr state, uint cr1, uint frcr, [MarshalAs(UnmanagedType.LPUTF8Str)] string path);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint SaveNative(IntPtr state, IntPtr sai, uint cr1, uint frcr, [MarshalAs(UnmanagedType.LPUTF8Str)] string path);
         public DaisyRcc(IMachine machine, string libraryPath, IHasDivisibleFrequency systick = null)
         {
             this.machine=machine;
@@ -28,7 +28,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             rate=Marshal.GetDelegateForFunctionPointer<RateNative>(NativeLibrary.GetExport(library,"daisy_clock_rate_ratio"));
             domain=Marshal.GetDelegateForFunctionPointer<DomainNative>(NativeLibrary.GetExport(library,"daisy_clock_domain"));
             dwt=Marshal.GetDelegateForFunctionPointer<DwtNative>(NativeLibrary.GetExport(library,"daisy_clock_dwt"));
-            save=Marshal.GetDelegateForFunctionPointer<SaveNative>(NativeLibrary.GetExport(library,"daisy_clock_save"));
+            save=Marshal.GetDelegateForFunctionPointer<SaveNative>(NativeLibrary.GetExport(library,"daisy_clock_save_capture"));
         }
         private bool Owned(long offset) { return offset==0x2c || (offset>=0x34 && offset<=0x44) || offset==0x4c || offset==0x50; }
         public uint ReadDoubleWord(long offset) { lock(sync) return Owned(offset) ? native.ReadDoubleWord(offset) : original.ReadDoubleWord(offset); }
@@ -58,7 +58,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             }
         }
         public void TraceEnable(bool enabled) { Dwt(0,enabled ? 1U:0U,3); }
-        public void Save(uint cr1,uint frcr,string path) { lock(sync) { if(save(native.State,cr1,frcr,path)!=0) throw new InvalidOperationException("Cannot save clock evidence"); } }
+        public void SaveCapture(IntPtr sai,uint cr1,uint frcr,string path) { lock(sync) { if(save(native.State,sai,cr1,frcr,path)!=0) throw new InvalidOperationException("Cannot save clock evidence"); } }
         public void Register(IPeripheral peripheral,EnumRegistrationPoint<STM32H7_RCC.RegistrationPeripheralAlias> point) {
             original.Register(peripheral,point);
             string name=point.Name.ToString();

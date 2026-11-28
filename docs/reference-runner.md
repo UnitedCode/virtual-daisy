@@ -33,6 +33,11 @@ isn't named `dotnet`. The first run downloads pinned, checksum-verified CPU engi
 sources and builds the native adapter. Later runs can reuse
 `VIRTUAL_DAISY_CORE_CACHE`.
 
+Each run keeps a copy of its compiled Rust model under `native/` in the
+output directory. The model hash in `conformance.txt` describes that copy.
+Shared build caches coordinate concurrent runners. Use separate output folders
+when you want to keep both runs.
+
 `--elf` takes precedence over `VIRTUAL_DAISY_ELF`. There is no assumed firmware
 checkout, Cargo package name or parent directory. Firmware must use a flash
 vector table at `0x08000000`. The Renode Monitor and Python execution are disabled.
@@ -61,8 +66,8 @@ and FIFOs. The capture keeps earlier samples and its FIFO error totals, and
 input playback resumes at the next sample. If recorded frames use multiple
 clock rates, the run keeps its diagnostic files and reports
 `capture_state=MIXED_SAMPLE_RATES` in `.wav.stats`. A WAV is saved only when
-the captured frames share a rate. Disabling the serial clock before the end
-retains the rate of the recorded WAV.
+the captured frames share a rate. The `.wav.clock.txt` rate describes the
+recorded frames. The raw SAI and RCC registers describe the end of the run.
 
 Reference boots and probes also have a separate **host wall-time** watchdog:
 180 seconds normally, 600 for keyboard/settings captures. On a slower host, set

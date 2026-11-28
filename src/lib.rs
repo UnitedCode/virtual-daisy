@@ -1189,6 +1189,29 @@ pub unsafe extern "C" fn daisy_clock_save(
 }
 
 /// # Safety
+/// Both states must be live and serialized. `path` must be NUL-terminated UTF-8.
+#[no_mangle]
+pub unsafe extern "C" fn daisy_clock_save_capture(
+    clock: *mut Peripheral,
+    sai: *mut Peripheral,
+    cr1: u32,
+    frcr: u32,
+    path: *const std::ffi::c_char,
+) -> u32 {
+    let Ok(path) = std::ffi::CStr::from_ptr(path).to_str() else {
+        return 1;
+    };
+    let audio = &(*sai).sai;
+    let Some(rate) = audio.capture_rate.filter(|_| !audio.mixed_sample_rates) else {
+        return 1;
+    };
+    let Ok(stats) = (*clock).clock.capture_stats(cr1, frcr, Some(rate)) else {
+        return 1;
+    };
+    u32::from(std::fs::write(path, stats).is_err())
+}
+
+/// # Safety
 /// `state` must be live/serialized and `path` a valid NUL-terminated UTF-8 string.
 #[no_mangle]
 pub unsafe extern "C" fn daisy_memory_save(

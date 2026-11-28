@@ -1,6 +1,6 @@
 [package]
 name = "virtual-daisy"
-version = "0.2.48"
+version = "0.2.49"
 edition = "2021"
 publish = false
 authors = ["Nathan Bradshaw", "Enoch Bradshaw"]

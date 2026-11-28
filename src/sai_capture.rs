@@ -170,4 +170,34 @@ mod tests {
         assert!(stats.contains("frames=3\nunderruns=0\noverruns=0\n"));
         assert!(stats.contains("capture_state=MIXED_SAMPLE_RATES"));
     }
+
+    #[test]
+    fn clock_report_uses_the_recorded_rate_after_the_guest_stops_sai() {
+        use crate::{daisy_clock_save_capture, daisy_sai_observe_rate, daisy_sai_tick, Peripheral};
+
+        let output = Output::new();
+        let path = format!("{}.clock.txt", output.path);
+        let c_path = std::ffi::CString::new(path.as_bytes()).unwrap();
+        let mut clock = Peripheral::new(13);
+        clock.write(0x50, 4).unwrap(); // HSI64 into the divider.
+        let mut sai = Peripheral::new(7);
+        sai.write(0xc, 63).unwrap();
+        sai.write(4, (4 << 20) | (6 << 5) | (1 << 16) | 1).unwrap();
+        unsafe {
+            assert_eq!(daisy_sai_observe_rate(&mut sai, 62_500, 1), 0);
+            daisy_sai_tick(&mut sai, 3);
+        }
+        sai.write(4, 0).unwrap();
+        unsafe {
+            assert_eq!(crate::daisy_clock_rate(&mut clock, 0, 63), 250_000.0);
+            assert_eq!(
+                daisy_clock_save_capture(&mut clock, &mut sai, 0, 63, c_path.as_ptr()),
+                0
+            );
+        }
+        let report = fs::read_to_string(path).unwrap();
+        assert!(report.contains("sai_rate_numerator=62500\nsai_rate_denominator=1\n"));
+        assert!(report.contains("sai_cr1=0x00000000\n"));
+        assert!(report.contains("sai_rate_source=CAPTURED_FRAMES\n"));
+    }
 }

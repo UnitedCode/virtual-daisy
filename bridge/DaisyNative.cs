@@ -389,13 +389,17 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public void LoadInput(float[] samples) { lock(sync) input(native.State, samples, (UIntPtr)(samples.Length / 2)); }
         public void Save(string path) {
             double exact;
+            uint endCr1,endFrcr;
             lock(sync) {
                 exact=captureRate(native.State);
                 if(!double.IsFinite(exact) || exact<0 || exact>384000) throw new InvalidOperationException("Invalid recorded audio rate");
                 if(save(native.State,path,checked((uint)Math.Round(exact)))!=0) throw new IOException("Could not save virtual SAI output");
+                if(exact==0) return;
+                endCr1=native.ReadDoubleWord(4);
+                endFrcr=native.ReadDoubleWord(0xc);
             }
-            if(exact==0) return;
-            rcc.Save(cr1,frcr,path+".clock.txt");
+            // The host saves capture evidence with emulation stopped.
+            rcc.SaveCapture(native.State,endCr1,endFrcr,path+".clock.txt");
             codec.Save(path+".codec.txt",IdealLineInput,exact);
         }
         public void Reset() { lock(sync) { native.Reset(); cr1=0; frcr=0;IRQ.Unset(); } }
