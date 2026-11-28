@@ -129,7 +129,7 @@ impl IsaStatusRegister for Processor {
                     0b001 => {
                         if self.current_mode_is_privileged() {
                             //BASEPRI
-                            self.basepri = r_n.get_bits(0..8) as u8;
+                            self.basepri = r_n as u8 & self.implemented_priority_mask();
                             self.execution_priority = self.get_execution_priority();
                         }
                     }
@@ -137,9 +137,9 @@ impl IsaStatusRegister for Processor {
                     0b010 => {
                         //BASEPRI_MAX
                         if self.current_mode_is_privileged() {
-                            let low_rn = r_n.get_bits(0..8) as u8;
-                            if low_rn != 0 && low_rn < self.basepri || self.basepri == 0 {
-                                self.basepri = low_rn;
+                            let candidate = r_n as u8 & self.implemented_priority_mask();
+                            if candidate != 0 && (self.basepri == 0 || candidate < self.basepri) {
+                                self.basepri = candidate;
                                 self.execution_priority = self.get_execution_priority();
                             }
                         }
@@ -178,33 +178,24 @@ impl IsaStatusRegister for Processor {
 
     #[cfg(feature = "armv6m")]
     fn exec_cps(&mut self, im: bool) -> ExecuteResult {
-        if im {
-            self.primask = true;
-        } else {
-            self.primask = false;
+        if self.current_mode_is_privileged() {
+            self.primask = im;
+            self.execution_priority = self.get_execution_priority();
         }
-        self.execution_priority = self.get_execution_priority();
         Ok(ExecuteSuccess::Taken { cycles: 1 })
     }
 
     #[cfg(not(feature = "armv6m"))]
     fn exec_cps(&mut self, im: bool, affect_pri: bool, affect_fault: bool) -> ExecuteResult {
-        if im {
+        if self.current_mode_is_privileged() {
             if affect_pri {
-                self.primask = true;
+                self.primask = im;
             }
-            if affect_fault && self.execution_priority > -1 {
-                self.faultmask = true;
+            if affect_fault && (!im || self.get_execution_priority() > -1) {
+                self.faultmask = im;
             }
-        } else {
-            if affect_pri {
-                self.primask = false;
-            }
-            if affect_fault {
-                self.faultmask = false;
-            }
+            self.execution_priority = self.get_execution_priority();
         }
-        self.execution_priority = self.get_execution_priority();
         Ok(ExecuteSuccess::Taken { cycles: 1 })
     }
 }

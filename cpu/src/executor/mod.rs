@@ -342,12 +342,18 @@ impl Processor {
         }
     }
 
+    fn configurable_exception_can_preempt(&self, exception: Exception) -> bool {
+        let group = 1_i16 << (((self.aircr >> 8) & 7) + 1);
+        let priority = self.get_exception_priority(exception) & !(group - 1);
+        priority < self.get_execution_priority()
+    }
+
     #[cfg(not(feature = "armv6m"))]
     fn fault_delivery_exception(&mut self, fault: Fault) -> Exception {
         if fault == Fault::DebugEvt {
-            let group = 1_i16 << (((self.aircr >> 8) & 7) + 1);
-            let priority = self.get_exception_priority(Exception::DebugMonitor) & !(group - 1);
-            if self.demcr & (1 << 16) != 0 && priority < self.get_execution_priority() {
+            if self.demcr & (1 << 16) != 0
+                && self.configurable_exception_can_preempt(Exception::DebugMonitor)
+            {
                 return Exception::DebugMonitor;
             }
             self.hfsr |= 1 << 31;
@@ -358,11 +364,9 @@ impl Processor {
             return mapped_exception;
         }
 
-        let enabled = self.configurable_fault_enabled(mapped_exception);
-        let group = 1_i16 << (((self.aircr >> 8) & 7) + 1);
-        let priority = self.get_exception_priority(mapped_exception) & !(group - 1);
-
-        if enabled && priority < self.get_execution_priority() {
+        if self.configurable_fault_enabled(mapped_exception)
+            && self.configurable_exception_can_preempt(mapped_exception)
+        {
             mapped_exception
         } else {
             self.set_hfsr_forced();
@@ -402,16 +406,16 @@ impl Processor {
     }
 
     fn handle_fault(&mut self, fault: Fault, fault_pc: u32) -> u32 {
-        let status = self.take_pending_fault_status();
-        self.handle_fault_with_status(fault, fault_pc, status)
+        self.handle_fault_with_return_address(fault, fault_pc, fault_pc)
     }
 
-    fn handle_fault_with_status(
+    fn handle_fault_with_return_address(
         &mut self,
         fault: Fault,
         fault_pc: u32,
-        status: FaultStatusContext,
+        return_address: u32,
     ) -> u32 {
+        let status = self.take_pending_fault_status();
         if self.bus_stalled() {
             return 0;
         }
@@ -433,7 +437,7 @@ impl Processor {
             return 12;
         }
 
-        match self.exception_entry(exception, fault_pc) {
+        match self.exception_entry(exception, return_address) {
             Ok(()) => {
                 if self.get_fault_trap_mode().should_trap(exception) {
                     self.queue_fault_trap(
@@ -1750,11 +1754,11 @@ mod tests {
         core.set_msp(0x2000_0100);
         core.write32(0xE000_ED24, SHCSR_BUSFAULTENA).unwrap();
 
-        let cycles = core.handle_fault_with_status(
+        let fault = core.fault_with_status(
             Fault::Preciserr,
-            0x0800_0230,
             FaultStatusContext::with_fault_address(0x4000_1000),
         );
+        let cycles = core.handle_fault(fault, 0x0800_0230);
 
         assert_eq!(cycles, 12);
         assert_eq!(core.psr.get_isr_number(), Exception::BusFault.into());
@@ -1771,11 +1775,7 @@ mod tests {
         core.write32(0xE000_ED24, SHCSR_BUSFAULTENA).unwrap();
         core.bfar = 0xfeed_face;
 
-        let cycles = core.handle_fault_with_status(
-            Fault::IBusErr,
-            0x0800_0240,
-            FaultStatusContext::default(),
-        );
+        let cycles = core.handle_fault(Fault::IBusErr, 0x0800_0240);
 
         assert_eq!(cycles, 12);
         assert_eq!(core.psr.get_isr_number(), Exception::BusFault.into());

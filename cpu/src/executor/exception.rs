@@ -20,7 +20,16 @@ pub trait IsaException {
 impl IsaException for Processor {
     fn exec_svc(&mut self) -> ExecuteResult {
         if self.condition_passed() {
-            let return_address = self.get_pc().wrapping_add(2);
+            let pc = self.get_pc();
+            let return_address = pc.wrapping_add(2);
+            // SVC completes before entering the handler. The saved IT state
+            // must describe the instruction at the return address.
+            self.it_advance();
+            if !self.configurable_exception_can_preempt(Exception::SVCall) {
+                let cycles =
+                    self.handle_fault_with_return_address(Fault::Forced, pc, return_address);
+                return Ok(ExecuteSuccess::Branched { cycles });
+            }
             self.exception_entry(Exception::SVCall, return_address)?;
             return Ok(ExecuteSuccess::Branched { cycles: 12 });
         }

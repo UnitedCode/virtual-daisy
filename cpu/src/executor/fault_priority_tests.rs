@@ -11,6 +11,7 @@ fn fixture() -> Processor {
         (16, 0x1a1),
         (20, 0x1c1),
         (24, 0x1e1),
+        (44, 0x101),
     ] {
         bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
     }
@@ -22,6 +23,57 @@ fn fixture() -> Processor {
     cpu.fault_trap_mode(FaultTrapMode::none());
     cpu.write32(0xe000ed24, 7 << 16).unwrap();
     cpu
+}
+
+#[test]
+fn svc_stacks_the_following_pc_and_it_slot_even_when_it_escalates() {
+    use crate::core::thumb::ThumbCode;
+
+    for (primask, basepri, active_priority, group, escalated) in [
+        (false, 0, None, 0, false),
+        (true, 0, None, 0, true),
+        (false, 0x40, None, 0, true),
+        (false, 0x80, None, 0, false),
+        (false, 0, Some(0x80), 0, false),
+        (false, 0, Some(0x50), 4, true),
+    ] {
+        let mut cpu = fixture();
+        cpu.primask = primask;
+        cpu.basepri = basepri;
+        cpu.aircr = group << 8;
+        cpu.set_exception_priority(Exception::SVCall, 0x40);
+        if let Some(priority) = active_priority {
+            cpu.set_exception_priority(Exception::SysTick, priority);
+            cpu.test_set_active_exception(Exception::SysTick);
+        }
+        cpu.psr.set_z_bit(true);
+        cpu.branch_write_pc(0x120);
+        let itt = cpu.decode(ThumbCode::Thumb16 { opcode: 0xbf04 });
+        cpu.execute(&itt, 2);
+        let svc = cpu.decode(ThumbCode::Thumb16 { opcode: 0xdf00 });
+        cpu.execute(&svc, 2);
+        assert_eq!(cpu.psr.get_isr_number(), if escalated { 3 } else { 11 });
+        assert_eq!(cpu.hfsr, if escalated { 1 << 30 } else { 0 });
+        assert_eq!(cpu.cfsr, 0);
+        assert_eq!(cpu.read32(cpu.msp + 24).unwrap(), 0x124);
+        assert_eq!(cpu.read32(cpu.msp + 28).unwrap() & 0x0600_fc00, 0x800);
+        assert_eq!(cpu.get_itstate(), 0);
+    }
+}
+
+#[test]
+fn svc_at_hardfault_priority_locks_up_at_the_instruction_address() {
+    let mut cpu = fixture();
+    cpu.faultmask = true;
+    let sp = cpu.msp;
+    cpu.branch_write_pc(0x120);
+    cpu.execute(&Instruction::SVC { imm32: 0 }, 2);
+    assert!(!cpu.running);
+    assert_eq!(cpu.msp, sp);
+    let trap = cpu.take_pending_fault_trap().unwrap();
+    assert_eq!(trap.trap_reason, FaultTrapReason::Lockup);
+    assert_eq!(trap.fault, Fault::Forced);
+    assert_eq!(trap.pc, 0x120);
 }
 
 #[test]
