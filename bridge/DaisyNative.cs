@@ -214,20 +214,31 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             if(number<0 || number>=8) throw new InvalidOperationException("Invalid DMA stream request");
             lock(sync)
             {
-                pending|=1U<<number;
-                if(!collecting) StartNext();
+                if(collecting) {
+                    sampledSaiRequests |= 1U << number;
+                } else {
+                    pending |= 1U << number;
+                    StartNext(0);
+                }
             }
         }
-        public void BeginBatch() { lock(sync) { collecting=true; } }
-        public bool EndBatch() { lock(sync) { collecting=false; return StartNext(); } }
+        public void BeginBatch() { lock(sync) { collecting=true; sampledSaiRequests=0; } }
+        public bool EndBatch() {
+            lock(sync) {
+                collecting=false;
+                // SAI GPIO pulses carry a snapshot of the FIFO request levels.
+                // Re-sample after the active beat instead of queuing stale levels.
+                return StartNext(sampledSaiRequests);
+            }
+        }
         public void Save(string path) { lock(sync) { if(save(native.State,path)!=0) throw new InvalidOperationException("Could not save DMA arbitration statistics"); } }
         public void RequirePendingRead(uint address) {
             lock(sync) if(!inFlight || writing || source!=address || token<2 || token>=ulong.MaxValue-1)
                 throw new InvalidOperationException("DMA read fixture did not reach an admitted pending response");
         }
-        private bool StartNext() {
+        private bool StartNext(uint saiLevels) {
             if(inFlight) return false;
-            uint winner=grant(native.State,pending);
+            uint winner=grant(native.State,pending | saiLevels);
             if(winner==uint.MaxValue) return false;
             pending&=~(1U<<(int)winner);
             ulong transfer=peek(native.State,winner);
@@ -270,7 +281,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             inFlight=false;token=0;disableAfterFlight=false;UpdateIrqs();
         }
         private void UpdateIrqs() { uint mask = irqs(native.State); for(int i = 0; i < 8; i++) Connections[i].Set((mask & (1U << i)) != 0); }
-        public void Reset() { lock(sync) { native.Reset(); pending=0; collecting=false;inFlight=false;token=0; UpdateIrqs(); } }
+        public void Reset() { lock(sync) { native.Reset(); pending=0; sampledSaiRequests=0; collecting=false;inFlight=false;token=0; UpdateIrqs(); } }
         public void Dispose() {clock.Dispose();}
         public Action Ready {get;set;}
         public long Size { get { return 0x400; } }
@@ -287,6 +298,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private readonly SaveDma save;
         private bool collecting;
         private uint pending;
+        private uint sampledSaiRequests;
         private readonly IManagedThread clock;
         private bool inFlight,writing,disableAfterFlight;
         private uint activeStream,source,destination,word;
@@ -348,7 +360,6 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private void PumpRequests() {
             for(int i=0;i<16;i++) {
                 uint mask=requests(native.State);
-                if(mask==0) return;
                 dma.BeginBatch();
                 if((mask&1)!=0) { DmaA.Set(true); DmaA.Set(false); }
                 if((mask&2)!=0) { DmaB.Set(true); DmaB.Set(false); }

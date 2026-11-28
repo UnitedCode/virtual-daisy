@@ -114,6 +114,34 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
+To exercise both SAI DMA streams, build the Rev5 loopback guest. Use the same
+48,014 Hz stereo `input.wav` on both runners, with different signals on the two
+channels so a channel swap is visible.
+
+```sh
+rustup target add thumbv7em-none-eabihf
+mkdir -p results
+rustc --edition=2021 --target thumbv7em-none-eabihf -C target-cpu=cortex-m7 \
+  -C opt-level=s -C panic=abort -C link-arg=-Tguests/flash.ld \
+  guests/audio_dma.rs -o results/loopback.elf
+cargo run --release --locked -- emulate --board rev5 --duration-ms 80 \
+  --elf results/loopback.elf --out results/rust --input input.wav --resample-input
+VIRTUAL_DAISY_AUDIO_STEPS=8 cargo run --release --locked -- capture \
+  /path/to/renode-runtime results/reference --board rev5 \
+  --elf results/loopback.elf input.wav
+```
+
+Check `report.txt` and `capture.wav.stats` for FIFO errors. Use the run folder
+printed by `emulate` in place of `RUN_ID` to compare the original frame indices.
+
+```sh
+cargo run --release --locked --example compare_audio -- \
+  results/rust/RUN_ID/audio.wav results/reference/capture.wav
+```
+
+Expect zero PCM error across the overlap. Total frame counts can differ because
+the modeled clock starts at different times.
+
 `cpu`, `storage`, `timing` and `probe` run standalone ARM conformance programs
 and their negative controls. They still take an ELF for artifact provenance, but
 do not test that application's audio. `run`, `startup`, `settings`, `levels` and
