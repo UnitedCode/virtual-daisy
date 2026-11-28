@@ -22,6 +22,8 @@ mod branch;
 mod coproc;
 mod divide;
 mod exception;
+#[cfg(all(test, not(feature = "armv6m")))]
+mod fault_priority_tests;
 #[cfg(feature = "has-fp")]
 mod fp_fast;
 mod load_and_store;
@@ -352,10 +354,15 @@ impl Processor {
             return Exception::HardFault;
         }
         let mapped_exception = fault.exception();
+        if mapped_exception == Exception::HardFault {
+            return mapped_exception;
+        }
 
         let enabled = self.configurable_fault_enabled(mapped_exception);
+        let group = 1_i16 << (((self.aircr >> 8) & 7) + 1);
+        let priority = self.get_exception_priority(mapped_exception) & !(group - 1);
 
-        if enabled {
+        if enabled && priority < self.get_execution_priority() {
             mapped_exception
         } else {
             self.set_hfsr_forced();
@@ -385,12 +392,13 @@ impl Processor {
         });
     }
 
-    fn is_lockup(exception: Exception, active_exception: Option<Exception>) -> bool {
+    fn is_lockup(&self, exception: Exception, active_exception: Option<Exception>) -> bool {
         exception == Exception::HardFault
-            && matches!(
-                active_exception,
-                Some(Exception::HardFault | Exception::NMI)
-            )
+            && (self.get_execution_priority() <= -1
+                || matches!(
+                    active_exception,
+                    Some(Exception::HardFault | Exception::NMI)
+                ))
     }
 
     fn handle_fault(&mut self, fault: Fault, fault_pc: u32) -> u32 {
@@ -412,7 +420,7 @@ impl Processor {
 
         self.record_fault_status(fault, status);
 
-        if Self::is_lockup(exception, active_exception) {
+        if self.is_lockup(exception, active_exception) {
             self.queue_fault_trap(
                 fault,
                 exception,
@@ -444,7 +452,7 @@ impl Processor {
                 self.record_fault_status(entry_fault, FaultStatusContext::default());
                 self.set_hfsr_forced();
                 let trap_reason = if exception == Exception::HardFault
-                    || Self::is_lockup(Exception::HardFault, active_exception)
+                    || self.is_lockup(Exception::HardFault, active_exception)
                 {
                     FaultTrapReason::Lockup
                 } else {
