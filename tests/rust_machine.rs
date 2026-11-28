@@ -1,5 +1,8 @@
 #![cfg(feature = "rust-host")]
-use virtual_daisy::{board::Board, machine::Machine};
+use virtual_daisy::{
+    board::Board,
+    machine::{InstructionPacing, Machine},
+};
 
 fn firmware() -> Vec<u8> {
     let mut code = vec![0; 0x98];
@@ -15,6 +18,35 @@ fn actual_arm_loads_and_stores_complete_through_the_shared_memory_path() {
     let mut m = Machine::from_binary(Board::Rev5, &firmware()).unwrap();
     m.run_until(10_000, 2000).unwrap();
     assert_eq!(m.read32(0x20000000).unwrap(), 0x12345678);
+}
+
+#[test]
+fn one_cycle_pacing_changes_elapsed_time_and_preserves_register_results() {
+    let image = firmware();
+    let mut modeled = Machine::from_binary(Board::Rev5, &image).unwrap();
+    let mut one_cycle = Machine::from_binary(Board::Rev5, &image).unwrap();
+    one_cycle
+        .set_instruction_pacing(InstructionPacing::OneCycle)
+        .unwrap();
+    for _ in 0..500 {
+        modeled.step().unwrap();
+        one_cycle.step().unwrap();
+    }
+    assert_eq!(modeled.registers(), one_cycle.registers());
+    assert_eq!(one_cycle.read32(0x20000000).unwrap(), 0x12345678);
+    assert!(one_cycle.time_ns() < modeled.time_ns());
+
+    let modeled_start = modeled.time_ns();
+    let one_cycle_start = one_cycle.time_ns();
+    for machine in [&mut modeled, &mut one_cycle] {
+        machine.write32(0xe000ed0c, 0x05fa0004).unwrap();
+        for _ in 0..500 {
+            machine.step().unwrap();
+        }
+        assert_eq!(machine.resets(), 1);
+    }
+    assert_eq!(modeled.registers(), one_cycle.registers());
+    assert!(one_cycle.time_ns() - one_cycle_start < modeled.time_ns() - modeled_start);
 }
 
 #[test]

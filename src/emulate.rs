@@ -6,10 +6,13 @@ use std::{
     io::Write,
     time::{SystemTime, UNIX_EPOCH},
 };
-use virtual_daisy::{board::Board, machine::Machine};
+use virtual_daisy::{
+    board::Board,
+    machine::{InstructionPacing, Machine},
+};
 
 fn help() -> &'static str {
-    "Usage: virtual-daisy demo --board rev5 --out results/demo\n       virtual-daisy emulate --elf firmware.elf --board rev4|rev5|rev7 --out results/capture\n         [--duration-ms 1000] [--max-steps 50000000] [--input audio.wav] [--resample-input] [--qspi flash.vdnor]\n\nRust only. No Renode or .NET installation is needed. Captures get a new subdirectory; earlier runs are preserved."
+    "Usage: virtual-daisy demo --board rev5 --out results/demo\n       virtual-daisy emulate --elf firmware.elf --board rev4|rev5|rev7 --out results/capture\n         [--duration-ms 1000] [--max-steps 50000000] [--input audio.wav] [--resample-input] [--qspi flash.vdnor]\n         [--instruction-pacing modeled|one-cycle]\n\nRust only. No Renode or .NET installation is needed. Captures get a new subdirectory; earlier runs are preserved."
 }
 pub fn run(args: &[OsString]) -> Result<()> {
     if args.iter().any(|s| s == "--help" || s == "-h") {
@@ -25,6 +28,7 @@ pub fn run(args: &[OsString]) -> Result<()> {
     let mut input = None;
     let mut resample_input = false;
     let mut qspi = None;
+    let mut pacing = InstructionPacing::default();
     let mut i = 1;
     while i < args.len() {
         let option = args[i].to_str().ok_or("option must be UTF-8")?;
@@ -50,6 +54,13 @@ pub fn run(args: &[OsString]) -> Result<()> {
             "--out" => out = Some(PathBuf::from(value)),
             "--input" => input = Some(PathBuf::from(value)),
             "--qspi" => qspi = Some(PathBuf::from(value)),
+            "--instruction-pacing" => {
+                pacing = match value.to_str() {
+                    Some("modeled") => InstructionPacing::Modeled,
+                    Some("one-cycle") => InstructionPacing::OneCycle,
+                    _ => return Err("instruction pacing must be modeled or one-cycle".into()),
+                };
+            }
             "--duration-ms" => {
                 duration = value
                     .to_str()
@@ -89,6 +100,7 @@ pub fn run(args: &[OsString]) -> Result<()> {
     } else {
         Machine::from_elf(board, &image)?
     };
+    machine.set_instruction_pacing(pacing)?;
     let flash_input = qspi.map(fs::read).transpose()?;
     if let Some(bytes) = &flash_input {
         machine.restore_nonvolatile_image(bytes)?;
@@ -160,7 +172,7 @@ pub fn run(args: &[OsString]) -> Result<()> {
     );
     let report=format!("backend=rust\nboard={}\ncodec={}\nfirmware_sha256={hash}\nelapsed_ns={}\nscheduler_steps={}\nfinal_pc=0x{:08x}\ncfsr=0x{:08x}\nhfsr=0x{:08x}\naudio_frames={}\nsample_rate={rate_text}\nserial_bytes={}\nhardware_equivalence=UNVERIFIED\n",board.id(),board.codec(),machine.time_ns(),machine.steps(),machine.registers()[15],machine.read32(0xe000ed28)?,machine.read32(0xe000ed2c)?,audio.len(),serial.len());
     let report = format!(
-        "sdk_version={}\nstatus={}\naudio_boundary=serial\ninput_mode={}\ninput_source_hz={}\nsystem_resets={}\nqueued_input_frames={}\naudio_frames_generated={}\nsai_underruns={}\nsai_overruns={}\nmixed_sample_rates={}\n{report}error={}\n",
+        "sdk_version={}\nstatus={}\naudio_boundary=serial\ninstruction_pacing={pacing}\ninput_mode={}\ninput_source_hz={}\nsystem_resets={}\nqueued_input_frames={}\naudio_frames_generated={}\nsai_underruns={}\nsai_overruns={}\nmixed_sample_rates={}\n{report}error={}\n",
         env!("CARGO_PKG_VERSION"),
         if failure.is_none() {
             "completed"

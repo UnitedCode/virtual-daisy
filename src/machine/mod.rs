@@ -62,6 +62,24 @@ pub struct AudioCaptureStats {
     pub overruns: u64,
 }
 
+/// Instruction retirement policy for the timed Rust host.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum InstructionPacing {
+    /// Use the interpreter's modeled instruction costs.
+    #[default]
+    Modeled,
+    /// Use one cycle per retired instruction for reference comparisons.
+    OneCycle,
+}
+impl fmt::Display for InstructionPacing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Modeled => "modeled",
+            Self::OneCycle => "one-cycle",
+        })
+    }
+}
+
 /// A CPU and Seed board with no instrument-specific assumptions.
 pub struct Machine {
     cpu: Processor,
@@ -70,6 +88,7 @@ pub struct Machine {
     steps: u64,
     vectors: u32,
     resets: u64,
+    instruction_pacing: InstructionPacing,
 }
 impl Machine {
     /// Fast functional execution for immutable flash / DTCM IRQ firmware.
@@ -120,7 +139,8 @@ impl Machine {
             ));
         }
         let seed = Rc::new(RefCell::new(seed));
-        let cpu = Self::processor(&seed, vectors, 0)?;
+        let instruction_pacing = InstructionPacing::default();
+        let cpu = Self::processor(&seed, vectors, 0, instruction_pacing)?;
         Ok(Self {
             cpu,
             seed,
@@ -128,10 +148,17 @@ impl Machine {
             steps: 0,
             vectors,
             resets: 0,
+            instruction_pacing,
         })
     }
-    fn processor(seed: &Rc<RefCell<Seed>>, vectors: u32, cycles: u64) -> Result<Processor, Error> {
+    fn processor(
+        seed: &Rc<RefCell<Seed>>,
+        vectors: u32,
+        cycles: u64,
+        instruction_pacing: InstructionPacing,
+    ) -> Result<Processor, Error> {
         let mut cpu = Processor::new();
+        cpu.set_one_cycle_instruction_pacing(instruction_pacing == InstructionPacing::OneCycle);
         cpu.flash_memory(0, &[]);
         cpu.sram = RAM::new(0, 0);
         if seed.borrow().functional {
@@ -175,6 +202,17 @@ impl Machine {
     pub fn attach(&mut self, carrier: Box<dyn Carrier>) {
         self.seed.borrow_mut().carrier = Some(carrier);
     }
+    /// Select a comparison policy for the timed interpreter. Bus and exception
+    /// waits are still modeled. The setting persists across guest resets.
+    pub fn set_instruction_pacing(&mut self, pacing: InstructionPacing) -> Result<(), Error> {
+        if pacing == InstructionPacing::OneCycle && self.seed.borrow().functional {
+            return Err(Error::new("one-cycle pacing requires the timed runtime"));
+        }
+        self.cpu
+            .set_one_cycle_instruction_pacing(pacing == InstructionPacing::OneCycle);
+        self.instruction_pacing = pacing;
+        Ok(())
+    }
     fn service(&mut self) -> Result<(), Error> {
         let mut seed = self.seed.borrow_mut();
         seed.synchronize(self.cpu.cycle_count)?;
@@ -211,7 +249,12 @@ impl Machine {
         self.service()?;
         if self.seed.borrow().reset_requested {
             self.seed.borrow_mut().reset_board()?;
-            self.cpu = Self::processor(&self.seed, self.vectors, self.cpu.cycle_count)?;
+            self.cpu = Self::processor(
+                &self.seed,
+                self.vectors,
+                self.cpu.cycle_count,
+                self.instruction_pacing,
+            )?;
             self.irq_levels = [0; 5];
             self.resets += 1;
             return Ok(());
@@ -273,7 +316,12 @@ impl Machine {
                 if self.seed.borrow().reset_requested {
                     self.seed.borrow_mut().reset_board()?;
                     let ram = std::mem::replace(&mut self.cpu.sram, RAM::new(0, 0));
-                    self.cpu = Self::processor(&self.seed, self.vectors, self.cpu.cycle_count)?;
+                    self.cpu = Self::processor(
+                        &self.seed,
+                        self.vectors,
+                        self.cpu.cycle_count,
+                        self.instruction_pacing,
+                    )?;
                     self.cpu.sram = ram;
                     self.irq_levels = [0; 5];
                     self.resets += 1;

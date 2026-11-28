@@ -1063,3 +1063,13 @@ The clock report uses the rate of the captured frames. A Rev7 guest records
 clock report used the final divider and showed 250,000 Hz beside the valid
 62,500 Hz WAV. The new report retains the recording rate and keeps the final
 register values for debugging.
+
+### Instruction pacing control (v0.2.50)
+
+The timed Rust host can run with one retirement cycle per instruction.
+For the 80 ms Rev5 production check, the ordinary run differs from Renode
+by 0.071121 RMS and the one-cycle run by 0.019469. The control matches
+3,135 of 3,136 input-ring writes and places the first processed block at
+the same output-ring position as Renode. The modeled bus and exception
+service still contribute to timing. Use the [pacing option](rust-host.md#compare-instruction-pacing)
+to repeat the comparison with the same ELF and stimulus.
