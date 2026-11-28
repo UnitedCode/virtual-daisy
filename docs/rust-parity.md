@@ -10,7 +10,7 @@ cycle-for-cycle equivalence has not been established.**
 ## Current checkpoint
 
 The Rust host boots the production Synthphone ELF on all three board profiles.
-Sixteen ARM probes match their saved Renode results. Independent QEMU fixtures
+Seventeen ARM tests pass with saved Renode probe data. Independent QEMU fixtures
 check CPU behavior including [interrupt masks and supervisor calls](#interrupt-masks-and-supervisor-calls-v0242).
 
 **Stereo loopback** matches sample for sample across the shared frames. The
@@ -23,20 +23,17 @@ zero CPU and FIFO errors on each board.
 | Rev5 | 4,996 | 4,995 | 4,995 |
 | Rev7 | 4,998 | 4,996 | 4,996 |
 
-**Production audio** still differs. At one second on Rev5, Rust produces
-47,570 frames and Renode 47,573 at the same exact rate. Rust's first frame
-occurs 67.331 µs later in modeled time. Raw PCM error is 0.133379 RMS on the
-overlap. A delay fit from the early signal leaves error later in the capture.
+The Rev5 [TX-interrupt loopback](#dma-bus-leg-handoff-v0248) also matches
+all 4,997 frames across both runners.
 
-The earlier 200 ms comparison uses SDK 0.2.37, native adapter 19 and the same
-nonperiodic recording with a Rust 1.100 build. Later Rev5 Rust runs reproduce
-the same WAV byte for byte and report zero cumulative SAI errors.
+**Production audio** still differs. In an 80 ms Rev5 comparison with the
+same ELF and input, the default Rust host produces 3,238 frames and Renode
+3,241 at the same exact rate. PCM error is 0.071121 RMS. The
+[one-cycle control](#instruction-pacing-control-v0250) reduces the error to
+0.019469 RMS. Both Rust runs have zero CPU and FIFO errors.
 
-| Board | Rust frames | Reference frames | First-frame time gap |
-| --- | ---: | ---: | ---: |
-| Rev4 | 9,505 | 9,508 | 61.831 us |
-| Rev5 | 9,020 | 9,023 | 67.331 us |
-| Rev7 | 9,505 | 9,508 | 61.831 us |
+The [longer production captures](#matched-current-firmware-audio) also
+differ after compensating for a constant delay.
 
 **Still open:** production waveform alignment and instruction/pipeline timing.
 Physical audio, converter filters, electrical behavior and complete carrier UI
@@ -512,6 +509,20 @@ Unsupported modeled configurations produce errors. This is not a promise that
 every possible STM32H750 access is implemented. See [conformance notes](conformance.md)
 for model-level details and primary sources.
 
+## Test your setup
+
+This check builds a small Rev5 guest and plays known stereo samples through
+both SAI DMA streams. It requires the Rust ARM target. The test checks the
+16-frame loopback delay, sample order, exact serial rate and FIFO errors.
+
+```sh
+rustup target add thumbv7em-none-eabihf
+cargo test --locked --release --test arm_guests full_duplex_dma_preserves_stereo_frame_order -- --ignored
+```
+
+To save and compare WAVs from both backends, follow the
+[Renode loopback instructions](reference-runner.md#compare-stereo-loopback).
+
 ## Reproduce
 
 ```sh
@@ -573,6 +584,10 @@ cargo run --release --locked --example compare_audio -- rust.wav reference.wav
 The report preserves different frame counts and the unshifted error. A separate
 offset search diagnoses constant delays; it does not establish timing parity.
 A single tone cannot identify a unique delay because its waveform repeats.
+
+Add `--require-exact-overlap` after the paths to make the command fail if any
+overlapping channel sample differs at its original frame index. Recorded lengths
+can differ. Run without the flag to inspect differences without a failed exit.
 
 The reference directory must come from this guest revision and compiler build:
 exact instruction addresses are intentionally compared. Keep its copied ELF,

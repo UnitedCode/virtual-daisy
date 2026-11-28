@@ -70,6 +70,7 @@ intentional reference differences and remaining limits.
 | I want to… | Read |
 | --- | --- |
 | Attach controls or use the Rust API | [Rust host guide](docs/rust-host.md) |
+| Run a stereo loopback check | [Test your setup](docs/rust-parity.md#test-your-setup) |
 | Check supported behavior and evidence | [Parity record](docs/rust-parity.md) |
 | Use the old backend or run reference probes | [Renode runner](docs/reference-runner.md) |
 | Understand the board models and sources | [Conformance notes](docs/conformance.md) |
