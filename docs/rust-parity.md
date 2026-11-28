@@ -1030,3 +1030,23 @@ finish a capture with a clock change, save CPU and cumulative SAI diagnostics,
 and report a mixed-rate recording without a WAV. Returning to the initial rate
 does not clear that observation, even when every rate rounds to one WAV
 header value.
+
+### DMA bus leg handoff (v0.2.48)
+
+Renode submits the next DMA bus leg as soon as the previous leg completes.
+The modeled bus still determines when the request completes. Previously a
+callback interval elapsed before the next leg could be submitted, even when
+the bus was available.
+
+A Rev5 loopback uses two-word FIFO thresholds and reads the receive DMA ring
+on the transmit interrupt. At 62,500 Hz, the old reference sometimes read a
+different word from the same ring address because its interrupt arrived
+later. After the change both backends produce the same 4,997 stereo frames
+in 80 ms. This fixture checks service ordering within the models. Firmware
+that reads a receive ring from a transmit interrupt can still observe an
+older word if the receive transfer is pending.
+
+The unchanged Synthphone ELF produces the same 80 ms reference WAV before
+and after this change. Its comparison with Rust still has three fewer Rust
+frames and a PCM difference. The receive DMA words matched through the
+200 ms overlap on the earlier reference build, while transmit words differed.

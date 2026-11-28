@@ -149,6 +149,13 @@ cargo run --release --locked --example compare_audio -- \
 Expect zero PCM error across the overlap. Total frame counts can differ because
 the modeled clock starts at different times.
 
+For the timing-sensitive variant, substitute `guests/audio_dma_tx_irq.rs` in
+the build command and use fresh output folders. It uses a smaller ring and
+copies RX words from the TX half-transfer and transfer-complete interrupts.
+On the 80 ms Rev5 check, compare all 4,997 stereo frames at their original
+indices. This guest deliberately exposes which receive words are visible
+at the transmit interrupt.
+
 `cpu`, `storage`, `timing` and `probe` run standalone ARM conformance programs
 and their negative controls. They still take an ELF for artifact provenance, but
 do not test that application's audio. `run`, `startup`, `settings`, `levels` and

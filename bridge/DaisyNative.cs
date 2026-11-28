@@ -252,30 +252,46 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private bool Memory(uint address) {return architecture.Contains(address) || (address>=0x08000000 && address<=0x0801fffc);}
         private void Tick() {
             architecture.Synchronize();
-            bool notify=false;
-            lock(sync) {
-                if(inFlight) {
-                    uint address=writing ? destination:source;
-                    token=architecture.DmaPort(address,writing,token);
-                    if(token==ulong.MaxValue-1) {
-                        CompleteBusError();notify=true;
-                    } else if(token==0) {
-                        try {
-                            if(!writing) {word=Memory(source) ? architecture.Read(source,4,false):machine.SystemBus.ReadDoubleWord(source);writing=true;}
-                            else {
-                                if(Memory(destination)) architecture.Write(destination,4,word,false); else machine.SystemBus.WriteDoubleWord(destination,word);
-                                ulong actual=request(native.State,activeStream);
-                                if(actual!=((ulong)source<<32|destination)) throw new InvalidOperationException("DMA descriptor changed before transfer completion");
-                                if(disableAfterFlight) {long offset=0x10+activeStream*0x18; native.WriteDoubleWord(offset,native.ReadDoubleWord(offset)&~1U);}
-                                inFlight=false;UpdateIrqs();notify=true;
-                            }
-                        } catch(BusAccessException) {
-                            CompleteBusError();notify=true;
-                        }
-                    }
-                } else notify=pending!=0 || retrySaiRequest;
+            // Submit the next bus leg at the same callback that retires the
+            // previous leg. The Rust fabric decides when it can complete.
+            while(true) {
+                lock(sync) {
+                    if(inFlight) {
+                        if(!AdvanceBeat()) return;
+                        if(inFlight) continue;
+                    } else if(pending==0 && !retrySaiRequest) return;
+                }
+                Ready?.Invoke();
+                lock(sync) if(!inFlight) return;
             }
-            if(notify) Ready?.Invoke();
+        }
+        private bool AdvanceBeat() {
+            token=architecture.DmaPort(writing ? destination : source,writing,token);
+            if(token==ulong.MaxValue-1) {
+                CompleteBusError();
+                return true;
+            }
+            if(token!=0) return false;
+            try {
+                if(!writing) {
+                    word=Memory(source) ? architecture.Read(source,4,false) : machine.SystemBus.ReadDoubleWord(source);
+                    writing=true;
+                } else {
+                    if(Memory(destination)) architecture.Write(destination,4,word,false);
+                    else machine.SystemBus.WriteDoubleWord(destination,word);
+                    ulong actual=request(native.State,activeStream);
+                    if(actual!=((ulong)source<<32|destination)) throw new InvalidOperationException("DMA descriptor changed before transfer completion");
+                    if(disableAfterFlight) {
+                        long offset=0x10+activeStream*0x18;
+                        native.WriteDoubleWord(offset,native.ReadDoubleWord(offset)&~1U);
+                    }
+                    inFlight=false;
+                    UpdateIrqs();
+                }
+            } catch(BusAccessException) {
+                CompleteBusError();
+            }
+            return true;
         }
         private void CompleteBusError() {
             if(busError(native.State,activeStream)!=0) throw new InvalidOperationException("Invalid DMA bus-error completion");
