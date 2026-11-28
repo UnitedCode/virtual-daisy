@@ -3,23 +3,28 @@ use crate::sai::Sai;
 use std::{error::Error, fs, path::Path};
 
 pub(crate) fn save(audio: &Sai, path: &str, sample_rate: u32) -> Result<(), Box<dyn Error>> {
-    if sample_rate == 0 {
-        if audio.frames != 0 || !audio.output.is_empty() {
+    let stats = format!(
+        "frames={}\nunderruns={}\noverruns={}\n",
+        audio.frames, audio.underruns, audio.overruns
+    );
+    if sample_rate == 0 || audio.mixed_sample_rates {
+        let state = if audio.mixed_sample_rates {
+            "MIXED_SAMPLE_RATES"
+        } else if audio.frames != 0 || !audio.output.is_empty() {
             return Err("captured audio has no sample rate".into());
-        }
+        } else {
+            "NO_AUDIO_FRAMES"
+        };
         if Path::new(path).exists() {
-            return Err("cannot replace an existing recording with unstarted audio".into());
+            return Err("cannot replace existing WAV with capture diagnostics".into());
         }
         fs::write(
             format!("{path}.stats"),
-            format!(
-                "frames=0\nunderruns={}\noverruns={}\ncapture_state=NO_AUDIO_FRAMES\n",
-                audio.underruns, audio.overruns
-            ),
+            format!("{stats}capture_state={state}\n"),
         )?;
         fs::write(
             format!("{path}.clock.txt"),
-            "capture_state=NO_AUDIO_FRAMES\n",
+            format!("capture_state={state}\n"),
         )?;
         return Ok(());
     }
@@ -41,13 +46,7 @@ pub(crate) fn save(audio: &Sai, path: &str, sample_rate: u32) -> Result<(), Box<
         }
     }
     wav.finalize()?;
-    fs::write(
-        format!("{path}.stats"),
-        format!(
-            "frames={}\nunderruns={}\noverruns={}\n",
-            audio.frames, audio.underruns, audio.overruns
-        ),
-    )?;
+    fs::write(format!("{path}.stats"), stats)?;
     Ok(())
 }
 
@@ -132,5 +131,43 @@ mod tests {
         save(&audio, &output.path, 0).unwrap();
         let stats = fs::read_to_string(format!("{}.stats", output.path)).unwrap();
         assert!(stats.contains("underruns=2\noverruns=3\n"));
+    }
+
+    #[test]
+    fn mixed_rates_keep_counters_without_writing_a_wav() {
+        use crate::{
+            daisy_reset, daisy_sai_capture_rate, daisy_sai_observe_rate, daisy_sai_tick, Peripheral,
+        };
+
+        let output = Output::new();
+        let mut state = Peripheral::new(7);
+        let cr1 = (6 << 5) | (1 << 16) | 1;
+        state.write(0x0c, 63).unwrap();
+        state.write(0x04, cr1).unwrap();
+        unsafe {
+            assert_eq!(daisy_sai_observe_rate(&mut state, 250_000, 4), 0);
+            daisy_sai_tick(&mut state, 3);
+            assert_eq!(daisy_sai_capture_rate(&mut state), 62_500.0);
+            daisy_reset(&mut state);
+            assert_ne!(daisy_sai_observe_rate(&mut state, 62_500, 0), 0);
+            assert_eq!(daisy_sai_capture_rate(&mut state), 62_500.0);
+        }
+        state.write(0x0c, 63).unwrap();
+        state.write(0x04, cr1).unwrap();
+        unsafe {
+            // Both rates round to the same WAV header. The capture still
+            // has mixed rates after transitioning back to the original.
+            assert_eq!(daisy_sai_observe_rate(&mut state, 250_001, 4), 0);
+            daisy_sai_tick(&mut state, 3);
+            assert_eq!(daisy_sai_observe_rate(&mut state, 62_500, 1), 0);
+            daisy_sai_tick(&mut state, 3);
+            assert_eq!(daisy_sai_capture_rate(&mut state), 0.0);
+        }
+
+        save(&state.sai, &output.path, 0).unwrap();
+        assert!(!Path::new(&output.path).exists());
+        let stats = fs::read_to_string(format!("{}.stats", output.path)).unwrap();
+        assert!(stats.contains("frames=3\nunderruns=0\noverruns=0\n"));
+        assert!(stats.contains("capture_state=MIXED_SAMPLE_RATES"));
     }
 }

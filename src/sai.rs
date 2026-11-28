@@ -1,6 +1,8 @@
 //! Functional stereo SAI FIFO/PCM boundary; clock and analog timing are not calibrated.
 use std::collections::VecDeque;
 
+use crate::clock::Rate;
+
 pub struct Sai {
     registers: [u32; 18],
     rx: VecDeque<u32>,
@@ -13,6 +15,8 @@ pub struct Sai {
     pub drop_rx: bool,
     pub rx_channel: usize,
     pub sample_rate: f64,
+    pub(crate) capture_rate: Option<Rate>,
+    pub(crate) mixed_sample_rates: bool,
     input_position: f64,
     rx_resume: Option<usize>,
     tx_resume: Option<usize>,
@@ -36,6 +40,8 @@ impl Default for Sai {
             drop_rx: false,
             rx_channel: 0,
             sample_rate: 0.0,
+            capture_rate: None,
+            mixed_sample_rates: false,
             input_position: 0.0,
             rx_resume: None,
             tx_resume: None,
@@ -56,8 +62,16 @@ impl Sai {
             self.underruns = previous.underruns;
             self.overruns = previous.overruns;
             self.sample_rate = previous.sample_rate;
+            self.capture_rate = previous.capture_rate;
+            self.mixed_sample_rates = previous.mixed_sample_rates;
             self.input_position = previous.input_position;
         }
+    }
+
+    pub(crate) fn observe_capture_rate(&mut self, rate: Rate) {
+        let first = self.capture_rate.get_or_insert(rate);
+        self.mixed_sample_rates |= *first != rate;
+        self.sample_rate = rate.hz();
     }
 
     fn mono(&self, channel: usize) -> bool {

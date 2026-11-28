@@ -313,7 +313,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint CodecClockNative(IntPtr codec,IntPtr clock,uint cr1,uint frcr);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void FaultNative(IntPtr state, uint dropRx);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint ConfigureNative(IntPtr state, uint rxChannel);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint RateNative(IntPtr state, double rate);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint RateNative(IntPtr state, ulong numerator, ulong denominator);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate double CaptureRateNative(IntPtr state);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint Requests(IntPtr state);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void Input(IntPtr state, float[] samples, UIntPtr frames);
@@ -331,7 +331,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             if(configure(native.State, rxChannel) != 0) throw new InvalidOperationException("Unsupported SAI board wiring");
             codecTick = Marshal.GetDelegateForFunctionPointer<CodecTickNative>(NativeLibrary.GetExport(library, "daisy_sai_tick_codec"));
             codecClock=Marshal.GetDelegateForFunctionPointer<CodecClockNative>(NativeLibrary.GetExport(library,"daisy_codec_clocks"));
-            setRate = Marshal.GetDelegateForFunctionPointer<RateNative>(NativeLibrary.GetExport(library, "daisy_sai_rate"));
+            setRate = Marshal.GetDelegateForFunctionPointer<RateNative>(NativeLibrary.GetExport(library, "daisy_sai_observe_rate"));
             captureRate = Marshal.GetDelegateForFunctionPointer<CaptureRateNative>(NativeLibrary.GetExport(library, "daisy_sai_capture_rate"));
             fault = Marshal.GetDelegateForFunctionPointer<FaultNative>(NativeLibrary.GetExport(library, "daisy_sai_fault"));
             requests = Marshal.GetDelegateForFunctionPointer<Requests>(NativeLibrary.GetExport(library, "daisy_sai_requests"));
@@ -349,12 +349,12 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             // RCC reset can call Reset(). Do not hold the SAI lock while
             // acquiring RCC's lock in the opposite direction.
             uint frames = rcc.Frames(cr1, frcr, 1000);
-            double rate = frames==0 ? 0 : rcc.ExactRate(cr1,frcr);
+            var (numerator,denominator) = frames==0 ? (0UL,0UL) : rcc.ExactRate(cr1,frcr);
             if(frames!=0 && rcc.WithState(clockState=>codec.WithState(codecState=>codecClock(codecState,clockState,cr1,frcr)))!=0)
                 throw new InvalidOperationException("Codec ADC/DAC rates disagree with the physical SAI clocks");
             lock(sync)
             {
-                if(frames!=0 && setRate(native.State,rate)!=0) throw new InvalidOperationException("Invalid or changed SAI frame rate for this capture");
+                if(frames!=0 && setRate(native.State,numerator,denominator)!=0) throw new InvalidOperationException("Invalid SAI frame rate");
                 for(uint frame=0;frame<frames;frame++) { if(codec.WithState(state=>codecTick(native.State,state,IdealLineInput ? 1U:0U))!=0) throw new InvalidOperationException("Unsupported codec audio path"); PumpRequests(); }
                 UpdateIrq();
             }

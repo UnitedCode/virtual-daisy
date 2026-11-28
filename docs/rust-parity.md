@@ -1022,3 +1022,11 @@ The Rev5 loopback now configures the transmit request before the stream and
 route, then waits for priming with the audio clock stopped. The bridge retries
 the live request level at the next service tick and keeps the per-beat sampling
 from v0.2.44.
+
+### Mixed-rate reference captures (v0.2.47)
+
+The reference runner tracks the exact clock ratio for generated frames. It can
+finish a capture with a clock change, save CPU and cumulative SAI diagnostics,
+and report a mixed-rate recording without a WAV. Returning to the initial rate
+does not clear that observation, even when every rate rounds to one WAV
+header value.
