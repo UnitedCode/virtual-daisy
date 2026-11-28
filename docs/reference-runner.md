@@ -66,12 +66,7 @@ process. This does not change virtual duration, CPU/clock settings or quality
 assertions. Inspect the saved `.host.log` and `.progress.txt` before increasing
 the bound: a progressing capture and a stuck guest need different fixes.
 
-For a Rust project, the library can also be used directly:
-
-```toml
-[dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.24" }
-```
+For direct use as a Rust dependency, see the [Rust host guide](rust-host.md).
 
 ## Checks
 

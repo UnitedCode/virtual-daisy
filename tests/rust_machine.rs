@@ -297,6 +297,49 @@ fn physical_codec_profiles_preserve_stereo_and_clock_frames() {
 }
 
 #[test]
+fn sai_reset_keeps_undrained_audio_and_fifo_error_history() {
+    let mut m = Machine::from_binary(Board::Rev7, &firmware()).unwrap();
+    m.write32(0x580244f0, 1 << 22).unwrap();
+    m.write32(0x58024450, 4).unwrap();
+    m.write32(0x4001580c, 63).unwrap();
+    m.write32(0x40015820, 0x00100000).unwrap();
+    m.write32(0x40015820, 0x00e00000).unwrap();
+    m.write32(0x40015804, (4 << 20) | (6 << 5) | (1 << 16))
+        .unwrap();
+    m.run_until(32_000, 5000).unwrap();
+    assert_eq!(m.read32(0x40015818).unwrap() & 1, 1);
+    m.write32(0x4001581c, 1).unwrap();
+    assert_eq!(m.read32(0x40015818).unwrap() & 1, 0);
+    m.write32(0x58024498, 1 << 22).unwrap(); // RCC APB2 reset, SAI1 only.
+    assert_eq!(m.take_audio(), [[0.125, -0.25], [0., 0.]]);
+    assert!(m.take_audio().is_empty());
+    let stats = m.audio_capture_stats();
+    assert_eq!(stats.first_rate.unwrap().hz(), 62_500.);
+    assert_eq!((stats.frames, stats.underruns, stats.overruns), (2, 1, 0));
+    assert!(!stats.mixed_sample_rates);
+}
+
+#[test]
+fn capture_history_remembers_a_transient_change_of_frame_rate() {
+    let mut m = Machine::from_binary(Board::Rev7, &firmware()).unwrap();
+    m.write32(0x580244f0, 1 << 22).unwrap();
+    m.write32(0x58024450, 4).unwrap();
+    m.write32(0x4001580c, 63).unwrap();
+    for (divider, end) in [(4, 16_000), (5, 36_000), (4, 52_000)] {
+        m.write32(0x40015804, 6 << 5).unwrap();
+        m.write32(0x40015820, 0).unwrap();
+        m.write32(0x40015820, 0).unwrap();
+        m.write32(0x40015804, (divider << 20) | (6 << 5) | (1 << 16))
+            .unwrap();
+        m.run_until(end, 5000).unwrap();
+    }
+    let stats = m.audio_capture_stats();
+    assert_eq!(stats.first_rate, m.sample_rate());
+    assert_eq!(stats.frames, 3);
+    assert!(stats.mixed_sample_rates);
+}
+
+#[test]
 fn a_stalled_thumb32_flash_fetch_does_not_restart_its_first_half_forever() {
     let mut bytes = firmware();
     // BL to the existing marker-writing sequence; the return is never taken.

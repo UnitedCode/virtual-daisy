@@ -8,7 +8,7 @@ mod seed;
 mod serial;
 mod timer;
 mod wire;
-use crate::board::Board;
+use crate::{board::Board, clock::Rate};
 pub use seed::{Carrier, Seed};
 use std::{cell::RefCell, fmt, rc::Rc};
 use zmu_cortex_m::{
@@ -44,6 +44,22 @@ impl From<&str> for Error {
     fn from(s: &str) -> Self {
         Self::new(s)
     }
+}
+
+/// Serial audio observations accumulated since the machine was created.
+/// Draining audio or resetting SAI does not clear these observations.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AudioCaptureStats {
+    /// Exact rate of the first generated serial audio frame.
+    pub first_rate: Option<Rate>,
+    /// At least one frame used a different rate.
+    pub mixed_sample_rates: bool,
+    /// Serial frames processed, including frames drained by the caller.
+    pub frames: u64,
+    /// Frames in which the transmit FIFO ran out of samples.
+    pub underruns: u64,
+    /// Frames in which the receive FIFO ran out of space.
+    pub overruns: u64,
 }
 
 /// A CPU and Seed board with no instrument-specific assumptions.
@@ -354,8 +370,12 @@ impl Machine {
         self.seed.borrow().memory_report()
     }
     /// Exact codec frame rate once firmware has enabled audio clocks.
-    pub fn sample_rate(&self) -> Option<crate::clock::Rate> {
+    pub fn sample_rate(&self) -> Option<Rate> {
         self.seed.borrow().sample_rate()
+    }
+    /// Capture history, including FIFO errors even after firmware clears the flags.
+    pub fn audio_capture_stats(&self) -> AudioCaptureStats {
+        self.seed.borrow().audio_capture_stats()
     }
     /// Snapshot the external flash chip, including completed firmware writes.
     pub fn nonvolatile_image(&self) -> Vec<u8> {

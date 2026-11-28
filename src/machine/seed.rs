@@ -1,4 +1,4 @@
-use super::{serial::Serial, timer::Timer, wire::I2c, Error};
+use super::{serial::Serial, timer::Timer, wire::I2c, AudioCaptureStats, Error};
 use crate::{board::Board, clock::Rate, memory::SystemMemory, Peripheral};
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 use zmu_cortex_m::{bus::Bus, core::fault::Fault};
@@ -70,6 +70,7 @@ pub struct Seed {
     rate: Rate,
     next_audio: Option<u64>,
     sample_rate: Option<Rate>,
+    audio_capture: AudioCaptureStats,
     captured: Vec<[f32; 2]>,
     serial_output: Vec<(u64, u8)>,
     pub(super) reset_requested: bool,
@@ -143,6 +144,7 @@ impl Seed {
             },
             next_audio: None,
             sample_rate: None,
+            audio_capture: AudioCaptureStats::default(),
             captured: Vec::new(),
             serial_output: Vec::new(),
             reset_requested: false,
@@ -216,13 +218,7 @@ impl Seed {
         crate::synchronize_memory(&mut self.memory, &self.clock, &mut self.fmc, self.now)
     }
     pub(super) fn reset_board(&mut self) -> Result<(), Error> {
-        self.captured.extend(
-            self.peripherals
-                .get_mut(&0x40015800)
-                .unwrap()
-                .1
-                .take_audio()?,
-        );
+        self.preserve_audio_capture();
         self.serial_output.extend(self.serial.reset(self.now));
         self.clock.reset();
         self.fmc.reset();
@@ -285,6 +281,9 @@ impl Seed {
         })
     }
     fn resets(&mut self, offset: u32, value: u32) {
+        if offset == 0x98 && value & (1 << 22) != 0 {
+            self.preserve_audio_capture();
+        }
         for (&base, (_, p)) in &mut self.peripherals {
             if Self::gate(base)
                 .is_some_and(|(_, reset, mask)| reset == u64::from(offset) && value & mask != 0)
@@ -364,8 +363,10 @@ impl Seed {
         if count > 0 {
             let mclk = self.clock.clocks().sai_mclk(cr, frame)?;
             let rate = self.clock.clocks().sample_rate(cr, frame)?;
-            self.sample_rate = Some(rate);
             self.codec.validate_codec_clocks(mclk, rate)?;
+            self.sample_rate = Some(rate);
+            let first = self.audio_capture.first_rate.get_or_insert(rate);
+            self.audio_capture.mixed_sample_rates |= *first != rate;
             for _ in 0..count {
                 let sample = self.input.next(rate);
                 self.peripherals
@@ -501,6 +502,19 @@ impl Seed {
                 .unwrap_or_default(),
         );
         output
+    }
+    fn preserve_audio_capture(&mut self) {
+        self.audio_capture = self.audio_capture_stats();
+        self.captured
+            .append(&mut self.peripherals.get_mut(&0x40015800).unwrap().1.sai.output);
+    }
+    pub(super) fn audio_capture_stats(&self) -> AudioCaptureStats {
+        let sai = &self.peripherals[&0x40015800].1.sai;
+        let mut stats = self.audio_capture;
+        stats.frames += sai.frames as u64;
+        stats.underruns += sai.underruns;
+        stats.overruns += sai.overruns;
+        stats
     }
     pub(super) fn sample_rate(&self) -> Option<Rate> {
         self.sample_rate

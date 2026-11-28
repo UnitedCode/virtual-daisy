@@ -31,6 +31,8 @@ cargo run --release --locked -- emulate \
 Each run gets a new folder containing the firmware/hash, execution report,
 serial timestamps, and stereo WAV when the firmware produces audio.
 Failed executions keep a diagnostic report; previous captures are preserved.
+Check `report.txt` for SAI underruns and overruns. If the firmware changes the
+sample rate mid-capture, the runner saves its report and omits the WAV.
 The default duration is one virtual second. Use `--duration-ms 100` for a shorter
 run, or `--input recording.wav` to supply serial PCM input.
 Runs use virtual time; a capture can take longer than its audio duration.
