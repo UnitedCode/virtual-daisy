@@ -341,6 +341,11 @@ fn guest(name: &str) -> (PathBuf, Vec<u8>) {
     )
     .unwrap();
     let elf = directory.join(format!("{name}.elf"));
+    let linker = if name == "audio_dma" {
+        "guests/flash.ld"
+    } else {
+        "guests/cpu.ld"
+    };
     assert!(Command::new("rustc")
         .args([
             "--edition=2021",
@@ -354,10 +359,7 @@ fn guest(name: &str) -> (PathBuf, Vec<u8>) {
             "panic=abort",
             "-C"
         ])
-        .arg(format!(
-            "link-arg=-T{}",
-            root.join("guests/cpu.ld").display()
-        ))
+        .arg(format!("link-arg=-T{}", root.join(linker).display()))
         .arg("--crate-name")
         .arg(format!("daisy_{name}_probe"))
         .arg(source)
@@ -368,6 +370,28 @@ fn guest(name: &str) -> (PathBuf, Vec<u8>) {
         .success());
     let bytes = fs::read(elf).unwrap();
     (directory, bytes)
+}
+
+#[test]
+#[ignore = "requires rustup target add thumbv7em-none-eabihf"]
+fn full_duplex_dma_preserves_stereo_frame_order() {
+    let (directory, image) = guest("audio_dma");
+    let mut machine = Machine::from_elf(Board::Rev5, &image).unwrap();
+    let signal: Vec<_> = (1..=1024)
+        .map(|i| [i as f32 / 4096., -(i as f32) / 8192.])
+        .collect();
+    machine.input(&signal).unwrap();
+    machine.run_until(10_000_000, 1_000_000).unwrap();
+    let output = machine.take_audio();
+    let stats = machine.audio_capture_stats();
+    assert_eq!((stats.underruns, stats.overruns), (0, 0));
+    assert_eq!(stats.first_rate.unwrap().hz(), 62_500.);
+    assert!(output.len() > 600);
+    assert_eq!(output[..16], [[0., 0.]; 16]);
+    assert_eq!(output[16..], signal[..output.len() - 16]);
+    assert_eq!(machine.read32(0xe000ed28).unwrap(), 0);
+    assert_eq!(machine.read32(0xe000ed2c).unwrap(), 0);
+    fs::remove_dir_all(directory).unwrap();
 }
 fn compare(machine: &mut Machine, address: u32, count: u32, filename: &str) {
     let words: Vec<_> = (0..count)

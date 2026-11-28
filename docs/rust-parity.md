@@ -983,3 +983,19 @@ checks the rates of generated frames, including changes that occur between its
 reporting intervals. It saves the diagnostic report without a WAV when captured
 frames have mixed rates. A Rev7 ARM loopback that changes rate twice inside the
 first millisecond reproduces the previous success with a mislabeled WAV.
+
+### Full-duplex DMA (v0.2.44)
+
+The Rev5 circular DMA loopback copies each received half-buffer to the transmit
+ring. The former Renode bridge queued SAI request snapshots as pending events
+while a DMA beat was already in flight. A later read could consume an empty
+receive FIFO and abort the capture. The bridge now samples FIFO request levels
+again after each beat. Explicit external request pulses keep their pending
+behavior. The Rust board runtime already used live SAI levels.
+
+The 80 ms full-duplex experiment uses distinct left and right input samples.
+The corrected reference completes with zero FIFO errors. Its 4,995 frames
+match the same first 4,995 Rust frames at their original sample indices. Rust
+produces one additional frame. The ARM regression also checks the 16-frame
+delay, both channels and zero CPU and FIFO errors. See the
+[loopback commands](reference-runner.md#model-regression-checks).
