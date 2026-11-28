@@ -110,25 +110,14 @@ pub fn run(args: &[OsString]) -> Result<()> {
     let mut audio = Vec::new();
     let mut serial = Vec::new();
     let mut failure = None;
-    let mut rate: Option<virtual_daisy::clock::Rate> = None;
     // Drain output throughout the run so long captures do not retain board FIFOs.
     for end in (1..=duration).map(|ms| ms * 1_000_000) {
         if let Err(error) = machine.run_until(end, steps.saturating_sub(machine.steps())) {
             failure = Some(error.to_string());
             break;
         }
-        if let Some(current) = machine.sample_rate() {
-            if rate.is_some_and(|previous| {
-                u128::from(previous.numerator) * u128::from(current.denominator)
-                    != u128::from(current.numerator) * u128::from(previous.denominator)
-            }) {
-                failure = Some(
-                    "sample rate changed during capture; use separate runs for each rate"
-                        .to_owned(),
-                );
-                break;
-            }
-            rate = Some(current);
+        if machine.audio_capture_stats().mixed_sample_rates {
+            break;
         }
         audio.extend(machine.take_audio());
         serial.extend(machine.take_serial());
@@ -138,9 +127,14 @@ pub fn run(args: &[OsString]) -> Result<()> {
     if failure.is_none() && demo && machine.read32(0x20000000)? != 0xda155eed {
         failure = Some("ARM demo did not write its completion marker".to_owned());
     }
-    let rate = rate.or(machine.sample_rate());
+    let stats = machine.audio_capture_stats();
+    let rate = stats.first_rate;
+    if stats.mixed_sample_rates && failure.is_none() {
+        failure =
+            Some("sample rate changed during capture; use separate runs for each rate".into());
+    }
     if let (Some(input), Some(output)) = (input_rate, rate) {
-        if !resample_input && (f64::from(input) - output.hz()).abs() > 1.0 {
+        if failure.is_none() && !resample_input && (f64::from(input) - output.hz()).abs() > 1.0 {
             failure = Some(format!("input is {input} Hz; firmware configured {:.6} Hz. Use --resample-input or provide input at the firmware rate",output.hz()));
         }
     }
@@ -166,7 +160,7 @@ pub fn run(args: &[OsString]) -> Result<()> {
     );
     let report=format!("backend=rust\nboard={}\ncodec={}\nfirmware_sha256={hash}\nelapsed_ns={}\nscheduler_steps={}\nfinal_pc=0x{:08x}\ncfsr=0x{:08x}\nhfsr=0x{:08x}\naudio_frames={}\nsample_rate={rate_text}\nserial_bytes={}\nhardware_equivalence=UNVERIFIED\n",board.id(),board.codec(),machine.time_ns(),machine.steps(),machine.registers()[15],machine.read32(0xe000ed28)?,machine.read32(0xe000ed2c)?,audio.len(),serial.len());
     let report = format!(
-        "sdk_version={}\nstatus={}\naudio_boundary=serial\ninput_mode={}\ninput_source_hz={}\nsystem_resets={}\nqueued_input_frames={}\n{report}error={}\n",
+        "sdk_version={}\nstatus={}\naudio_boundary=serial\ninput_mode={}\ninput_source_hz={}\nsystem_resets={}\nqueued_input_frames={}\naudio_frames_generated={}\nsai_underruns={}\nsai_overruns={}\nmixed_sample_rates={}\n{report}error={}\n",
         env!("CARGO_PKG_VERSION"),
         if failure.is_none() {
             "completed"
@@ -176,6 +170,7 @@ pub fn run(args: &[OsString]) -> Result<()> {
         if resample_input { "timestamped_linear" } else { "serial_frames" },
         input_rate.map_or_else(|| "none".to_owned(), |r| r.to_string()),
         machine.resets(),machine.queued_input_frames(),
+        stats.frames,stats.underruns,stats.overruns,stats.mixed_sample_rates,
         failure.as_deref().unwrap_or("none")
     );
     fs::write(directory.join("report.txt"), &report)?;
@@ -194,7 +189,7 @@ pub fn run(args: &[OsString]) -> Result<()> {
     for (time, b) in serial {
         writeln!(bytes, "{time},{b:02x}")?;
     }
-    if let Some(rate) = rate.filter(|_| !audio.is_empty()) {
+    if let Some(rate) = rate.filter(|_| !audio.is_empty() && !stats.mixed_sample_rates) {
         let mut wav = hound::WavWriter::create(
             directory.join("audio.wav"),
             hound::WavSpec {

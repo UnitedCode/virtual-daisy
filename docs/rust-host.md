@@ -25,7 +25,7 @@ development. Pin the Git revision or a release tag in shared projects:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.42" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.43" }
 ```
 
 `rust-host` is enabled by default. Projects using only the peripheral models or
@@ -80,7 +80,11 @@ samples. By default it rejects sample-rate mismatches. Pass `--resample-input`
 to interpolate from the WAV's declared source rate; reports record that choice.
 This is a file-input conversion, not a converter filter or analog model. WAV headers use an
 integer rate; `report.txt` preserves the exact rational clock rate.
-One capture uses one sample rate; rate changes fail with a saved diagnostic report.
+One WAV uses one sample rate. If captured frames span more than one rate, the
+CLI saves a diagnostic report and omits the WAV, even if the original rate has
+already returned. `Machine::audio_capture_stats()` keeps frame and FIFO error
+counts across drains, SAI resets and board resets. Clearing a firmware status
+flag does not erase its count, and resetting SAI preserves undrained audio.
 
 `memory_report` also records when the modeled serial clock first ran and emitted
 its first frame, its total elapsed nanoseconds and generated frame count. The

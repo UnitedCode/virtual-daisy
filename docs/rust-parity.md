@@ -29,6 +29,18 @@ and instruction/pipeline timing. Physical audio, converter filters, electrical
 behavior and complete carrier UI behavior need device validation. The historical
 checks below retain their original firmware, stimulus and version context.
 
+The one-second Rev5 capture on 0.2.41 still differs by three frames
+(47,570 Rust and 47,573 Renode) at the same exact rate. Its first-frame gap is
+67.331 us. A delay fit from the early signal leaves error later in the capture,
+so the startup frame gap alone cannot explain the waveform difference.
+
+An 80 ms Rev5 serial loopback isolates the codec and SAI path from Synthphone DSP.
+Polled reads and circular receive DMA at the one-word FIFO threshold each yield
+the same 4,998-frame stereo WAV on both backends at 62,500 Hz. At the two-word
+threshold, each records one startup underrun and the WAVs differ. Matching the
+steady loopback does not establish parity under FIFO starvation or in a full
+duplex DMA pipeline.
+
 ## Comparison coverage, updated 23 November 2026
 
 Consumer firmware attachment exposed two additional missing paths. Keyboard
@@ -962,3 +974,12 @@ PC and the IT state for that instruction. A Cortex-M7 QEMU probe confirmed these
 two stack fields for unmasked and PRIMASK-blocked calls. CPU regressions cover
 BASEPRI, PRIGROUP, handler nesting, FAULTMASK and all mask operands across six
 priority widths. See [Armv7-M B1.5 and B5.2](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820).
+
+### Capture integrity (v0.2.43)
+
+Rust host captures retain audio buffered before a peripheral reset and expose
+frame counts and cumulative SAI errors through `audio_capture_stats()`. The CLI
+checks the rates of generated frames, including changes that occur between its
+reporting intervals. It saves the diagnostic report without a WAV when captured
+frames have mixed rates. A Rev7 ARM loopback that changes rate twice inside the
+first millisecond reproduces the previous success with a mislabeled WAV.
