@@ -1009,3 +1009,16 @@ position when firmware resets SAI1. The reset still clears guest registers and
 FIFO state. The first rate remains available after reset, so resuming at a
 different rate fails the capture instead of silently saving just the final
 segment. Firmware can resume at the original rate and save the entire capture.
+
+### Renode DMA startup ordering (v0.2.46)
+
+The reference DMA service retries asserted SAI requests while idle. A transmit
+request can already be active when firmware enables a stream or connects its
+DMAMUX route. Previously the reference could miss that request until an audio
+frame arrived, while the firmware was itself waiting for the transmit FIFO to
+fill before starting the frame clock.
+
+The Rev5 loopback now configures the transmit request before the stream and
+route, then waits for priming with the audio clock stopped. The bridge retries
+the live request level at the next service tick and keeps the per-beat sampling
+from v0.2.44.
