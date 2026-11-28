@@ -109,7 +109,7 @@ fn generate_decode(
         .collect();
 
     if bits == 32 {
-        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 22;")?;
+        writeln!(file, "const GENERATED_DECODER_REVISION: u32 = 23;")?;
         let profile = u8::from(cargo_feature_enabled("has-fp"))
             | (u8::from(cargo_feature_enabled("has-dsp-ext")) << 1)
             | (u8::from(cargo_feature_enabled("fpv5-d16")) << 2)
@@ -531,6 +531,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         ("1011001011......", "UXTB_t1"),
         ("1011010.........", "PUSH_t1"),
         ("10110110011.0010", "CPS_t1"),
+        #[cfg(not(feature = "armv6m"))]
+        ("10110110011.00.1", "CPS_t1"),
         ("1011.0.1........", "CBZ_t1"),
         ("1011101000......", "REV_t1"),
         ("1011101001......", "REV16_t1"),

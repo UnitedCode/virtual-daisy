@@ -194,7 +194,7 @@ infinities and FZ/DN controls. Both interpreter execution paths pass with
 native arithmetic on/off. Semantics follow the [Armv7-M manual](https://documentation-service.arm.com/static/606dc36485368c4c2b1bf62f),
 A2.5 FPMinNum/FPMaxNum and A7.7.237. Unsupported coprocessor transfers now
 raise NOCP or undefined-instruction faults instead of succeeding silently.
-The vendored CPU is revision 0.1.30. Generated tables check their revision and
+The vendored CPU is revision 0.1.31. Generated tables check their revision and
 feature profile, and use deterministic ordering. Normal Rust builds emit an
 `rlib`; the reference runner requests its C ABI library explicitly.
 
@@ -947,3 +947,18 @@ enabled/disabled UsageFault and the stacked return state. Expectations follow
 [Armv7-M B1.5.4 and B1.5.8](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820).
 CPU 0.1.30 keeps decoder 22, native adapter 19 and retirement costs. These new
 cases are manual-based regressions, not physical-device measurements.
+
+### Interrupt masks and supervisor calls (v0.2.42)
+
+Unprivileged CPS instructions leave interrupt masks alone. The decoder accepts
+the Armv7-M fault-mask and combined forms. BASEPRI and BASEPRI_MAX discard
+unimplemented low priority bits before affecting the execution priority. Daisy
+implements four priority bits. The standalone CPU's configured width also
+applies to its NVIC and system handler priority registers.
+
+SVC checks whether its handler can preempt. A blocked call escalates to HardFault
+or locks up if that priority is also blocked. An exception frame stores the next
+PC and the IT state for that instruction. A Cortex-M7 QEMU probe confirmed these
+two stack fields for unmasked and PRIMASK-blocked calls. CPU regressions cover
+BASEPRI, PRIGROUP, handler nesting, FAULTMASK and all mask operands across six
+priority widths. See [Armv7-M B1.5 and B5.2](https://documentation-service.arm.com/static/5f8ff029f86e16515cdbf820).

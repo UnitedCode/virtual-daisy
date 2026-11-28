@@ -116,6 +116,10 @@ impl Processor {
             .min_by_key(|e| (e.priority, e.exception_number))
             .copied();
     }
+
+    pub(crate) fn implemented_priority_mask(&self) -> u8 {
+        u8::MAX << (8 - self.priority_bits.clamp(1, 8))
+    }
     /// Implements the ARMv7-M `ExecutionPriority()` pseudocode.
     ///
     /// Returns the effective execution priority after applying active
@@ -707,7 +711,7 @@ impl ExceptionHandling for Processor {
     }
 
     fn set_exception_priority(&mut self, exception: Exception, priority: u8) {
-        let mask = u8::MAX << (8 - self.priority_bits.clamp(1, 8));
+        let mask = self.implemented_priority_mask();
         if let Some(state) = self.exceptions.get_mut(&exception.into()) {
             state.priority = i16::from(priority & mask);
         }
