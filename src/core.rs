@@ -310,6 +310,7 @@ pub fn prepare(renode: &Path, directory: &Path, managed: &Path) -> Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| directory.join("cpu-core"));
     fs::create_dir_all(&cache)?;
+    let _cache_lock = super::lock_file(&cache.join(".virtual-daisy-core.lock"))?;
     let infra = archive(
         &cache,
         "infrastructure.tar.gz",

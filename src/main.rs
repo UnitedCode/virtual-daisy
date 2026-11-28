@@ -772,6 +772,17 @@ fn cpu_checks(host: &Host<'_>, tone: &Path) -> Result<()> {
     Ok(())
 }
 
+fn lock_file(path: &Path) -> Result<File> {
+    let file = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)?;
+    file.lock()?;
+    Ok(file)
+}
+
 fn run(
     renode: &Path,
     directory: &Path,
@@ -789,6 +800,7 @@ fn run(
     }
     fs::create_dir_all(directory)?;
     let directory = directory.canonicalize()?;
+    let _output_lock = lock_file(&directory.join(".virtual-daisy-run.lock"))?;
     // Reusing an output directory must not leave an old success report behind
     // if a new build, boot or quality gate fails.
     for name in [
@@ -828,30 +840,41 @@ fn run(
         .unwrap_or_else(|| root.join("target"));
     fs::create_dir_all(&native_target)?;
     let native_target = native_target.canonicalize()?;
-    checked(
-        Command::new("cargo")
-            .current_dir(&root)
-            .args([
-                "rustc",
-                "--release",
-                "--locked",
-                "--lib",
-                "--crate-type",
-                "cdylib",
-                "--target",
-                host,
-                "--manifest-path",
-            ])
-            .arg(root.join("Cargo.toml"))
-            .env("CARGO_TARGET_DIR", &native_target)
-            .env_remove("RUSTFLAGS")
-            .env_remove("CARGO_ENCODED_RUSTFLAGS"),
-    )?;
-    let library = native_target.join(host).join("release").join(format!(
+    let library_name = format!(
         "{}virtual_daisy{}",
         env::consts::DLL_PREFIX,
         env::consts::DLL_SUFFIX
-    ));
+    );
+    let native_output = directory.join("native");
+    fs::create_dir_all(&native_output)?;
+    let library = native_output.join(&library_name);
+    {
+        let _build_lock = lock_file(&native_target.join(".virtual-daisy-build.lock"))?;
+        checked(
+            Command::new("cargo")
+                .current_dir(&root)
+                .args([
+                    "rustc",
+                    "--release",
+                    "--locked",
+                    "--lib",
+                    "--crate-type",
+                    "cdylib",
+                    "--target",
+                    host,
+                    "--manifest-path",
+                ])
+                .arg(root.join("Cargo.toml"))
+                .env("CARGO_TARGET_DIR", &native_target)
+                .env_remove("RUSTFLAGS")
+                .env_remove("CARGO_ENCODED_RUSTFLAGS"),
+        )?;
+        // Every child of this run must use the model recorded in conformance.txt.
+        fs::copy(
+            native_target.join(host).join("release").join(library_name),
+            &library,
+        )?;
+    }
     let firmware = fs::read(elf)?;
     if !firmware.starts_with(b"\x7fELF") {
         return Err("Firmware is not an ELF".into());

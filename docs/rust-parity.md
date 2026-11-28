@@ -1051,3 +1051,15 @@ and after this change. The clean comparison between those versions has
 0.004943 RMS error. Rust produces 3,238 frames and still differs from the new
 reference by 0.071121 RMS on the overlap. Earlier 200 ms traces matched all
 overlapping receive DMA words while transmit words differed.
+
+### Reference capture provenance (v0.2.49)
+
+The reference runner loads its run-local model copy instead of the shared
+Cargo output. Its model hash and the model used by later probe processes
+stay together when another run rebuilds into the same target directory.
+
+The clock report uses the rate of the captured frames. A Rev7 guest records
+2,200 frames at 62,500 Hz, then clears its SAI control register. Its previous
+clock report used the final divider and showed 250,000 Hz beside the valid
+62,500 Hz WAV. The new report retains the recording rate and keeps the final
+register values for debugging.

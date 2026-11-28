@@ -389,7 +389,18 @@ impl ClockTree {
         Ok(frames)
     }
     pub fn stats(&self, cr1: u32, frcr: u32) -> Result<String, &'static str> {
-        let rate = self.sample_rate(cr1, frcr)?;
+        self.capture_stats(cr1, frcr, None)
+    }
+    pub(crate) fn capture_stats(
+        &self,
+        cr1: u32,
+        frcr: u32,
+        recorded_rate: Option<Rate>,
+    ) -> Result<String, &'static str> {
+        let (rate, source) = match recorded_rate {
+            Some(rate) => (rate, "CAPTURED_FRAMES"),
+            None => (self.sample_rate(cr1, frcr)?, "END_REGISTERS"),
+        };
         let mut stats=format!("hse_hz=16000000\ncore_hz={}\nsai_rate_numerator={}\nsai_rate_denominator={}\nsai_hz={:.9}\nevent_quantum_ns=1000\npll_lock_transient=UNMODELED\nrcc_cr={:#010x}\nrcc_pllckselr={:#010x}\nrcc_pllcfgr={:#010x}\nrcc_pll3divr={:#010x}\nrcc_pll3fracr={:#010x}\nsai_cr1={cr1:#010x}\nsai_frcr={frcr:#010x}\n",self.core_rate()?.map_or(0.0,Rate::hz),rate.numerator,rate.denominator,rate.hz(),self.read(0),self.read(0x28),self.read(0x2c),self.read(0x40),self.read(0x44));
         for (name, domain) in [
             ("hclk", 1),
@@ -405,6 +416,7 @@ impl ClockTree {
                 self.domain_rate(domain)?.map_or(0.0, Rate::hz)
             ));
         }
+        stats.push_str(&format!("sai_rate_source={source}\n"));
         stats.push_str(&self.audio_observations.report());
         Ok(stats)
     }
