@@ -125,6 +125,7 @@ pub struct Processor {
     /// Total number of processor clock cycles run
     pub cycle_count: u64,
     pub instruction_count: u64,
+    one_cycle_instruction_pacing: bool,
     /// Guest instructions retired by guarded register-local translation.
     pub lifted_instructions: u64,
     pub(crate) exclusive_monitor: Option<(u32, usize)>,
@@ -399,6 +400,7 @@ impl Processor {
             exit_code: 0,
             cycle_count: 0,
             instruction_count: 0,
+            one_cycle_instruction_pacing: false,
             lifted_instructions: 0,
             exclusive_monitor: None,
             exceptions: make_default_exception_priorities(),

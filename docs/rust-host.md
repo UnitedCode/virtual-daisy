@@ -25,7 +25,7 @@ development. Pin the Git revision or a release tag in shared projects:
 
 ```toml
 [dependencies]
-virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.49" }
+virtual-daisy = { git = "https://github.com/UnitedCode/virtual-daisy", tag = "v0.2.50" }
 ```
 
 `rust-host` is enabled by default. Projects using only the peripheral models or
@@ -119,6 +119,25 @@ Unsupported model behavior returns an error with address and PC. Documented
 hardware bus/MPU faults go to firmware handlers. Cortex-M lockup stops the host.
 A finite run that ends in an application's fault handler is not a successful
 application test: check its completion markers, output and reported fault state.
+
+## Compare instruction pacing
+
+The timed host defaults to modeled instruction costs. For a comparison at
+one retirement cycle per instruction, add `--instruction-pacing one-cycle`:
+
+```sh
+cargo run --release --locked -- emulate --elf firmware.elf --board rev5 \
+  --out results/one-cycle --instruction-pacing one-cycle
+```
+
+In an SDK runner, call
+`machine.set_instruction_pacing(InstructionPacing::OneCycle)?` before execution.
+The setting persists across guest resets. Both policies retain the modeled
+bus waits, exception entry and peripheral clocks. The CLI saves the selected
+policy in `report.txt`.
+
+Pair captures with the same ELF, board and input to measure the timing
+contribution to a discrepancy. See the [production example](rust-parity.md#instruction-pacing-control-v0250).
 
 ## Functional browser execution
 

@@ -172,6 +172,11 @@ fn conditional_setflags(setflags: SetFlags, in_it_block: bool) -> bool {
 }
 
 impl Processor {
+    /// Use one retirement cycle per instruction in the interpreter's `step`.
+    /// Exception entry and externally advanced wait cycles keep their own costs.
+    pub fn set_one_cycle_instruction_pacing(&mut self, enabled: bool) {
+        self.one_cycle_instruction_pacing = enabled;
+    }
     /// Check the control state required for speculative straight-line VFP lifting.
     #[cfg(feature = "has-fp")]
     #[inline(always)]
@@ -1174,7 +1179,11 @@ impl Executor for Processor {
                 },
             }
         };
-        self.retire_decoded(count);
+        self.retire_decoded(if self.one_cycle_instruction_pacing {
+            count.min(1)
+        } else {
+            count
+        });
         if let Some(saved) = saved {
             if self.bus_stalled() {
                 self.restore_checkpoint(saved);
