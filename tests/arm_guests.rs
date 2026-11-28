@@ -342,6 +342,11 @@ fn guest(name: &str) -> (PathBuf, Vec<u8>) {
     .unwrap();
     let elf = directory.join(format!("{name}.elf"));
     let linker = if name == "audio_dma" {
+        fs::copy(
+            root.join("guests/audio_dma_board.rs"),
+            directory.join("audio_dma_board.rs"),
+        )
+        .unwrap();
         "guests/flash.ld"
     } else {
         "guests/cpu.ld"
