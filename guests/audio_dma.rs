@@ -79,20 +79,23 @@ extern "C" fn Reset() -> ! {
     for slot in 0..RING_WORDS {
         write(TX_RING + slot * 4, 0);
     }
+    let transmitter = MASTER | (1 << 10) | 2;
+    // Assert the transmit DMA request before enabling or routing its stream.
+    write(SAI + 0x24, transmitter & !(1 << 16));
     let circular_word_stream = (2 << 13) | (2 << 11) | (1 << 10) | (1 << 8) | 1;
     for (number, request, data, memory, transmit) in [
         (0, 87, SAI + 0x20, RX_RING, false),
         (1, 88, SAI + 0x40, TX_RING, true),
     ] {
-        write(DMAMUX1 + number * 4, request);
         let stream = DMA1 + 0x10 + number * 0x18;
         write(stream + 4, RING_WORDS);
         write(stream + 8, data);
         write(stream + 12, memory);
         write(stream, circular_word_stream | (u32::from(transmit) << 6));
+        write(DMAMUX1 + number * 4, request);
     }
-    write(SAI + 0x24, MASTER | (1 << 10) | 2); // Synchronous B transmitter.
     while read(SAI + 0x38) & 8 != 0 {} // Prime TX before starting its clock.
+    write(SAI + 0x24, transmitter); // Synchronous B transmitter.
     write(SAI + 4, MASTER | 1); // A receiver provides the frame clock.
     loop {
         let status = read(DMA1);

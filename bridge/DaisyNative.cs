@@ -223,11 +223,12 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             }
         }
         public void BeginBatch() { lock(sync) { collecting=true; sampledSaiRequests=0; } }
-        public bool EndBatch() {
+        public bool EndBatch(bool saiRequestAsserted) {
             lock(sync) {
                 collecting=false;
                 // SAI GPIO pulses carry a snapshot of the FIFO request levels.
                 // Re-sample after the active beat instead of queuing stale levels.
+                retrySaiRequest=saiRequestAsserted;
                 return StartNext(sampledSaiRequests);
             }
         }
@@ -272,7 +273,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                             CompleteBusError();notify=true;
                         }
                     }
-                } else notify=pending!=0;
+                } else notify=pending!=0 || retrySaiRequest;
             }
             if(notify) Ready?.Invoke();
         }
@@ -281,7 +282,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             inFlight=false;token=0;disableAfterFlight=false;UpdateIrqs();
         }
         private void UpdateIrqs() { uint mask = irqs(native.State); for(int i = 0; i < 8; i++) Connections[i].Set((mask & (1U << i)) != 0); }
-        public void Reset() { lock(sync) { native.Reset(); pending=0; sampledSaiRequests=0; collecting=false;inFlight=false;token=0; UpdateIrqs(); } }
+        public void Reset() { lock(sync) { native.Reset(); pending=0; sampledSaiRequests=0; retrySaiRequest=false; collecting=false;inFlight=false;token=0; UpdateIrqs(); } }
         public void Dispose() {clock.Dispose();}
         public Action Ready {get;set;}
         public long Size { get { return 0x400; } }
@@ -299,6 +300,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private bool collecting;
         private uint pending;
         private uint sampledSaiRequests;
+        private bool retrySaiRequest;
         private readonly IManagedThread clock;
         private bool inFlight,writing,disableAfterFlight;
         private uint activeStream,source,destination,word;
@@ -363,7 +365,9 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 dma.BeginBatch();
                 if((mask&1)!=0) { DmaA.Set(true); DmaA.Set(false); }
                 if((mask&2)!=0) { DmaB.Set(true); DmaB.Set(false); }
-                if(!dma.EndBatch()) return;
+                // The stream may be disabled or the DMAMUX route may be
+                // absent. Retry asserted sources on the DMA service clock.
+                if(!dma.EndBatch(mask!=0)) return;
             }
         }
         public void LoadInput(float[] samples) { lock(sync) input(native.State, samples, (UIntPtr)(samples.Length / 2)); }

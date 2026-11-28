@@ -117,7 +117,9 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
-To exercise both SAI DMA streams, build the Rev5 loopback guest. Use the same
+To exercise both SAI DMA streams, build the Rev5 loopback guest. It enables the
+transmit DMA request before routing the stream and waits for the FIFO to prime
+before starting the audio clock. Use the same
 48,014 Hz stereo `input.wav` on both runners, with different signals on the two
 channels so a channel swap is visible.
 
