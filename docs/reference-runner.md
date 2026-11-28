@@ -58,9 +58,11 @@ Firmware that never starts audio completes without a WAV; `.wav.stats` reports
 `CLOCK_STOPPED` or `UNCONFIGURED` with its raw registers. Active unsupported
 configurations still fail. A firmware SAI reset clears the emulated registers
 and FIFOs. The capture keeps earlier samples and its FIFO error totals, and
-input playback resumes at the next sample. The runner rejects a new sample
-rate after recording starts and leaves its host log. Disabling the serial
-clock before the end retains the rate of the recorded WAV.
+input playback resumes at the next sample. If recorded frames use multiple
+clock rates, the run keeps its diagnostic files and reports
+`capture_state=MIXED_SAMPLE_RATES` in `.wav.stats`. A WAV is saved only when
+the captured frames share a rate. Disabling the serial clock before the end
+retains the rate of the recorded WAV.
 
 Reference boots and probes also have a separate **host wall-time** watchdog:
 180 seconds normally, 600 for keyboard/settings captures. On a slower host, set

@@ -13,7 +13,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
     public sealed class DaisyRcc : IDoubleWordPeripheral, IKnownSize, IRegisterablePeripheral<IPeripheral, EnumRegistrationPoint<STM32H7_RCC.RegistrationPeripheralAlias>>
     {
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate ulong AdvanceNative(IntPtr state, uint cr1, uint frcr, ulong ns);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate double RateNative(IntPtr state, uint cr1, uint frcr);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint RateNative(IntPtr state, uint cr1, uint frcr, out ulong numerator, out ulong denominator);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate ulong DomainNative(IntPtr state,uint domain);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate ulong DwtNative(IntPtr state, ulong offset, uint value, uint write, ulong now);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate uint SaveNative(IntPtr state, uint cr1, uint frcr, [MarshalAs(UnmanagedType.LPUTF8Str)] string path);
@@ -25,7 +25,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             native=new DaisyNative(libraryPath,13,0x400);
             var library=NativeLibrary.Load(libraryPath);
             advance=Marshal.GetDelegateForFunctionPointer<AdvanceNative>(NativeLibrary.GetExport(library,"daisy_clock_advance"));
-            rate=Marshal.GetDelegateForFunctionPointer<RateNative>(NativeLibrary.GetExport(library,"daisy_clock_rate"));
+            rate=Marshal.GetDelegateForFunctionPointer<RateNative>(NativeLibrary.GetExport(library,"daisy_clock_rate_ratio"));
             domain=Marshal.GetDelegateForFunctionPointer<DomainNative>(NativeLibrary.GetExport(library,"daisy_clock_domain"));
             dwt=Marshal.GetDelegateForFunctionPointer<DwtNative>(NativeLibrary.GetExport(library,"daisy_clock_dwt"));
             save=Marshal.GetDelegateForFunctionPointer<SaveNative>(NativeLibrary.GetExport(library,"daisy_clock_save"));
@@ -42,8 +42,13 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             }
         }
         public uint Frames(uint cr1,uint frcr,ulong ns) { lock(sync) { ulong result=advance(native.State,cr1,frcr,ns); if(result>>32 != 0) throw new InvalidOperationException("Unsupported SAI clock configuration"); return (uint)result; } }
-        public uint Rate(uint cr1,uint frcr) { lock(sync) { double hz=rate(native.State,cr1,frcr); if(!double.IsFinite(hz) || hz<1 || hz>384000) throw new InvalidOperationException("Invalid capture rate"); return checked((uint)Math.Round(hz)); } }
-        public double ExactRate(uint cr1,uint frcr) { lock(sync) return rate(native.State,cr1,frcr); }
+        public (ulong,ulong) ExactRate(uint cr1,uint frcr) {
+            lock(sync) {
+                if(rate(native.State,cr1,frcr,out ulong numerator,out ulong denominator)!=0)
+                    throw new InvalidOperationException("Invalid SAI capture clock");
+                return (numerator,denominator);
+            }
+        }
         public uint Dwt(ulong offset,uint value,uint write) {
             lock(sync) {
                 if(machine.SystemBus.TryGetCurrentCPU(out var cpu)) cpu.SyncTime();

@@ -1122,6 +1122,24 @@ pub unsafe extern "C" fn daisy_clock_rate(state: *mut Peripheral, cr1: u32, frcr
 }
 
 /// # Safety
+/// `state` must be live and serialized. Both output pointers must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn daisy_clock_rate_ratio(
+    state: *mut Peripheral,
+    cr1: u32,
+    frcr: u32,
+    numerator: *mut u64,
+    denominator: *mut u64,
+) -> u32 {
+    let Ok(rate) = (*state).clock.sample_rate(cr1, frcr) else {
+        return 1;
+    };
+    *numerator = rate.numerator;
+    *denominator = rate.denominator;
+    0
+}
+
+/// # Safety
 /// `state` is a live, serialized clock state.
 #[no_mangle]
 pub unsafe extern "C" fn daisy_clock_domain(state: *mut Peripheral, domain: u32) -> u64 {
@@ -1386,12 +1404,36 @@ pub unsafe extern "C" fn daisy_sai_rate(state: *mut Peripheral, rate: f64) -> u3
     0
 }
 
-/// The rate actually used by the captured frames, or zero before audio starts.
+/// The uniform capture rate. Returns zero for mixed-rate or unstarted capture.
 /// # Safety
 /// `state` must be a live, serialized SAI state.
 #[no_mangle]
 pub unsafe extern "C" fn daisy_sai_capture_rate(state: *mut Peripheral) -> f64 {
-    (*state).sai.sample_rate
+    let sai = &(*state).sai;
+    if sai.mixed_sample_rates {
+        return 0.0;
+    }
+    sai.capture_rate.map_or(sai.sample_rate, clock::Rate::hz)
+}
+
+/// Observe the exact clock of the next batch of recorded frames.
+/// # Safety
+/// `state` must be a live, serialized SAI state.
+#[no_mangle]
+pub unsafe extern "C" fn daisy_sai_observe_rate(
+    state: *mut Peripheral,
+    numerator: u64,
+    denominator: u64,
+) -> u32 {
+    if denominator == 0 {
+        return 1;
+    }
+    let rate = clock::Rate::new(numerator, denominator);
+    if !(1.0..=384000.0).contains(&rate.hz()) {
+        return 1;
+    }
+    (*state).sai.observe_capture_rate(rate);
+    0
 }
 
 /// Convert reference CPU progress to nanoseconds while retaining fractional phase.

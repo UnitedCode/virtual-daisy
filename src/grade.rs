@@ -81,6 +81,22 @@ pub fn runtime_evidence(prefix: &Path) -> Result<()> {
     if !unknown.is_empty() {
         return Err(format!("Unexpected emulator warning/error:\n{}", unknown.join("\n")).into());
     }
+    let path = artifact(prefix, ".wav.stats");
+    match fs::read_to_string(&path) {
+        Ok(stats)
+            if stats
+                .lines()
+                .any(|line| line == "capture_state=MIXED_SAMPLE_RATES") =>
+        {
+            return Err(format!(
+                "WAV cannot represent multiple SAI sample rates. Capture diagnostics: {}",
+                path.display()
+            )
+            .into());
+        }
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+        _ => {}
+    }
     Ok(())
 }
 
