@@ -68,6 +68,8 @@ impl Default for ClockTree {
         for offset in [0x30, 0x38, 0x40] {
             registers[offset / 4] = 0x01010280;
         }
+        // RM0433 table 74: only the RTC APB interface is enabled at reset.
+        registers[0xf4 / 4] = 1 << 16;
         Self {
             registers,
             fractions: [0; 3],
@@ -137,14 +139,22 @@ impl ClockTree {
             self.cycle_count
         })
     }
+    fn register_offset(offset: u64) -> u64 {
+        // RM0433 tables 66–74: the C1 enable registers alias the same fields.
+        match offset {
+            0x134..=0x154 => offset - 0x60,
+            _ => offset,
+        }
+    }
     pub fn read(&self, offset: u64) -> u32 {
         self.registers
-            .get(offset as usize / 4)
+            .get(Self::register_offset(offset) as usize / 4)
             .copied()
             .unwrap_or(0)
     }
     pub fn write(&mut self, offset: u64, mut value: u32) {
         self.audio_configuration = None;
+        let offset = Self::register_offset(offset);
         let index = offset as usize / 4;
         if index >= self.registers.len() {
             return;

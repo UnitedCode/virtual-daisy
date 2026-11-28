@@ -1088,3 +1088,13 @@ by 0.071121 RMS and the one-cycle run by 0.019469. The control matches
 the same output-ring position as Renode. The modeled bus and exception
 service still contribute to timing. Use the [pacing option](rust-host.md#compare-instruction-pacing)
 to repeat the comparison with the same ELF and stimulus.
+
+### RCC enable registers (v0.2.51)
+
+On the Rust host, writes to the nine C1 clock-enable aliases change the
+same state as their primary registers. Both APB4 addresses read back
+RTCAPBEN after system reset. The MMIO regression enables TIM2 through
+the alias and checks the live clock gate through the primary address.
+The Renode adapter also forwards each alias to the same gate callback
+as its primary address.
+See [ST RM0433, tables 66–74](https://www.st.com/resource/en/reference_manual/rm0433-stm32h742-stm32h743753-and-stm32h750-value-line-advanced-armbased-32bit-mcus-stmicroelectronics.pdf).

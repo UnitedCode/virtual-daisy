@@ -31,10 +31,16 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             save=Marshal.GetDelegateForFunctionPointer<SaveNative>(NativeLibrary.GetExport(library,"daisy_clock_save_capture"));
         }
         private bool Owned(long offset) { return offset==0x2c || (offset>=0x34 && offset<=0x44) || offset==0x4c || offset==0x50; }
-        public uint ReadDoubleWord(long offset) { lock(sync) return Owned(offset) ? native.ReadDoubleWord(offset) : original.ReadDoubleWord(offset); }
+        // Forward C1 enable aliases to the same Renode registration callbacks.
+        private static long EnableRegisterOffset(long offset) => offset>=0x134 && offset<=0x154 ? offset-0x60 : offset;
+        public uint ReadDoubleWord(long offset) { lock(sync) {
+            offset=EnableRegisterOffset(offset);
+            return Owned(offset) ? native.ReadDoubleWord(offset) : original.ReadDoubleWord(offset);
+        } }
         public void WriteDoubleWord(long offset, uint value)
         {
             lock(sync) {
+                offset=EnableRegisterOffset(offset);
                 Dwt(0,0,2);
                 native.WriteDoubleWord(offset,value);
                 if(!Owned(offset)) { original.WriteDoubleWord(offset,value); native.WriteDoubleWord(offset,original.ReadDoubleWord(offset)); }
