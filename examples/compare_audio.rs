@@ -16,9 +16,15 @@ fn read(path: &Path) -> Result<(hound::WavSpec, Vec<f32>), Box<dyn Error>> {
     Ok((spec, samples))
 }
 fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
-    if !(2..=3).contains(&args.len()) {
-        return Err("Usage: cargo run --release --example compare_audio -- LEFT.wav RIGHT.wav [SKIP_FRAMES]".into());
+    let mut args: Vec<_> = std::env::args_os().skip(1).collect();
+    let exact = args
+        .last()
+        .is_some_and(|arg| arg == "--require-exact-overlap");
+    if exact {
+        args.pop();
+    }
+    if !(2..=3).contains(&args.len()) || (exact && args.len() != 2) {
+        return Err("Usage: cargo run --release --example compare_audio -- LEFT.wav RIGHT.wav [SKIP_FRAMES | --require-exact-overlap]".into());
     }
     let skip: usize = args
         .get(2)
@@ -81,6 +87,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
         println!("diagnostic_window_frames={window}\nbest_right_offset_frames={}\noffset_channel0_rms_error={:.9}\noffset_scope=constant_delay_diagnostic_only", best.1, best.0.sqrt());
+    }
+    if exact && identical != end - start {
+        return Err(format!(
+            "PCM differs in {} of {} overlapping channel samples",
+            end - start - identical,
+            end - start
+        )
+        .into());
     }
     Ok(())
 }

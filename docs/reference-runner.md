@@ -124,6 +124,8 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
+### Compare stereo loopback
+
 To exercise both SAI DMA streams, build the Rev5 loopback guest. It enables the
 transmit DMA request before routing the stream and waits for the FIFO to prime
 before starting the audio clock. Use the same
@@ -148,11 +150,11 @@ printed by `emulate` in place of `RUN_ID` to compare the original frame indices.
 
 ```sh
 cargo run --release --locked --example compare_audio -- \
-  results/rust/RUN_ID/audio.wav results/reference/capture.wav
+  results/rust/RUN_ID/audio.wav results/reference/capture.wav --require-exact-overlap
 ```
 
-Expect zero PCM error across the overlap. Total frame counts can differ because
-the modeled clock starts at different times.
+Expect a successful exit and zero PCM error across the overlap. Total frame
+counts can differ because the modeled clock starts at different times.
 
 For the timing-sensitive variant, substitute `guests/audio_dma_tx_irq.rs` in
 the build command and use fresh output folders. It uses a smaller ring and
