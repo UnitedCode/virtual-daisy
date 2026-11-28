@@ -352,7 +352,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 throw new InvalidOperationException("Codec ADC/DAC rates disagree with the physical SAI clocks");
             lock(sync)
             {
-                if(frames!=0 && setRate(native.State,rate)!=0) throw new InvalidOperationException("Invalid SAI frame rate");
+                if(frames!=0 && setRate(native.State,rate)!=0) throw new InvalidOperationException("Invalid or changed SAI frame rate for this capture");
                 for(uint frame=0;frame<frames;frame++) { if(codec.WithState(state=>codecTick(native.State,state,IdealLineInput ? 1U:0U))!=0) throw new InvalidOperationException("Unsupported codec audio path"); PumpRequests(); }
                 UpdateIrq();
             }

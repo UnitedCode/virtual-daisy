@@ -9,14 +9,28 @@ cycle-for-cycle equivalence has not been established.**
 
 ## Current checkpoint
 
-The Rust host runs production Synthphone firmware on Rev4, Rev5 and Rev7 without
-CPU faults or SAI FIFO errors. All 16 ARM/reference guest comparisons pass.
-Independent QEMU fixtures check numerical and instruction behavior; passing
-those cases does not establish complete ISA coverage.
+The Rust host boots the production Synthphone ELF on all three board profiles.
+Sixteen ARM probes match their saved Renode results. Independent QEMU fixtures
+check CPU behavior including [interrupt masks and supervisor calls](#interrupt-masks-and-supervisor-calls-v0242).
 
-The latest three-board comparison uses SDK 0.2.37, native adapter 19, the Rust
-1.100 production ELF below and the same nonperiodic recording for 200 virtual ms.
-SDK 0.2.38 also reproduces the Rev5 Rust output byte for byte.
+**Stereo loopback** matches sample for sample across the shared frames. The
+80 ms captures use the same asymmetric stereo input and both DMA streams, with
+zero CPU and FIFO errors on each board.
+
+| Board | Rust frames | Renode frames | Identical stereo frames |
+| --- | ---: | ---: | ---: |
+| Rev4 | 4,997 | 4,996 | 4,996 |
+| Rev5 | 4,996 | 4,995 | 4,995 |
+| Rev7 | 4,998 | 4,996 | 4,996 |
+
+**Production audio** still differs. At one second on Rev5, Rust produces
+47,570 frames and Renode 47,573 at the same exact rate. Rust's first frame
+occurs 67.331 µs later in modeled time. Raw PCM error is 0.133379 RMS on the
+overlap. A delay fit from the early signal leaves error later in the capture.
+
+The earlier 200 ms comparison uses SDK 0.2.37, native adapter 19 and the same
+nonperiodic recording with a Rust 1.100 build. Later Rev5 Rust runs reproduce
+the same WAV byte for byte and report zero cumulative SAI errors.
 
 | Board | Rust frames | Reference frames | First-frame time gap |
 | --- | ---: | ---: | ---: |
@@ -24,22 +38,10 @@ SDK 0.2.38 also reproduces the Rev5 Rust output byte for byte.
 | Rev5 | 9,020 | 9,023 | 67.331 us |
 | Rev7 | 9,505 | 9,508 | 61.831 us |
 
-**Still open:** three fewer frames on each board, PCM differences after alignment,
-and instruction/pipeline timing. Physical audio, converter filters, electrical
-behavior and complete carrier UI behavior need device validation. The historical
-checks below retain their original firmware, stimulus and version context.
-
-The one-second Rev5 capture on 0.2.41 still differs by three frames
-(47,570 Rust and 47,573 Renode) at the same exact rate. Its first-frame gap is
-67.331 us. A delay fit from the early signal leaves error later in the capture,
-so the startup frame gap alone cannot explain the waveform difference.
-
-An 80 ms Rev5 serial loopback isolates the codec and SAI path from Synthphone DSP.
-Polled reads and circular receive DMA at the one-word FIFO threshold each yield
-the same 4,998-frame stereo WAV on both backends at 62,500 Hz. At the two-word
-threshold, each records one startup underrun and the WAVs differ. Matching the
-steady loopback does not establish parity under FIFO starvation or in a full
-duplex DMA pipeline.
+**Still open:** production waveform alignment and instruction/pipeline timing.
+Physical audio, converter filters, electrical behavior and complete carrier UI
+behavior need device validation. The historical checks below retain their
+original firmware, stimulus and version context.
 
 ## Comparison coverage, updated 23 November 2026
 
@@ -999,3 +1001,11 @@ match the same first 4,995 Rust frames at their original sample indices. Rust
 produces one additional frame. The ARM regression also checks the 16-frame
 delay, both channels and zero CPU and FIFO errors. See the
 [loopback commands](reference-runner.md#model-regression-checks).
+
+### Renode audio capture across resets (v0.2.45)
+
+The reference runner now keeps recorded PCM, FIFO error totals and the input
+position when firmware resets SAI1. The reset still clears guest registers and
+FIFO state. The first rate remains available after reset, so resuming at a
+different rate fails the capture instead of silently saving just the final
+segment. Firmware can resume at the original rate and save the entire capture.

@@ -488,6 +488,9 @@ impl Peripheral {
         result
     }
     pub fn reset(&mut self) {
+        self.reset_with_capture(false);
+    }
+    fn reset_with_capture(&mut self, preserve_recording: bool) {
         self.memory.lock().unwrap().reset_registers();
         self.clock = clock::ClockTree::default();
         self.cpu_progress = cpu_progress::CpuProgress::default();
@@ -501,13 +504,7 @@ impl Peripheral {
         if self.kind >= 100 {
             self.gpio.reset(self.kind - 100);
         }
-        let input = std::mem::take(&mut self.sai.input);
-        let rx_channel = self.sai.rx_channel;
-        let drop_rx = self.sai.drop_rx;
-        self.sai = sai::Sai::default();
-        self.sai.input = input;
-        self.sai.rx_channel = rx_channel;
-        self.sai.drop_rx = drop_rx;
+        self.sai.reset(preserve_recording);
         if self.kind == 0 {
             self.registers
                 .extend([(0, 0xF000_C000), (0x0c, 2), (0x18, 0xc000)]);
@@ -1240,7 +1237,9 @@ pub unsafe extern "C" fn daisy_write(state: *mut Peripheral, offset: u64, value:
 /// `state` must be the live pointer returned by daisy_new, with serialized access.
 #[no_mangle]
 pub unsafe extern "C" fn daisy_reset(state: *mut Peripheral) {
-    (*state).reset();
+    // Renode resets the hardware model while the host WAV capture stays open.
+    let peripheral = &mut *state;
+    peripheral.reset_with_capture(peripheral.kind == 7);
 }
 
 /// # Safety

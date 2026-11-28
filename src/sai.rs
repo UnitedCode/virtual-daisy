@@ -45,6 +45,21 @@ impl Default for Sai {
     }
 }
 impl Sai {
+    pub(crate) fn reset(&mut self, preserve_recording: bool) {
+        let previous = std::mem::take(self);
+        self.input = previous.input;
+        self.rx_channel = previous.rx_channel;
+        self.drop_rx = previous.drop_rx;
+        if preserve_recording {
+            self.output = previous.output;
+            self.frames = previous.frames;
+            self.underruns = previous.underruns;
+            self.overruns = previous.overruns;
+            self.sample_rate = previous.sample_rate;
+            self.input_position = previous.input_position;
+        }
+    }
+
     fn mono(&self, channel: usize) -> bool {
         self.registers[1 + channel * 8] & (1 << 12) != 0
             && (self.registers[4 + channel * 8] >> 8) & 15 == 1

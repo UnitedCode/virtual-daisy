@@ -56,8 +56,11 @@ not grade the application's behavior or require Synthphone startup messages.
 Firmware that never starts audio completes without a WAV; `.wav.stats` reports
 `capture_state=NO_AUDIO_FRAMES`. Unused SDRAM reports `CLOCK_DISABLED`,
 `CLOCK_STOPPED` or `UNCONFIGURED` with its raw registers. Active unsupported
-configurations still fail. Recorded audio retains the rate it used even if the
-firmware disables its serial clock before capture ends.
+configurations still fail. A firmware SAI reset clears the emulated registers
+and FIFOs. The capture keeps earlier samples and its FIFO error totals, and
+input playback resumes at the next sample. The runner rejects a new sample
+rate after recording starts and leaves its host log. Disabling the serial
+clock before the end retains the rate of the recorded WAV.
 
 Reference boots and probes also have a separate **host wall-time** watchdog:
 180 seconds normally, 600 for keyboard/settings captures. On a slower host, set

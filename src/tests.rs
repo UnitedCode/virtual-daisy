@@ -98,6 +98,39 @@ fn captured_audio_rate_is_retained_when_serial_output_is_disabled() {
     );
 }
 
+#[test]
+fn reference_sai_reset_preserves_audio_rate_and_input_position() {
+    let mut sai = Peripheral::new(7);
+    let input: [[f32; 2]; 2] = [[0.25, -0.25], [0.5, -0.5]];
+    unsafe {
+        daisy_sai_input(&mut sai, input.as_ptr().cast::<f32>(), input.len());
+        assert_eq!(daisy_sai_rate(&mut sai, 48014.0), 0);
+    }
+    let frame = (6 << 5) | (1 << 16);
+    sai.write(0x0c, 63).unwrap();
+    sai.write(0x04, frame | 1).unwrap();
+    sai.write(0x24, frame | 2).unwrap();
+    sai.write(0x40, 0x10_0000).unwrap();
+    sai.sai.tick(true);
+    assert_eq!((sai.sai.frames, sai.sai.underruns), (1, 1));
+    assert_eq!(sai.read(0x20).unwrap(), 0x20_0000);
+
+    unsafe { daisy_reset(&mut sai) };
+    assert_eq!(sai.read(0x04).unwrap(), 0x40);
+    assert_eq!(sai.read(0x38).unwrap() & 1, 0);
+    assert_eq!(sai.sai.output, [[0.125, 0.0]]);
+    assert_eq!((sai.sai.frames, sai.sai.underruns), (1, 1));
+    assert_eq!(unsafe { daisy_sai_capture_rate(&mut sai) }, 48014.0);
+    assert_ne!(unsafe { daisy_sai_rate(&mut sai, 62500.0) }, 0);
+
+    sai.write(0x0c, 63).unwrap();
+    sai.write(0x04, frame | 1).unwrap();
+    sai.sai.tick(true);
+    assert_eq!(sai.read(0x20).unwrap(), 0x40_0000);
+    assert_eq!(sai.sai.output.len(), 2);
+    assert_eq!((sai.sai.frames, sai.sai.underruns), (2, 1));
+}
+
 fn stream(dma: &mut dma::Dma, index: u64, extra: u32) {
     let base = 0x10 + index * 0x18;
     dma.write(base + 4, 4).unwrap();
