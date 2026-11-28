@@ -129,6 +129,35 @@ fn clocks_resets_and_timer_update_are_visible_through_real_mmio() {
 }
 
 #[test]
+fn rcc_enable_aliases_share_clock_gates_and_reset_values() {
+    const RCC: u32 = 0x58024400;
+    const APB1LENR: u32 = RCC + 0xe8;
+    const APB4ENR: u32 = RCC + 0xf4;
+    const C1_ALIAS: u32 = 0x60;
+    const RTCAPBEN: u32 = 1 << 16;
+    const TIM2_ARR: u32 = 0x4000002c;
+    let mut m = Machine::from_binary(Board::Rev5, &firmware()).unwrap();
+    assert_eq!(m.read32(APB4ENR).unwrap(), RTCAPBEN);
+    assert_eq!(m.read32(APB4ENR + C1_ALIAS).unwrap(), RTCAPBEN);
+    assert_eq!(m.read32(TIM2_ARR).unwrap(), 0);
+
+    m.write32(APB1LENR + C1_ALIAS, 1).unwrap();
+    assert_eq!(m.read32(APB1LENR).unwrap(), 1);
+    assert_eq!(m.read32(TIM2_ARR).unwrap(), u32::MAX);
+    m.write32(APB1LENR, 0).unwrap();
+    assert_eq!(m.read32(APB1LENR + C1_ALIAS).unwrap(), 0);
+    assert_eq!(m.read32(TIM2_ARR).unwrap(), 0);
+
+    m.write32(APB4ENR + C1_ALIAS, 0).unwrap();
+    assert_eq!(m.read32(APB4ENR).unwrap(), 0);
+    m.write32(0xe000ed0c, 0x05fa0004).unwrap(); // SYSRESETREQ
+    m.step().unwrap();
+    assert_eq!(m.resets(), 1);
+    assert_eq!(m.read32(APB4ENR).unwrap(), RTCAPBEN);
+    assert_eq!(m.read32(APB4ENR + C1_ALIAS).unwrap(), RTCAPBEN);
+}
+
+#[test]
 fn serial_frames_are_baud_paced_and_rx_overrun_does_not_invent_bytes() {
     let mut m = Machine::from_binary(Board::Rev5, &firmware()).unwrap();
     m.write32(0x580244f0, 1 << 4).unwrap();
